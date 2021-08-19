@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 072cac0af46611c41b13359376752a5b
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - CalibBoard: {instanceID: 0}
+  - LocatorContainer: {instanceID: 0}
+  - LocatorPrefab: {fileID: 7111757557839332299, guid: 0c80fd29513f6e946afecde421b07dcf, type: 3}
+  - CamRT: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

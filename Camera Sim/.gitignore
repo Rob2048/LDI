@@ -1,0 +1,20 @@
+# Unity ignores.
+.vscode/
+.vs/
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+/calib captures/
+/calib laser plane/
+/calib seq/
+/scan seq/
+/scan seq old/
+/*.png/
+/refined.txt
+/scanPoints.ply
+/ssba_new.txt

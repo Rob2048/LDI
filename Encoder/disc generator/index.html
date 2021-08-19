@@ -1,0 +1,244 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Encoder disc generator</title>
+
+	<script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.0/dist/svg.min.js"></script>
+</head>
+
+<body style="margin: 0px; padding: 0px">
+
+	<!-- <svg width="1000" height="1000">
+		<circle cx="500" cy="500" r="40" stroke="green" stroke-width="4" fill="yellow" />
+		<rect width="1000" height="1000" style="fill:rgb(150, 150, 150)"/>
+	</svg> -->
+
+	<img/>
+	<canvas id="canvas" width="4724" height="4724"></canvas>
+
+</body>
+
+<script>
+	function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
+		var angleInRadians = (angleInDegrees-90) * Math.PI / 180.0;
+
+		return {
+			x: centerX + (radius * Math.cos(angleInRadians)),
+			y: centerY + (radius * Math.sin(angleInRadians))
+		};
+	}
+
+	function describeArc(x, y, radius, startAngle, endAngle){
+
+		var start = polarToCartesian(x, y, radius, endAngle);
+		var end = polarToCartesian(x, y, radius, startAngle);
+
+		var largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+		var d = [
+			"M", start.x, start.y, 
+			"A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
+		].join(" ");
+
+		return d;
+	}
+
+	let dDiameter = 100;
+	let viewScale = 1.0;
+	let cX = dDiameter * 0.5;
+	let cY = dDiameter * 0.5;
+
+	// Background.
+	let draw = SVG().addTo('body').size(100, 100);
+	// draw.transform({ translateX: dDiameter * viewScale * 0.5, translateY: dDiameter * viewScale * 0.5, scale: viewScale });
+	draw.transform({ scale: 1.0 });
+	// let rect = draw.rect(dDiameter, dDiameter).attr({ fill: 'rgb(150, 150, 150)' });
+
+	draw.circle(dDiameter).center(cX, cY).fill('rgb(255, 255, 255)');
+	draw.circle(dDiameter).center(cX, cY).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': 0.1 });
+
+	// Circle track.
+	let circCount = 720;
+	let circDiam = 0.2;
+	let circTrackRadius = (dDiameter * 0.95) * 0.5;
+	let circDivDeg = 360 / circCount;
+	let circDivRad = circDivDeg * Math.PI / 180;
+
+	for (let i = 0; i < circCount; ++i) {
+		let x = Math.sin(i * circDivRad) * circTrackRadius;
+		let y = Math.cos(i * circDivRad) * circTrackRadius;
+
+		draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	}
+
+	// Encoder track.
+	let trackRadius = (dDiameter * 0.89) * 0.5;
+	let trackWidth = 0.2;
+	let trackBitDepth = 9;
+	let trackSmallestBitAngle = 360;
+	let trackSectorRes = (360 / trackSmallestBitAngle);
+	let trackOffsetDeg = trackSectorRes * -0.5;
+
+	for (let j = 0; j < trackBitDepth; ++j) {
+		let power = Math.pow(2, j + 1);
+		let sectorCount = Math.ceil(trackSmallestBitAngle / power);
+
+		for (let i = 0; i < sectorCount; ++i) {
+			let a = i * power * trackSectorRes;
+			let b = ((i * power) + (power / 2)) * trackSectorRes;
+			b = Math.min(360, b);
+			draw.path(describeArc(cX, cY, trackRadius + trackWidth * j, a + trackOffsetDeg, b + trackOffsetDeg)).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': trackWidth });
+		}
+	}
+
+	// Encoder locators
+	{
+		let circCount = 360;
+		let circDiam = 0.3;
+		let circTrackRadius = (dDiameter * 0.88) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad) * circTrackRadius;
+			let y = Math.cos(i * circDivRad) * circTrackRadius;
+
+			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+		}
+	}
+
+	{
+		let circCount = 360;
+		let circDiam = 0.3;
+		let circTrackRadius = (dDiameter * 0.93) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad) * circTrackRadius;
+			let y = Math.cos(i * circDivRad) * circTrackRadius;
+
+			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+		}
+	}
+
+	// Degree text.
+	{
+		let circCount = 72;
+		let circDiam = 0.3;
+		let circTrackRadius = (dDiameter * 0.80) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad) * circTrackRadius;
+			let y = -Math.cos(i * circDivRad) * circTrackRadius;
+
+			let text = draw.plain(circDivDeg * i).dx(x + cX).dy(y + cY);
+			text.font({
+				family: 'Arial',
+				size: 1.5,
+				'font-weight': 'bold',
+				anchor: 'middle',
+				'dominant-baseline': 'middle',
+			});
+
+			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+		}
+	}
+
+	// Center hub.
+	draw.circle(8).center(cX, cY).fill('rgb(0, 0, 0)');
+	{
+		let circCount = 8;
+		let circDiam = 3;
+		let circTrackRadius = (15) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad) * circTrackRadius;
+			let y = Math.cos(i * circDivRad) * circTrackRadius;
+
+			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+		}
+	}
+
+	// 10 mm rings.
+	for (let i = 0; i < 8; ++i) {
+		draw.circle(10 * i).center(cX, cY).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': 0.2 });
+	}
+
+	// Radial lines.
+	{
+		let circCount = 72;
+		let circDiam = 80;
+		let circTrackRadius = (75) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+		let innerRadius = 20;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad);
+			let y = Math.cos(i * circDivRad);
+
+			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+
+			var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
+			line.stroke({ color: '#000000', width: 0.2})
+		}
+	}
+
+	{
+		let circCount = 8;
+		let circDiam = 80;
+		let circTrackRadius = (75) * 0.5;
+		let circDivDeg = 360 / circCount;
+		let circDivRad = circDivDeg * Math.PI / 180;
+		let innerRadius = 10;
+
+		for (let i = 0; i < circCount; ++i) {
+			let x = Math.sin(i * circDivRad);
+			let y = Math.cos(i * circDivRad);
+
+			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+
+			var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
+			line.stroke({ color: '#000000', width: 0.2})
+		}
+	}
+
+	// Save to canvas.
+	var svg = document.querySelector('svg');
+	var img = document.querySelector('img');
+	var canvas = document.querySelector('canvas');
+
+	// console.log(SVG().dom);
+
+	// get svg data
+	var xml = new XMLSerializer().serializeToString(svg);
+
+	// make it base64
+	var svg64 = btoa(xml);
+	var b64Start = 'data:image/svg+xml;base64,';
+
+	// prepend a "header"
+	var image64 = b64Start + svg64;
+
+	// set it as the source of the img element
+	img.onload = function() {
+		console.log('Hello');
+		// draw the image onto the canvas
+		canvas.getContext('2d').fillStyle = 'rgb(0, 0, 0)';
+		// canvas.getContext('2d').fillRect(0, 0, 100, 100);
+		canvas.getContext('2d').drawImage(img, 0, 0, 4724, 4724);
+	}
+	img.src = image64;
+	// img.width = 1000;
+	// img.height = 1000;
+
+</script>
+
+</html>

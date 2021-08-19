@@ -1,0 +1,25 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> Source;
+RWStructuredBuffer<int> Checklist;
+// RWTexture2D<float> Result;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	float4 source = Source[id.xy];
+
+	uint sb0 = (int)(source.r * 255);
+	uint sb1 = (int)(source.g * 255);
+	uint sb2 = (int)(source.b * 255);
+	uint idx = sb0 | sb1 << 8 | sb2 << 16;
+
+	// uint rX = idx % 512;
+	// uint rY = idx / 512;
+	// Result[uint2(rX, rY)] = 1.0;
+
+	Checklist[idx] = 1;
+	//Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+	//Result[uint2(id.x / 8, id.y / 8)] = source.r;
+}
