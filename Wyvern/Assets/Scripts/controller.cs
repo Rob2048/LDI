@@ -65,6 +65,42 @@ public class Controller {
 		Connect();
 	}
 
+	public void writeCmdMove(BinaryWriter W, UInt16 X, UInt16 Y) {
+		W.Write((UInt16)1);
+		W.Write((UInt16)Y);
+		W.Write((UInt16)X);
+	}
+
+	public void writeCmdDelay(BinaryWriter W, UInt16 DelayUs) {
+		W.Write((UInt16)2);
+		W.Write((UInt16)DelayUs);
+	}
+
+	public void writeCmdLaser(BinaryWriter W, UInt16 Pwm) {
+		W.Write((UInt16)3);
+		W.Write((UInt16)Pwm);
+	}
+
+	public void writeCmdEnd(BinaryWriter W) {
+		W.Write((UInt16)0);
+	}
+
+	public void moveTo(BinaryWriter W, float X, float Y) {
+		// 0 to 1 = 3968 to 128 (3840)
+		float max = 128;
+		float min = 3968;
+		float diff = max - min;
+
+		float x = X * diff + min;
+		float y = Y * diff + min;
+
+		writeCmdMove(W, (UInt16)x, (UInt16)y);
+		writeCmdDelay(W, 300);
+	}
+
+	public void lineTo(BinaryWriter W, float X, float Y) {
+	}
+
 	public void Connect() {
 		Debug.Log("Controller connecting.");
 		_serial = new SerialPort("\\\\.\\COM7", 921600);
@@ -74,7 +110,75 @@ public class Controller {
 			_serial.DtrEnable = true;
 			_serial.DiscardInBuffer();
 			Debug.Log("Controller connected.");
-			Ping();
+
+			BinaryWriter bw = new BinaryWriter(new MemoryStream());
+
+			// NOTE: Make sure each command is 2byte aligned.
+
+			// 128 - 3968 (3840)
+
+			
+
+			// for (int i = 0; i < 100; ++i) {
+			// 	writeCmdMove(bw, (ushort)(128 + (i * 3840.0f / 100.0f)), 2048);
+			// 	writeCmdDelay(bw, 100);
+			// }
+
+			// for (int i = 0; i < 100; ++i) {
+			// 	writeCmdMove(bw, (ushort)(3968 - (i * 3840.0f / 100.0f)), 2048);
+			// 	writeCmdDelay(bw, 100);
+			// }
+
+			moveTo(bw, 0, 0);
+			writeCmdLaser(bw, 255);
+
+			moveTo(bw, 0.25f, 0);
+			moveTo(bw, 0.25f, 0.25f);
+			moveTo(bw, 0f, 0.25f);
+			moveTo(bw, 0, 0);
+
+			writeCmdLaser(bw, 0);
+
+			int segs = 16;
+			float radius = 0.2f;
+
+			for (int i = 0; i < segs + 1; ++i) {
+				float rad = (Mathf.PI * 2) / segs * i;
+				float x = (Mathf.Sin(rad) * 0.5f + 0.5f) * radius + 0.25f - radius * 0.5f;
+				float y = (Mathf.Cos(rad) * 0.5f + 0.5f) * radius + 0.25f - radius * 0.5f;
+
+				moveTo(bw, x, y);
+
+				if (i == 0) {
+					writeCmdLaser(bw, 255);
+				}
+			}
+
+			writeCmdLaser(bw, 0);
+
+			// Wait for end of frame
+			writeCmdDelay(bw, 16000);
+			
+			writeCmdEnd(bw);
+
+			BinaryWriter hw = new BinaryWriter(new MemoryStream());
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)1);
+			hw.Write((int)bw.BaseStream.Position);
+
+			Debug.Log("Galvo command size: " + ((float)bw.BaseStream.Position / 1024.0f) + " kB");
+
+			if ((int)bw.BaseStream.Position > 1024 * 100) {
+				Debug.LogError("Galvo commands too big.");
+			} else {
+				_serial.Write(((MemoryStream)hw.BaseStream).GetBuffer(), 0, (int)hw.BaseStream.Position);
+				_serial.Write(((MemoryStream)bw.BaseStream).GetBuffer(), 0, (int)bw.BaseStream.Position);
+			}
+
+			// Ping();
 		} catch (Exception Ex) {
 			Debug.LogError("Controller serial connect failed: " + Ex.Message);
 		}
@@ -109,6 +213,18 @@ public class Controller {
 	public bool Update() {
 		if (_serial != null && _serial.IsOpen) {
 			_serial.ReadTimeout = 1;
+
+			try {
+				while (true) {
+					byte b = (byte)_serial.ReadByte();
+
+					Debug.Log("Serial recv: " + b);
+				}
+			} catch (TimeoutException Ex) {
+
+			}
+
+			return true;
 
 			try {
 				while (true) {

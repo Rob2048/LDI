@@ -180,6 +180,9 @@ public class core : MonoBehaviour {
 		// _RunDiffuser();
 		//_StartDiffuser();
 		_PrimeMesh();
+
+		_jobManager = new JobManager();
+		_jobManager.Init();
 		
 		// for (int i = 0; i < 6; ++i) {
 		// 	float y = i * 35;
@@ -217,9 +220,6 @@ public class core : MonoBehaviour {
 	}
 
 	private void _StartDiffuser() {
-		_jobManager = new JobManager();
-		_jobManager.Init();
-
 		//_sourceImage = _LoadImage("content/lightware/logo_icon.png");
 		_sourceImage = _LoadImage("content/lightware/label.png");
 

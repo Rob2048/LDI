@@ -38,9 +38,9 @@
   <ItemGroup>
      <Compile Include="Assets\Scripts\pocketNc.cs" />
      <Compile Include="Assets\Scripts\NativeCore.cs" />
+     <Compile Include="Assets\Scripts\PointRenderer.cs" />
      <Compile Include="Assets\Scripts\Core.cs" />
      <Compile Include="Assets\Scripts\CamPeripheral.cs" />
-     <Compile Include="Assets\Scripts\PointRenderer.cs" />
      <None Include="Assets\Shaders\pointBillboards.shader" />
     <Reference Include="UnityEngine">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEngine.dll</HintPath>

@@ -481,7 +481,7 @@ public class JobManager {
 
 		_controller = new Controller();
 		_controller.Init();
-
+		
 		try {
 			while (_running) {
 				lock (this) {

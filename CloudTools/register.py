@@ -27,7 +27,7 @@ def draw_registration_result_temp(source, target, transformation):
 	source_temp.paint_uniform_color([0.07058821, 0.7273544, 1.0])
 	target_temp.paint_uniform_color([0.6, 0.2, 0.65])
 	source_temp.transform(transformation)
-	# target_temp.translate((5, 0, 0))
+	# target_temp.translate((3, 0, 0))
 	o3d.visualization.draw_geometries([source_temp, target_temp])
 
 def preprocess_point_cloud(pcd, voxel_size):
@@ -111,11 +111,13 @@ cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 inlier_cloud = pcd.select_by_index(ind)
 #display_inlier_outlier(pcd, ind)
 
-downpcd = inlier_cloud.voxel_down_sample(voxel_size=0.01)
+# downpcd = inlier_cloud.voxel_down_sample(voxel_size=0.01)
+downpcd = pcd.voxel_down_sample(voxel_size=0.01)
 downpcd.paint_uniform_color([0.6, 0.2, 0.65])
-downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+# downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
 print(downpcd)
-#o3d.visualization.draw_geometries([downpcd])
+o3d.visualization.draw_geometries([downpcd])
 
 #----------------------------------------------------------------------------------------------------------------------------------
 # Global registration.
