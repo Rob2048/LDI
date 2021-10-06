@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
 using System.Text;
+using System.Threading;
 using UnityEngine;
 
 public class TriangleRect {
@@ -47,6 +48,8 @@ public class Controller {
 	const byte FRAME_START = 255;
 	const byte FRAME_END = 254;
 
+	public bool running = true;
+
 	public float[] _lastAxisPos = new float[3];
 
 	private SerialPort _serial;
@@ -85,20 +88,285 @@ public class Controller {
 		W.Write((UInt16)0);
 	}
 
-	public void moveTo(BinaryWriter W, float X, float Y) {
+	public void moveTo(BinaryWriter W, float X, float Y, UInt16 Delay = 300) {
 		// 0 to 1 = 3968 to 128 (3840)
 		float max = 128;
 		float min = 3968;
 		float diff = max - min;
 
+		X = Mathf.Clamp01(X);
+		Y = Mathf.Clamp01(Y);
+
 		float x = X * diff + min;
 		float y = Y * diff + min;
 
 		writeCmdMove(W, (UInt16)x, (UInt16)y);
-		writeCmdDelay(W, 300);
+
+		if (Delay > 0) {
+			writeCmdDelay(W, Delay);
+		}
+	}
+
+	public void pulseLaser(BinaryWriter W, UInt16 Pwm, UInt16 OnTime) {
+		writeCmdLaser(W, Pwm);
+		writeCmdDelay(W, OnTime);
+		writeCmdLaser(W, 0);
 	}
 
 	public void lineTo(BinaryWriter W, float X, float Y) {
+	}
+
+	private void _cubeRenderLoop() {
+		System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+
+		float time = 0.0f;
+
+		float cubeHSize = 1.0f;
+
+		Vector3[] points = {
+			new Vector3(-cubeHSize, -cubeHSize, -cubeHSize),
+			new Vector3(cubeHSize, -cubeHSize, -cubeHSize),
+			new Vector3(cubeHSize, -cubeHSize, cubeHSize),
+			new Vector3(-cubeHSize, -cubeHSize, cubeHSize),
+
+			new Vector3(-cubeHSize, cubeHSize, -cubeHSize),
+			new Vector3(cubeHSize, cubeHSize, -cubeHSize),
+			new Vector3(cubeHSize, cubeHSize, cubeHSize),
+			new Vector3(-cubeHSize, cubeHSize, cubeHSize),
+		};
+
+		List<int[]> segs = new List<int[]>();
+
+		segs.Add(new[]{ 0, 1, 2, 3, 0 });
+		segs.Add(new[]{ 4, 5, 6, 7, 4 });
+		segs.Add(new[]{ 0, 4 });
+		segs.Add(new[]{ 1, 5 });
+		segs.Add(new[]{ 2, 6 });
+		segs.Add(new[]{ 3, 7 });
+
+		Vector3[] screenPoints = new Vector3[points.Length];
+
+		Matrix4x4 viewMat = Matrix4x4.TRS(new Vector3(0, 0, 5), Quaternion.identity, Vector3.one);
+		Matrix4x4 projMat = Matrix4x4.Perspective(65.0f, 1.0f, 0.1f, 100.0f);
+
+		while (running) {
+			sw.Restart();
+
+			BinaryWriter bw = new BinaryWriter(new MemoryStream());
+
+			float s = (Mathf.Sin(time * 10.0f) * 0.5f + 0.5f) * 0.5f + 0.5f;
+			Matrix4x4 modelMat = Matrix4x4.TRS(new Vector3(0, 0, 0), Quaternion.Euler(time * 50.0f, time * 1000.0f, 0), new Vector3(s, s, s));
+
+			// Transform all points to screen space.
+			for (int i = 0; i < points.Length; ++i) {
+				Vector4 p = new Vector4(points[i].x, points[i].y, points[i].z, 1.0f);
+
+				p = projMat * viewMat * modelMat * p;
+
+				p.x /= p.w;
+				p.y /= p.w;
+				p.z /= p.w;
+
+				p.x = p.x * 0.5f + 0.5f;
+				p.y = p.y * 0.5f + 0.5f;
+				
+				screenPoints[i] = p;
+			}
+
+			float y = Mathf.Sin(time) * 0.5f + 0.5f;
+
+			for (int i = 0; i < segs.Count; ++i) {
+				int[] segList = segs[i];
+
+				for (int j = 0; j < segList.Length; ++j) {
+					Vector3 p = screenPoints[segList[j]];
+
+					moveTo(bw, p.x, p.y, 300);
+					writeCmdLaser(bw, 255);
+					writeCmdDelay(bw, 10);
+				}
+
+				writeCmdLaser(bw, 0);
+			}
+
+			writeCmdEnd(bw);
+
+			BinaryWriter hw = new BinaryWriter(new MemoryStream());
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)1);
+			hw.Write((int)bw.BaseStream.Position);
+
+			// Debug.Log("Galvo command size: " + ((float)bw.BaseStream.Position / 1024.0f) + " kB");
+
+			// Limit frame to 100kB.
+			if ((int)bw.BaseStream.Position > 1024 * 100) {
+				Debug.LogError("Galvo commands too big.");
+			} else {
+				_serial.Write(((MemoryStream)hw.BaseStream).GetBuffer(), 0, (int)hw.BaseStream.Position);
+				_serial.Write(((MemoryStream)bw.BaseStream).GetBuffer(), 0, (int)bw.BaseStream.Position);
+			}
+
+			sw.Stop();
+
+			int sleepTime = 20 - (int)sw.Elapsed.TotalMilliseconds;
+			Thread.Sleep(sleepTime);
+
+			Debug.Log("Frame " + ((float)bw.BaseStream.Position / 1024.0f) + " kB " + sw.Elapsed.TotalMilliseconds + " ms");
+
+			time += 0.016f;
+		}
+	}
+
+	private void _rasterizeTestLoop() {
+		System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+
+		_serial.ReadTimeout = 1;
+
+		int loops = 0;
+
+		while (running) {
+			sw.Restart();
+
+			BinaryWriter bw = new BinaryWriter(new MemoryStream());
+
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// Commands.
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// 5cm = 1000 x 50um steps
+			// 2cm = 400 steps
+
+			float y = (loops % 400) * 0.001f;
+			for (int i = 0; i < 400; ++i) {
+				moveTo(bw, 0.0f + i * 0.001f, y, 50);
+				writeCmdLaser(bw, 255);
+				writeCmdDelay(bw, 250);
+				writeCmdLaser(bw, 0);
+			}
+
+			++loops;
+
+			y = (loops % 400) * 0.001f;
+			for (int i = 399; i >= 0; --i) {
+				moveTo(bw, 0.0f + i * 0.001f, y, 50);
+				writeCmdLaser(bw, 255);
+				writeCmdDelay(bw, 250);
+				writeCmdLaser(bw, 0);
+			}
+
+			++loops;
+
+			writeCmdLaser(bw, 0);
+
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// Packet header and sending.
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			writeCmdEnd(bw);
+			
+			BinaryWriter hw = new BinaryWriter(new MemoryStream());
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)1);
+			hw.Write((int)bw.BaseStream.Position);
+
+			// Limit frame to 100kB.
+			if ((int)bw.BaseStream.Position > 1024 * 100) {
+				Debug.LogError("Galvo commands too big.");
+			} else {
+				_serial.Write(((MemoryStream)hw.BaseStream).GetBuffer(), 0, (int)hw.BaseStream.Position);
+				_serial.Write(((MemoryStream)bw.BaseStream).GetBuffer(), 0, (int)bw.BaseStream.Position);
+			}
+
+			double t1 = sw.Elapsed.TotalMilliseconds;
+
+			// Wait for frame complete response.
+			while (true) {
+				if (_serial.BytesToRead >= 5) {
+					BinaryReader sr = new BinaryReader(_serial.BaseStream);
+					sr.ReadBytes(5);
+					break;
+				}
+			}
+
+			sw.Stop();
+
+			// int sleepTime = 1000 - (int)sw.Elapsed.TotalMilliseconds;
+			Thread.Sleep(4);
+
+			Debug.Log("Frame " + ((float)bw.BaseStream.Position / 1024.0f) + " kB " + sw.Elapsed.TotalMilliseconds + " ms " + t1);
+		}
+	}
+
+	private void _lineTimeTestLoop() {
+		System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+
+		_serial.ReadTimeout = 1;
+
+		while (running) {
+			sw.Restart();
+
+			BinaryWriter bw = new BinaryWriter(new MemoryStream());
+
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// Commands.
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// 5cm = 1000 x 50um spots
+			// 2cm = 400 steps
+
+			moveTo(bw, 0, 0, 1000);
+			pulseLaser(bw, 64, 100);
+			
+			moveTo(bw, 1.0f, 0, 0);
+			pulseLaser(bw, 256, 100);
+			
+			writeCmdDelay(bw, 1000);
+			pulseLaser(bw, 64, 100);
+
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			// Packet header and sending.
+			//------------------------------------------------------------------------------------------------------------------------------------------
+			writeCmdEnd(bw);
+			
+			BinaryWriter hw = new BinaryWriter(new MemoryStream());
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)0xAA);
+			hw.Write((byte)1);
+			hw.Write((int)bw.BaseStream.Position);
+
+			// Limit frame to 100kB.
+			if ((int)bw.BaseStream.Position > 1024 * 100) {
+				Debug.LogError("Galvo commands too big.");
+			} else {
+				_serial.Write(((MemoryStream)hw.BaseStream).GetBuffer(), 0, (int)hw.BaseStream.Position);
+				_serial.Write(((MemoryStream)bw.BaseStream).GetBuffer(), 0, (int)bw.BaseStream.Position);
+			}
+
+			double t1 = sw.Elapsed.TotalMilliseconds;
+
+			// Wait for frame complete response.
+			while (true) {
+				if (_serial.BytesToRead >= 5) {
+					BinaryReader sr = new BinaryReader(_serial.BaseStream);
+					sr.ReadBytes(5);
+					break;
+				}
+			}
+
+			sw.Stop();
+
+			int sleepTime = 16 - (int)sw.Elapsed.TotalMilliseconds;
+			if (sleepTime > 0) {
+				Thread.Sleep(sleepTime);
+			}
+
+			Debug.Log("Frame " + ((float)bw.BaseStream.Position / 1024.0f) + " kB " + sw.Elapsed.TotalMilliseconds + " ms " + t1);
+		}
 	}
 
 	public void Connect() {
@@ -111,72 +379,9 @@ public class Controller {
 			_serial.DiscardInBuffer();
 			Debug.Log("Controller connected.");
 
-			BinaryWriter bw = new BinaryWriter(new MemoryStream());
-
-			// NOTE: Make sure each command is 2byte aligned.
-
-			// 128 - 3968 (3840)
-
-			
-
-			// for (int i = 0; i < 100; ++i) {
-			// 	writeCmdMove(bw, (ushort)(128 + (i * 3840.0f / 100.0f)), 2048);
-			// 	writeCmdDelay(bw, 100);
-			// }
-
-			// for (int i = 0; i < 100; ++i) {
-			// 	writeCmdMove(bw, (ushort)(3968 - (i * 3840.0f / 100.0f)), 2048);
-			// 	writeCmdDelay(bw, 100);
-			// }
-
-			moveTo(bw, 0, 0);
-			writeCmdLaser(bw, 255);
-
-			moveTo(bw, 0.25f, 0);
-			moveTo(bw, 0.25f, 0.25f);
-			moveTo(bw, 0f, 0.25f);
-			moveTo(bw, 0, 0);
-
-			writeCmdLaser(bw, 0);
-
-			int segs = 16;
-			float radius = 0.2f;
-
-			for (int i = 0; i < segs + 1; ++i) {
-				float rad = (Mathf.PI * 2) / segs * i;
-				float x = (Mathf.Sin(rad) * 0.5f + 0.5f) * radius + 0.25f - radius * 0.5f;
-				float y = (Mathf.Cos(rad) * 0.5f + 0.5f) * radius + 0.25f - radius * 0.5f;
-
-				moveTo(bw, x, y);
-
-				if (i == 0) {
-					writeCmdLaser(bw, 255);
-				}
-			}
-
-			writeCmdLaser(bw, 0);
-
-			// Wait for end of frame
-			writeCmdDelay(bw, 16000);
-			
-			writeCmdEnd(bw);
-
-			BinaryWriter hw = new BinaryWriter(new MemoryStream());
-			hw.Write((byte)0xAA);
-			hw.Write((byte)0xAA);
-			hw.Write((byte)0xAA);
-			hw.Write((byte)0xAA);
-			hw.Write((byte)1);
-			hw.Write((int)bw.BaseStream.Position);
-
-			Debug.Log("Galvo command size: " + ((float)bw.BaseStream.Position / 1024.0f) + " kB");
-
-			if ((int)bw.BaseStream.Position > 1024 * 100) {
-				Debug.LogError("Galvo commands too big.");
-			} else {
-				_serial.Write(((MemoryStream)hw.BaseStream).GetBuffer(), 0, (int)hw.BaseStream.Position);
-				_serial.Write(((MemoryStream)bw.BaseStream).GetBuffer(), 0, (int)bw.BaseStream.Position);
-			}
+			// _cubeRenderLoop(); // NOTE: Doesn't check for response yet!
+			// _rasterizeTestLoop();
+			_lineTimeTestLoop();
 
 			// Ping();
 		} catch (Exception Ex) {

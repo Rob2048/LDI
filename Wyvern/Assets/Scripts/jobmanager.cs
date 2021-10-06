@@ -58,6 +58,7 @@ public class JobManager {
 	}
 
 	public void Destroy() {
+		_controller.running = false;
 		_running = false;
 	}
 

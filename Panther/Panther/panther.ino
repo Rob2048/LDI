@@ -45,8 +45,12 @@
 // 2 22
 // 1 21
 
-#define PIN_STP_EN1         32
+#define PIN_STP_EN1			32
 #define PIN_LASER_PWM		3
+
+#define PIN_DBG1			21
+#define PIN_DBG2			22
+#define PIN_DBG3			23
 
 #include <SPI.h>
 #include <stdint.h>
@@ -126,224 +130,105 @@ void setup() {
 	Max move on x or y = delay, could just use a lookup for possible 4096 move distances.
 
 	*/
-
 	// Enable laser.
 	pinMode(PIN_LASER_PWM, OUTPUT);
-	digitalWrite(PIN_LASER_PWM, HIGH);
+	// digitalWrite(PIN_LASER_PWM, HIGH);
+	analogWriteFrequency(PIN_LASER_PWM, 10000);
+	analogWrite(PIN_LASER_PWM, 0);
 
 	// Enable chip select.
 	pinMode(8, OUTPUT);
 	digitalWrite(8, LOW);
 
-	analogWriteFrequency(PIN_LASER_PWM, 5000);
-	analogWrite(PIN_LASER_PWM, 128); 
+	// Enable debug pins
+	pinMode(PIN_DBG1, OUTPUT);
+	pinMode(PIN_DBG2, OUTPUT);
+	pinMode(PIN_DBG3, OUTPUT);
 
-	Serial.begin(921600);
-	
 	SPI.begin();
 
 	WriteDacA(2048);
 	WriteDacB(2048);
+	analogWrite(PIN_LASER_PWM, 1);
+
+	// WriteDacA(120);
+	// WriteDacB(2000);
+
+	// int loop = 0;
+
+	// WriteDacA(2200);
+	// WriteDacB(2048);
+	// delay(2);
+
+	// for (int i = 0; i < 10; ++i) {
+	// 	WriteDacB(1500 + 100 * i);
+	// 	delay(2);
+
+	// 	analogWrite(PIN_LASER_PWM, 256);
+	// 	delay(10 + 10 * i);
+	// 	analogWrite(PIN_LASER_PWM, 1);
+	// }
 
 	return;
 
-	// while (1);
-	//-5.0
-	//3.33
+	while (true) {
+		analogWrite(PIN_LASER_PWM, 8);
 
-	float t = 0.0f;
-	unsigned long prevTime = micros();
+		for (int i = 0; i < 50; ++i) {
+			// WriteDacA(200 + i);
+			WriteDacB(1000 + i * 20);
+			delayMicroseconds(1000);
+		}
 
-	unsigned long timer0 = 0;
+		analogWrite(PIN_LASER_PWM, 0);
+	}
 
-	double totalTime = 0;
+	while (true) {
+		WriteDacB(1000);
+		delayMicroseconds(1000);
+		analogWrite(PIN_LASER_PWM, 128);
+		delayMicroseconds(1000);
+		analogWrite(PIN_LASER_PWM, 0);
 
-	double timeAvg = 0;
-	int timeAvgCount = 0;
-	
-	// Square test
-	// int sqrSize = 200;
-	// int timing = 4000;
-	// while (1) {
-	// 	unsigned long m0 = micros();
-	// 	unsigned long tD = m0 - prevTime;
-	// 	prevTime = m0;
-	// 	totalTime += tD / 1000.0;
+		WriteDacB(2000);
+		delayMicroseconds(1000);
+		analogWrite(PIN_LASER_PWM, 128);
+		delayMicroseconds(1000);
+		analogWrite(PIN_LASER_PWM, 0);
+	}
+
+	// while (true) {
+	// 	WriteDacA(230);
+	// 	delayMicroseconds(1000);
+	// 	analogWrite(PIN_LASER_PWM, 256);
+	// 	delayMicroseconds(100);
+	// 	analogWrite(PIN_LASER_PWM, 0);
+
+	// 	WriteDacA(307);
+	// 	analogWrite(PIN_LASER_PWM, 256);
+	// 	delayMicroseconds(220 + loop % 100);
+	// 	analogWrite(PIN_LASER_PWM, 0);
 		
-	// 	t = totalTime * 0.01;
-		
-	// 	float sX = sin(t * 0.5) * 1000;
-	// 	float sY = cos(t * 0.5) * 1000;
+	// 	delayMicroseconds(1000);
+	// 	// analogWrite(PIN_LASER_PWM, 256);
+	// 	// delayMicroseconds(100);
+	// 	// analogWrite(PIN_LASER_PWM, 0);
 
-	// 	int oX = 2000;// + (int)sX;
-	// 	int oY = 2000 + (int)sY;
-	// 	sqrSize = 100;// + sin(t * 0.1f) * 50;
-
-	// 	WriteDacA(oX - sqrSize);
-	// 	WriteDacB(oY - sqrSize);
-	// 	delayMicroseconds(timing);
-
-	// 	WriteDacA(oX + sqrSize);
-	// 	WriteDacB(oY - sqrSize);
-	// 	delayMicroseconds(timing);
-
-	// 	WriteDacA(oX + sqrSize);
-	// 	WriteDacB(oY + sqrSize);
-	// 	delayMicroseconds(timing);
-
-	// 	WriteDacA(oX - sqrSize);
-	// 	WriteDacB(oY + sqrSize);
-	// 	delayMicroseconds(timing);
+	// 	++loop;
 	// }
 
-	// Points test
-	// Galvo reach 128 to 3968
+	// while (true) {
+	// 	for (int i = 0; i < 50; ++i) {
+	// 		// WriteDacA(200 + i);
+	// 		WriteDacB(128 + i);
+	// 		delayMicroseconds(100);
+	// 	}
+	// }
 
-	int t0 = 5000;
-	while (1) {
-		WriteDacB(1920);
-		WriteDacA(1920);
-		delayMicroseconds(t0);
-		digitalWrite(PIN_LASER_PWM, HIGH);
-		delayMicroseconds(1);
-		digitalWrite(PIN_LASER_PWM, LOW);
-		delayMicroseconds(t0);
-		
-		WriteDacA(2176);
-		delayMicroseconds(t0);
-		digitalWrite(PIN_LASER_PWM, HIGH);
-		delayMicroseconds(1);
-		digitalWrite(PIN_LASER_PWM, LOW);
-		delayMicroseconds(t0);
+	
 
-		WriteDacB(2176);
-		WriteDacA(1920);
-		delayMicroseconds(t0);
-		digitalWrite(PIN_LASER_PWM, HIGH);
-		delayMicroseconds(1);
-		digitalWrite(PIN_LASER_PWM, LOW);
-		delayMicroseconds(t0);
-		
-		WriteDacA(2176);
-		delayMicroseconds(t0);
-		digitalWrite(PIN_LASER_PWM, HIGH);
-		delayMicroseconds(1);
-		digitalWrite(PIN_LASER_PWM, LOW);
-		delayMicroseconds(t0);
-	}
+	Serial.begin(921600);
 
-	int offsetX = 0;
-	int offsetY = 0;
-	int dacOY = 2048;
-	int dacOX = 2048;
-
-	// Square.
-	while (1) {
-		unsigned long m0 = micros();
-		unsigned long tD = m0 - prevTime;
-		prevTime = m0;
-		totalTime += tD / 1000.0;
-		
-		int linePoints = 50;
-		float pointWidth = 60;
-		int timing = 100;
-
-		WriteDacA(dacOY - (int)(linePoints / 2.0 * pointWidth));
-		for (int i = 0; i < linePoints; ++i) {
-			WriteDacB(dacOX - (int)((-linePoints / 2.0 + i) * pointWidth));
-			delayMicroseconds(timing - 10);
-			digitalWrite(PIN_LASER_PWM, HIGH);
-			delayMicroseconds(1);
-			digitalWrite(PIN_LASER_PWM, LOW);
-		}
-
-		delayMicroseconds(timing);
-
-		for (int i = 0; i < linePoints; ++i) {
-			WriteDacA(dacOY + (int)((-linePoints / 2.0 + i) * pointWidth));
-			delayMicroseconds(timing - 10);
-			digitalWrite(PIN_LASER_PWM, HIGH);
-			delayMicroseconds(10);
-			digitalWrite(PIN_LASER_PWM, LOW);
-		}
-		delayMicroseconds(timing);
-
-		for (int i = 0; i < linePoints; ++i) {
-			WriteDacB(dacOX - (int)((-linePoints / 2.0 + (linePoints - 1 - i)) * pointWidth));
-			delayMicroseconds(timing - 10);
-			digitalWrite(PIN_LASER_PWM, HIGH);
-			delayMicroseconds(100);
-			digitalWrite(PIN_LASER_PWM, LOW);
-		}
-		delayMicroseconds(timing);
-
-		for (int i = 0; i < linePoints; ++i) {
-			WriteDacA(dacOY + (int)((-linePoints / 2.0 + (linePoints - 1 - i)) * pointWidth));
-			delayMicroseconds(timing - 10);
-			digitalWrite(PIN_LASER_PWM, HIGH);
-			delayMicroseconds(1000);
-			digitalWrite(PIN_LASER_PWM, LOW);
-		}
-		delayMicroseconds(timing);
-	}
-
-	// Scan test.
-	int steps = 200;
-	const float maxRangeUm = 50000.0;
-	const float stepSizeUm = 50.0;
-	const float dacPerStep = 4095.0 / (maxRangeUm / stepSizeUm);
-
-	offsetX = 0;
-	offsetY = 0;
-	dacOY = 600;
-	dacOX = 2048;
-
-	while (1) {
-		for (int j = 0; j < 800; ++j) {
-			WriteDacA(dacOY + (int)((j + offsetY) * dacPerStep));
-			//WriteDacA(4095);
-			
-			for (int i = 0; i < steps; ++i) {
-				// if (i > 50 && i < 150) {
-				// 	continue;
-				// }
-
-				//WriteDacA(2000 + (int)(i * dacPerStep));
-				if (j % 2 == 0) {
-					WriteDacB(dacOX + (int)((i + offsetX) * dacPerStep));
-				} else {
-					WriteDacB(dacOX + (int)((steps - 1 - i + offsetX) * dacPerStep));
-				}
-				delayMicroseconds(50);
-			}
-		}
-	}
-
-	while (1) {
-		unsigned long m0 = micros();
-		unsigned long tD = m0 - prevTime;
-		prevTime = m0;
-		totalTime += tD / 1000.0;
-		
-		t = totalTime * 0.01;
-
-		float s1 = sin(t * 0.025f) * 0.5 + 0.5;
-		float s2 = cos(t) * 0.5 + 0.5;
-		
-		int outputA = 1000 + (int)(s1 * 2000);
-		int outputB = 1000 + (int)(s2 * 2000);
-
-		unsigned long t0 = micros();
-		WriteDacA(outputA);
-		t0 = micros() - t0;
-		timeAvg += t0;
-		++timeAvgCount;
-
-		WriteDacB(outputB);
-
-		delayMicroseconds(100);
-	}
-		
 	return;
 	
 	if (!st1.init(32, 1, 600, 0.00625, 800.0, true)) sendMessage("Bad driver X");
@@ -353,10 +238,6 @@ void setup() {
 	// Enable steppers.
 	pinMode(PIN_STP_EN1, OUTPUT);
 	digitalWrite(PIN_STP_EN1, LOW);
-
-	// Enable laser.
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	digitalWrite(PIN_LASER_PWM, LOW);
 
 	sendMessage("Controller started");
 }
@@ -629,8 +510,8 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		t = micros() - t;
 
-		sprintf(buff, "Mirror raster: %d %d %d %d %ld us", stopCounts, onTime, offTime, stepTime, t);
-		sendMessage(buff);
+		// sprintf(buff, "Mirror raster: %d %d %d %d %ld us", stopCounts, onTime, offTime, stepTime, t);
+		// sendMessage(buff);
 
 		// digitalWrite(PIN_LASER_PWM, HIGH);
 
@@ -726,66 +607,69 @@ struct cmdLaserPwm {
 };
 
 void handleOpcodeGalvoLinearField() {
+	digitalWrite(PIN_DBG1, HIGH);
 	int byteCount = serialReadInt32();
 
-	// Copy all bytes to buffer.
+	// Read and copy all bytes to buffer.
 	int cmdBufferSize = 0;
 	for (int i = 0; i < byteCount; ++i) {
 		cmdBuffer[cmdBufferSize++] = serialReadUInt8();
 	}
+	digitalWrite(PIN_DBG1, LOW);
 
-	// Execute command code.
-	int repeats = 100000;
+	uint8_t* cmdStart = cmdBuffer;
+	bool running = true;
 
-	while (repeats > 0) {
-		uint8_t* cmdStart = cmdBuffer;
-		bool running = true;
+	while (running) {
+		digitalWrite(PIN_DBG2, HIGH);
+		uint16_t cmdType = *(uint16_t*)cmdStart;
 
-		while (running) {
-			uint16_t cmdType = *(uint16_t*)cmdStart;
+		switch (cmdType) {
+			case 0: {
+				// End command. We are done.
+				running = false;
+				break;
+			}
 
-			switch (cmdType) {
-				case 0: {
-					// End command. We are done.
-					running = false;
-					--repeats;
-					break;
-				}
+			case 1: {
+				cmdPosition* cmd = (cmdPosition*)cmdStart;
+				cmdStart += sizeof(cmdPosition);
 
-				case 1: {
-					cmdPosition* cmd = (cmdPosition*)cmdStart;
-					cmdStart += sizeof(cmdPosition);
+				WriteDacA(cmd->x);
+				WriteDacB(cmd->y);
+				break;
+			}
 
-					WriteDacA(cmd->x);
-					WriteDacB(cmd->y);
-					break;
-				}
+			case 2: {
+				cmdDelay* cmd = (cmdDelay*)cmdStart;
+				cmdStart += sizeof(cmdDelay);
 
-				case 2: {
-					cmdDelay* cmd = (cmdDelay*)cmdStart;
-					cmdStart += sizeof(cmdDelay);
+				delayMicroseconds(cmd->delay);
+				break;
+			}
 
-					delayMicroseconds(cmd->delay);
-					break;
-				}
+			case 3: {
+				cmdLaserPwm* cmd = (cmdLaserPwm*)cmdStart;
+				cmdStart += sizeof(cmdLaserPwm);
 
-				case 3: {
-					cmdLaserPwm* cmd = (cmdLaserPwm*)cmdStart;
-					cmdStart += sizeof(cmdLaserPwm);
+				analogWrite(PIN_LASER_PWM, cmd->pwm);
+				break;
+			}
+		
+			default: {
 
-					analogWrite(PIN_LASER_PWM, cmd->pwm);
-					break;
-				}
-			
-				default: {
-
-					break;
-				}
+				break;
 			}
 		}
+
+		digitalWrite(PIN_DBG2, LOW);
+		delayMicroseconds(1);
 	}
 
-	Serial.write((uint8_t*)&cmdBufferSize, 4);
+	uint8_t buffer[] = { 0xAA, 0xAA, 0xAA, 0xAA, 1 };
+	
+	Serial.write(buffer, sizeof(buffer));
+	Serial.send_now();
 }
 
 int packetState = 0;
@@ -814,7 +698,52 @@ void newPacketUpdate() {
 int stepCount = 0;
 bool lastDir = true;
 
+uint8_t lineBuffer[64];
+int lineBufferSize = 0;
+
+void processSimpleProtocol(uint8_t* Data, int Size) {
+	uint8_t cmd = Data[0];
+
+	if (cmd == 'a') {
+		analogWriteFrequency(PIN_LASER_PWM, 10000);
+		analogWrite(PIN_LASER_PWM, 1);
+		Serial.println("ok");
+	} else if (cmd == 'b') {
+		analogWrite(PIN_LASER_PWM, 0);
+		Serial.println("ok");
+	} else if (cmd == 'c') {
+		digitalWrite(PIN_LASER_PWM, LOW);
+
+		int param = atoi((char*)(Data + 1));
+		if (param > 0 && param <= 10000) {
+			pinMode(PIN_LASER_PWM, OUTPUT);
+			digitalWrite(PIN_LASER_PWM, HIGH);
+			delayMicroseconds(param);
+			digitalWrite(PIN_LASER_PWM, LOW);
+			Serial.println("ok");
+		} else {
+			Serial.println("error");
+		}
+	}
+}
+
 void loop() {
+	while (1) {
+		if (Serial.available()) {
+			int c = Serial.read();
+
+			if (c == '\n') {
+				lineBuffer[lineBufferSize] = 0;
+				processSimpleProtocol(lineBuffer, lineBufferSize);
+				lineBufferSize = 0;
+			} else {
+				if (lineBufferSize < (int)sizeof(lineBuffer) - 2) {
+					lineBuffer[lineBufferSize++] = c;
+				}
+			}
+		}
+	}
+
 	while (1) {
 		newPacketUpdate();
 	}
