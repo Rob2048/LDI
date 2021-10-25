@@ -381,9 +381,9 @@ public class Controller {
 
 			// _cubeRenderLoop(); // NOTE: Doesn't check for response yet!
 			// _rasterizeTestLoop();
-			_lineTimeTestLoop();
+			// _lineTimeTestLoop();
 
-			// Ping();
+			Ping();
 		} catch (Exception Ex) {
 			Debug.LogError("Controller serial connect failed: " + Ex.Message);
 		}
@@ -409,7 +409,7 @@ public class Controller {
 			_lastAxisPos[1] = br.ReadSingle();
 			_lastAxisPos[2] = br.ReadSingle();
 
-			//Debug.Log("Controller: Command received " + _lastAxisPos[0] + " " + _lastAxisPos[1] + " " + _lastAxisPos[2]);
+			// Debug.Log("Controller: Command received " + _lastAxisPos[0] + " " + _lastAxisPos[1] + " " + _lastAxisPos[2]);
 		} else {
 			Debug.LogError("Invalid command: " + cmdId);
 		}
@@ -419,17 +419,17 @@ public class Controller {
 		if (_serial != null && _serial.IsOpen) {
 			_serial.ReadTimeout = 1;
 
-			try {
-				while (true) {
-					byte b = (byte)_serial.ReadByte();
+			// try {
+			// 	while (true) {
+			// 		byte b = (byte)_serial.ReadByte();
 
-					Debug.Log("Serial recv: " + b);
-				}
-			} catch (TimeoutException Ex) {
+			// 		Debug.Log("Serial recv: " + b);
+			// 	}
+			// } catch (TimeoutException Ex) {
 
-			}
+			// }
 
-			return true;
+			// return true;
 
 			try {
 				while (true) {

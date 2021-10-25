@@ -233,7 +233,8 @@ public class JobManager {
 
 						if (data.Count > 0) {
 							//_controller.RasterLine(250, 1000, 100, data.ToArray());
-							_controller.RasterLine(800, 1000, 100, data.ToArray());
+							// _controller.RasterLine(800, 1000, 100, data.ToArray());
+							_controller.RasterLine(800, 10000, 1000, data.ToArray());
 
 							// 300: thick white on blue/clear
 							// 200: black on white - or leaves dark marks?

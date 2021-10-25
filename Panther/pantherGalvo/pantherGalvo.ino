@@ -130,10 +130,11 @@ void setup() {
 	Max move on x or y = delay, could just use a lookup for possible 4096 move distances.
 
 	*/
+
 	// Enable laser.
 	pinMode(PIN_LASER_PWM, OUTPUT);
 	// digitalWrite(PIN_LASER_PWM, HIGH);
-	analogWriteFrequency(PIN_LASER_PWM, 10000);
+	analogWriteFrequency(PIN_LASER_PWM, 100000);
 	analogWrite(PIN_LASER_PWM, 0);
 
 	// Enable chip select.
@@ -149,7 +150,7 @@ void setup() {
 
 	WriteDacA(2048);
 	WriteDacB(2048);
-	analogWrite(PIN_LASER_PWM, 1);
+	analogWrite(PIN_LASER_PWM, 7);
 
 	// WriteDacA(120);
 	// WriteDacB(2000);
@@ -227,7 +228,7 @@ void setup() {
 
 	
 
-	Serial.begin(921600);
+	// Serial.begin(921600);
 
 	return;
 	
@@ -701,12 +702,33 @@ bool lastDir = true;
 uint8_t lineBuffer[64];
 int lineBufferSize = 0;
 
+int getParamI(uint8_t* Data, int Size, int Start, int* OutValue) {
+	char strTemp[64];
+	int tempPos = 0;
+	int i = Start;
+
+	while (true) {
+		if (i >= Size || Data[i] == 0 || Data[i] == ';') {
+			break;
+		}
+
+		strTemp[tempPos++] = Data[i];
+		++i;
+	}
+
+	strTemp[tempPos++] = 0;
+	*OutValue = atoi(strTemp);
+
+	// Index where stopped.
+	return i;
+}
+
 void processSimpleProtocol(uint8_t* Data, int Size) {
 	uint8_t cmd = Data[0];
 
 	if (cmd == 'a') {
-		analogWriteFrequency(PIN_LASER_PWM, 10000);
-		analogWrite(PIN_LASER_PWM, 1);
+		analogWriteFrequency(PIN_LASER_PWM, 100000);
+		analogWrite(PIN_LASER_PWM, 10);
 		Serial.println("ok");
 	} else if (cmd == 'b') {
 		analogWrite(PIN_LASER_PWM, 0);
@@ -724,7 +746,74 @@ void processSimpleProtocol(uint8_t* Data, int Size) {
 		} else {
 			Serial.println("error");
 		}
+	} else if (cmd == 'd') {
+		digitalWrite(PIN_LASER_PWM, LOW);
+
+		int param = atoi((char*)(Data + 1));
+		if (param > 0 && param <= 1000) {
+			pinMode(PIN_LASER_PWM, OUTPUT);
+			digitalWrite(PIN_LASER_PWM, HIGH);
+			delay(param);
+			digitalWrite(PIN_LASER_PWM, LOW);
+			Serial.println("ok");
+		} else {
+			Serial.println("error");
+		}
+	} else if (cmd == 'e') {
+		digitalWrite(PIN_LASER_PWM, LOW);
+
+		// Cycle count
+		// Pulse duration us
+		// Delay us
+
+		int offset = 1;
+		int cycleCount = 0;
+		int pulseUs = 0;
+		int delayUs = 0;
+
+		if ((offset = getParamI(Data, Size, offset, &cycleCount)) < 0) { Serial.println("error"); return; }
+		if ((offset = getParamI(Data, Size, offset + 1, &pulseUs)) < 0) { Serial.println("error"); return; }
+		if ((offset = getParamI(Data, Size, offset + 1, &delayUs)) < 0) { Serial.println("error"); return; }
+
+		if (cycleCount > 0 && cycleCount <= 100000 && pulseUs > 0 && pulseUs <= 10000 && delayUs > 0 && delayUs <= 10000) {
+			pinMode(PIN_LASER_PWM, OUTPUT);
+
+			for (int i = 0; i < cycleCount; ++i) {
+				digitalWrite(PIN_LASER_PWM, HIGH);
+				delayMicroseconds(pulseUs);
+				digitalWrite(PIN_LASER_PWM, LOW);
+				delayMicroseconds(delayUs);
+			}
+			
+			Serial.println("ok");
+		} else {
+			Serial.println("error");
+		}
+	} else if (cmd == 'f') {
+		digitalWrite(PIN_LASER_PWM, LOW);
+
+		// frequency
+		// duty cycle
+				
+		int offset = 1;
+		int freq = 0;
+		int duty = 0;
+
+		if ((offset = getParamI(Data, Size, offset, &freq)) < 0) { Serial.println("error"); return; }
+		if ((offset = getParamI(Data, Size, offset + 1, &duty)) < 0) { Serial.println("error"); return; }
+
+		if (freq > 0 && freq <= 100000 && duty >= 0 && duty <= 255) {
+			pinMode(PIN_LASER_PWM, OUTPUT);
+
+			analogWriteFrequency(PIN_LASER_PWM, freq);
+			analogWrite(PIN_LASER_PWM, duty);
+			
+			Serial.println("ok");
+		} else {
+			Serial.println("error");
+		}
 	}
+
 }
 
 void loop() {

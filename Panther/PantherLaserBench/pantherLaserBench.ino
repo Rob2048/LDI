@@ -491,7 +491,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		digitalWrite(PIN_LASER_PWM, LOW);
 		sendCmdSuccess();
 	} else if (cmdId == 8 && Len >= 8) {
-		// X axis raster line.
+		// Scan with stops at every pulse position.
 		int32_t stopCounts = 0;
 		int32_t onTime = 0;
 		int32_t offTime = 0;
@@ -526,6 +526,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		sendCmdSuccess();
 	} else if (cmdId == 10) {
+		// Home all axes.
 		sprintf(buff, "Homing");
 		sendMessage(buff);
 
@@ -563,6 +564,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		sendCmdSuccess();
 	} else if (cmdId == 11) {
+		// Move to center?
 		st1.moveTo(10000, 0, 0, 200);
 		st2.moveTo(7500, 0, 0, 100);
 		st3.moveTo(1000, 0, 0, 50);
@@ -579,6 +581,8 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		sendCmdSuccess();
 	} else if (cmdId == 12) {
+		// Scan with continuous movement.
+
 		// X axis raster line.
 		// 20 mm test
 		
@@ -675,6 +679,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		while (true) {
 			uint32_t nt = micros() - t;
 			
+			// Control laser.
 			if (laserPulseCount < _laserTimingCount) {
 				if (nt >= laserNextT) {
 					if (laserState == 0) {
@@ -699,6 +704,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 				}
 			}
 
+			// Step motor.
 			if (nt >= (nextMotorT + 500) / 1000) {
 				if (motorState == 0) {
 					if (motorCurrent >= absSteps) {

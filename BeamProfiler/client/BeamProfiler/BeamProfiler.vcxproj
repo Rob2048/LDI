@@ -133,7 +133,7 @@
       <AdditionalIncludeDirectories>C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\opencv-4.5.2\modules\highgui\include;C:\opencv-4.5.2\modules\videoio\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>

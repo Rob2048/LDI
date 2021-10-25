@@ -82,12 +82,12 @@ public class core : MonoBehaviour {
 
 	public void uiThresholdSliderChanged(float Value) {
 		_threshold = Value;
-		_CopyTexture(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
+		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
 	}
 
 	public void uiBrightnessSliderChanged(float Value) {
 		_brightness = Value;
-		_CopyTexture(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
+		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
 	}
 
 	public void uiBtnZero() {
@@ -178,8 +178,8 @@ public class core : MonoBehaviour {
 		_ClearCoverageMap();
 
 		// _RunDiffuser();
-		//_StartDiffuser();
-		_PrimeMesh();
+		_StartDiffuser();
+		// _PrimeMesh();
 
 		_jobManager = new JobManager();
 		_jobManager.Init();
@@ -220,10 +220,7 @@ public class core : MonoBehaviour {
 	}
 
 	private void _StartDiffuser() {
-		//_sourceImage = _LoadImage("content/lightware/logo_icon.png");
-		_sourceImage = _LoadImage("content/lightware/label.png");
-
-		//_sourceImage = _LoadImage("content/test_pattern.png");
+		_sourceImage = _LoadImage("content/test_pattern.png");
 		//_sourceImage = _LoadImage("content/gradient.png");
 		// _sourceImage = _LoadImage("content/colorchart_disc_grid_1_channel.png");
 		//_sourceImage = _LoadImage("content/cmyk_test/y.png");
@@ -254,7 +251,7 @@ public class core : MonoBehaviour {
 
 		// _Histogram(_sourceRawData, _sourceImage.width * _sourceImage.height);
 		
-		_CopyTexture(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
+		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
 
 		uiPreviewImage.rectTransform.sizeDelta = new Vector2(215, 215);
 		uiPreviewImage.texture = _canvas;
@@ -974,7 +971,7 @@ public class core : MonoBehaviour {
 		// Convert LAB to CMYK for print.
 	}
 
-	private void _CopyTexture(Texture2D Source, Texture2D Dest, int SourceWidth, int SourceHeight) {
+	private void _CopyAndDither(Texture2D Source, Texture2D Dest, int SourceWidth, int SourceHeight) {
 		// Get image.
 		for (int i = 0; i < 1000 * 1000; ++i) {
 			int dX = i % 1000;
@@ -1094,7 +1091,8 @@ public class core : MonoBehaviour {
 			uiTextPosZ.text = "Z: " + _jobManager._controller._lastAxisPos[2];
 		}
 
-		_ScannerViewHit(false);
+		// NOTE: Only if we have primed mesh.
+		//_ScannerViewHit(false);
 
 		// if (_actualFactor != TargetFactor || _actualSpread != TargetSpread | _actualContrast != TargetContrast || _actualBrightness != TargetBrightness) {
 		// 	_actualFactor = TargetFactor;
