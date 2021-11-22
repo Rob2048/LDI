@@ -68,6 +68,10 @@ public class Controller {
 		Connect();
 	}
 
+	public bool IsExecuting() {
+		return (_commandState != PBCommandState.IDLE);
+	}
+
 	public void writeCmdMove(BinaryWriter W, UInt16 X, UInt16 Y) {
 		W.Write((UInt16)1);
 		W.Write((UInt16)Y);
@@ -586,6 +590,34 @@ public class Controller {
 		return _SendCommand(pkt);
 	}
 
+	public bool ModulateLaser(int Frequency, int Duty) {
+		byte[] pkt = new byte[17];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)9); // Payload size
+		w.Write((byte)13); // Cmd ID
+		w.Write(Frequency);
+		w.Write(Duty);
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
+	public bool StopLaser() {
+		byte[] pkt = new byte[17];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)1); // Payload size
+		w.Write((byte)7); // Cmd ID
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
 	public bool RasterLine(int OnTime, int OffTime, int StepTime, float[] Stops) {
 		byte[] pkt = new byte[4 + 1 + 16 + Stops.Length * 4];
 
@@ -602,6 +634,27 @@ public class Controller {
 		for (int i = 0; i < Stops.Length; ++i) {
 			w.Write(Stops[i]);
 		}
+
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
+	public bool IncrementalLine(int Iterations, int Steps, int StartTime, int TimeIncrement, int StepTime, int AfterMoveDelayTime, float SpacingMm) {
+		byte[] pkt = new byte[4 + 1 + 7 * 4];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)(1 + 7 * 4)); // Payload size
+		w.Write((byte)14); // Cmd ID
+		w.Write((Int32)Iterations);
+		w.Write((Int32)Steps);
+		w.Write((Int32)StartTime);
+		w.Write((Int32)TimeIncrement);
+		w.Write((Int32)StepTime);
+		w.Write((Int32)AfterMoveDelayTime);
+		w.Write((float)SpacingMm);
 
 		w.Write(FRAME_END);
 

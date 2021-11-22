@@ -180,6 +180,11 @@ void abStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocit
 
 	stepTarget = StepTarget;
 
+	if (accelSteps + decelSteps > totalSteps) {
+		accelSteps = totalSteps / 2;
+		decelSteps = totalSteps / 2;
+	}
+
 	t0 = micros() - t0;
 	//Serial.println(t0);
 }

@@ -224,8 +224,8 @@ void setup() {
 	// while (!Serial);
 	
 	//if (!st1.init(32, 0, 900, 0.00625, 2000.0, true)) sendMessage("Bad driver X");
-	if (!st1.init(32, 0, 900, 0.00625, 16000.0, true)) sendMessage("Bad driver X");
-	if (!st2.init(32, 1, 900, 0.00625, 2000.0, false)) sendMessage("Bad driver Y");
+	if (!st1.init(32, 0, 600, 0.00625, 16000.0, true)) sendMessage("Bad driver X");
+	if (!st2.init(32, 1, 600, 0.00625, 2000.0, true)) sendMessage("Bad driver Y");
 	if (!st3.init(32, 1, 600, 0.00625, 1400.0, false)) sendMessage("Bad driver Z");
 
 	// Enable steppers.
@@ -488,6 +488,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendCmdSuccess();
 	} else if (cmdId == 7 && Len == 1) {
 		// Stop laser.
+		pinMode(PIN_LASER_PWM, OUTPUT);
 		digitalWrite(PIN_LASER_PWM, LOW);
 		sendCmdSuccess();
 	} else if (cmdId == 8 && Len >= 8) {
@@ -531,7 +532,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendMessage(buff);
 
 		st1.moveRelative(-100000, 0, 0, 50);
-		st2.moveRelative(100000, 0, 0, 50);
+		st2.moveRelative(-100000, 0, 0, 50);
 		st3.moveRelative(100000, 0, 0, 50);
 
 		bool s1 = true;
@@ -545,11 +546,11 @@ void processCmd(uint8_t* Buffer, int Len) {
 		}
 
 		st1.home(50, 100, false, 0, 0, 20000);
-		st2.home(50, 100, true, 15000, 0, 15000);
+		st2.home(50, 100, false, 0, 0, 15000);
 		st3.home(50, 30, true, 24000, 0, 24000);
 
-		st1.moveTo(10000, 0, 0, 200);
-		st2.moveTo(7500, 0, 0, 100);
+		st1.moveTo(st1.stepsPerMm * 30, 0, 0, 200);
+		st2.moveTo(st2.stepsPerMm * 3, 0, 0, 100);
 		st3.moveTo(1000, 0, 0, 50);
 
 		s1 = true;
@@ -565,8 +566,8 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendCmdSuccess();
 	} else if (cmdId == 11) {
 		// Move to center?
-		st1.moveTo(10000, 0, 0, 200);
-		st2.moveTo(7500, 0, 0, 100);
+		st1.moveTo(st1.stepsPerMm * 30, 0, 0, 200);
+		st2.moveTo(st2.stepsPerMm * 3, 0, 0, 100);
 		st3.moveTo(1000, 0, 0, 50);
 		
 		bool s1 = true;
@@ -772,6 +773,65 @@ void processCmd(uint8_t* Buffer, int Len) {
 		st1.moveRelative(preSteps, speed, 0, speed);
 		while (st1.updateStepper());
 
+		sendCmdSuccess();
+	} else if (cmdId == 13 && Len == 9) {
+		// Modulate laser.
+		int32_t frequency = 0;
+		int32_t duty = 0;
+		memcpy(&frequency, Buffer + 1, 4);
+		memcpy(&duty, Buffer + 5, 4);
+
+		digitalWrite(PIN_LASER_PWM, LOW);
+
+		if (frequency > 0 && frequency <= 100000 && duty >= 0 && duty <= 255) {
+			pinMode(PIN_LASER_PWM, OUTPUT);
+			analogWriteFrequency(PIN_LASER_PWM, frequency);
+			analogWrite(PIN_LASER_PWM, duty);
+		}
+
+		// sprintf(buff, "Laser: %ld %ld %ld", onTime, offTime, counts);
+		// sendMessage(buff);
+
+		sendCmdSuccess();
+	} else if (cmdId == 14 && Len >= 8) {
+		// Continuous incrementing scan line.
+		int32_t iterations = 0;
+		int32_t steps = 0;
+		int32_t startTime = 0;
+		int32_t incTime = 0;
+		int32_t speed = 0;
+		int32_t delay = 0;
+		float spacing = 0.0f;
+
+		memcpy(&iterations, Buffer + 1, 4);
+		memcpy(&steps, Buffer + 5, 4);
+		memcpy(&startTime, Buffer + 9, 4);
+		memcpy(&incTime, Buffer + 13, 4);
+		memcpy(&speed, Buffer + 17, 4);
+		memcpy(&delay, Buffer + 21, 4);
+		memcpy(&spacing, Buffer + 25, 4);
+
+		unsigned long t = micros();
+
+		unsigned long laserTime = startTime;
+
+		float position = st1.currentStep * st1.mmPerStep;
+
+		for (int i = 0; i < iterations; ++i) {
+			for (int j = 0; j < steps; ++j) {
+				st1.moveDirect((int32_t)round(position * st1.stepsPerMm), speed);
+				position += spacing;
+
+				delayMicroseconds(delay);
+
+				digitalWrite(PIN_LASER_PWM, HIGH);
+				delayMicroseconds(laserTime);
+				digitalWrite(PIN_LASER_PWM, LOW);
+			}
+
+			laserTime += incTime;
+		}
+		
 		sendCmdSuccess();
 	} else {
 		sprintf(buff, "Unknown cmd %d %d", cmdId, Len);

@@ -40,6 +40,7 @@
      <Compile Include="Assets\Scripts\diffuser.cs" />
      <Compile Include="Assets\Scripts\controller.cs" />
      <Compile Include="Assets\Scripts\laserAssembly.cs" />
+     <Compile Include="Assets\Scripts\textRenderer.cs" />
      <Compile Include="Assets\Scripts\core.cs" />
      <None Include="Assets\Shaders\laserLocator.shader" />
      <None Include="Assets\Shaders\triId.shader" />
@@ -286,8 +287,17 @@
     <Reference Include="Unity.Analytics.Editor">
         <HintPath>C:/Projects/LDI/Wyvern/Library/PackageCache/com.unity.analytics@3.5.3/Unity.Analytics.Editor.dll</HintPath>
     </Reference>
+    <Reference Include="Magick.NET.Core">
+        <HintPath>C:/Projects/LDI/Wyvern/Assets/Plugins/Magick.NET.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Magick.NET-Q8-x64">
+        <HintPath>C:/Projects/LDI/Wyvern/Assets/Plugins/Magick.NET-Q8-x64.dll</HintPath>
+    </Reference>
     <Reference Include="Unity.Analytics.Tracker">
         <HintPath>C:/Projects/LDI/Wyvern/Library/PackageCache/com.unity.analytics@3.5.3/Unity.Analytics.Tracker.dll</HintPath>
+    </Reference>
+    <Reference Include="Magick.NET.SystemDrawing">
+        <HintPath>C:/Projects/LDI/Wyvern/Assets/Plugins/Magick.NET.SystemDrawing.dll</HintPath>
     </Reference>
     <Reference Include="mscorlib">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll</HintPath>

@@ -10,6 +10,8 @@ using Unity.Collections;
 using UnityEngine.UI;
 using UnityEngine.Rendering;
 
+using ImageMagick;
+
 using Debug = UnityEngine.Debug;
 
 public class core : MonoBehaviour {
@@ -51,30 +53,34 @@ public class core : MonoBehaviour {
 	fa max = 52.33 cycle/deg
 	*/
 
-	public RawImage uiOriginalImage;
-	public RawImage uiCanvas;
-	public RawImage uiPreviewImage;
+	public TextMesh bakeTextMesh;
+	public Camera bakeTextCamera;
 
+	public RawImage uiCanvas;
+	
 	public Text uiTextPosX;
 	public Text uiTextPosY;
 	public Text uiTextPosZ;
+	public InputField uiTextMoveAmount;
 
 	public GameObject SampleLocatorPrefab;
 
 	public Material SurfelDebugMat;
 
 	private JobManager _jobManager;
-
-	private Texture2D _sourceImage;
+	
 	private Texture2D _canvas;
-	private float[] _canvasRawData;
-	private Color32[] _tempCols;
-	private Color32[] _sourceRawData;
+	// private float[] _canvasRawData;
+	// private Color32[] _tempCols;
 	
 	private float _threshold = 0.5f;
 	private float _brightness = 0.0f;
 	
 	private Diffuser _diffuser;
+
+	private TextRenderer _textRenderer;
+
+	private ImageData _diffusedImg;
 
 	public void uiBtnCapture() {
 		_ScannerViewHit(true);
@@ -82,62 +88,168 @@ public class core : MonoBehaviour {
 
 	public void uiThresholdSliderChanged(float Value) {
 		_threshold = Value;
-		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
 	}
 
 	public void uiBrightnessSliderChanged(float Value) {
 		_brightness = Value;
-		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
 	}
 
 	public void uiBtnZero() {
-		_jobManager.SetTaskZero();
+		_jobManager.StartTaskZero();
 	}
 
 	public void uiBtnGotoZero() {
-		_jobManager.SetTaskGotoZero();
+		_jobManager.StartTaskGotoZero();
 	}
 
 	public void uiBtnStart() {
-		_jobManager.SetTaskRasterImage(_canvasRawData, _jobManager._controller._lastAxisPos[0], _jobManager._controller._lastAxisPos[1], _sourceImage.width, _sourceImage.height);
+		float x = _jobManager.controller._lastAxisPos[0];
+		float y = _jobManager.controller._lastAxisPos[1];
+		float z = _jobManager.controller._lastAxisPos[2];
+		float scaleMm = 0.5f;
+
+		// Best focus: 14.25
+		// Slightly out of focus to get bigger spot. 19.25mm
+
+		List<JobTask> taskList = new List<JobTask>();
+
+		// Test pattern: 400 X 100 @ 50um = 20mm X 5mm
+
+		// Test ZDepth and burn time.
+		// Burn time: 150 - 350
+		// ZDepth: 10mm to 20mm
+		// 10, 15, 20,
+
+		//-----------------------------------------------------------------
+		// Test grid.
+		//-----------------------------------------------------------------
+		// float pointSpacing = 0.200f;
+		// float blockSpacing = 2.0f;
+
+		// float blockOffsetX = x;
+		// float blockOffsetY = y;
+
+		// int laserOnTimeUs = 200;
+
+		// for (int iZ = 0; iZ < 10; ++iZ) {
+		// 	taskList.Add(new JobTaskSimpleMove(2, 10 + iZ, 400));
+		// 	blockOffsetX = x + iZ * blockSpacing;
+
+		// 	for (int iB = 0; iB < 20; ++iB) {
+		// 		laserOnTimeUs = 150 + iB * 10;
+		// 		blockOffsetY = y + iB * blockSpacing;
+
+		// 		for (int iY = 0; iY < 5; ++iY) {
+		// 			taskList.Add(new JobTaskSimpleMove(1, blockOffsetY + iY * pointSpacing, 400));
+
+		// 			for (int iX = 0; iX < 5; ++iX) {
+		// 				taskList.Add(new JobTaskSimpleMove(0, blockOffsetX + iX * pointSpacing, 400));
+		// 				taskList.Add(new JobTaskStartLaser(1, laserOnTimeUs, 10000));
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		// Magenta on white primer: X2 Y3 for small but decent dots. Z: 12mm Burn: 180. (35um dots)
+		// Magenta on white primer: X0 Y7 for bigger but decent dots. Z: 10mm Burn: 220. (60um dots)
+
+		// for (int i = 1; i < 10; ++i) {
+		// 	int burnTime = 300 + i * 25;
+
+		// 	ImageData textTest = _textRenderer.GetTextImage(burnTime + " us", 70, this);
+		
+		// 	_jobManager.AppendTaskImageRaster(taskList, textTest.data, x, y, z, textTest.width, textTest.height, scaleMm, 350, 200, 200);
+		// 	y += textTest.height * scaleMm;
+		
+		// 	_jobManager.AppendTaskImageRaster(taskList, _diffusedImg.data, x, y, z, _diffusedImg.width, _diffusedImg.height, scaleMm, burnTime, 2000, 400);
+		// 	y += _diffusedImg.height * scaleMm;
+		// }
+
+		// for (int i = 1; i < 10; ++i) {
+		// 	int burnTime = 150 + i * 20;
+
+		// 	// ImageData textTest = _textRenderer.GetTextImage(burnTime + " us", 70, this);
+		
+		// 	// _jobManager.AppendTaskImageRaster(taskList, textTest.data, x, y, z, textTest.width, textTest.height, scaleMm, 350, 200, 200);
+		// 	// y += textTest.height * scaleMm;
+		
+		// 	_jobManager.AppendTaskImageRaster(taskList, _diffusedImg.data, x, y, z, _diffusedImg.width, 60, scaleMm, burnTime, 2000, 400);
+		// 	y += 60 * scaleMm;
+		// }
+
+		//-----------------------------------------------------------------
+		// Burn time test bar.
+		//-----------------------------------------------------------------
+		// 100 to 350
+		// int barPosY = 240; // 80 per bar
+		// for (int i = 0; i < 80; ++i) {
+		// 	taskList.Add(new JobTaskSimpleMove(0, x, 100));
+		// 	taskList.Add(new JobTaskSimpleMove(1, y + (barPosY + i) * scaleMm, 200));
+		// 	taskList.Add(new JobTaskIncrementalLine(50, 40, 100, 5, 200, 2000, 0.025f));
+		// }
+
+		//-----------------------------------------------------------------
+		// Burn image.
+		//-----------------------------------------------------------------
+		float imgX = 56;
+		float imgY = 35;
+		_jobManager.AppendTaskImageRaster(taskList, _diffusedImg.data, imgX, imgY, 12, _diffusedImg.width, _diffusedImg.height, 0.050f, 150, 4000, 400, 0);
+
+		// Texture sheet small test.
+		// Y at 12 180
+		// M at 12 160
+		// C at 12 160
+		// B at 12 150
+
+		//-----------------------------------------------------------------
+		// Reset position to starting.
+		//-----------------------------------------------------------------
+		taskList.Add(new JobTaskSimpleMove(0, x, 200));
+		taskList.Add(new JobTaskSimpleMove(1, y, 200));
+
+		_jobManager.SetTaskList(taskList);
 	}
 
 	public void uiBtnStartLineTest() {
-		// float[] data = new float[3];
-		List<float> data = new List<float>();
+		// // float[] data = new float[3];
+		// List<float> data = new List<float>();
 
-		float div = 0.025f;
+		// float div = 0.025f;
 
-		for (int i = 0; i < 400; ++i) {
-			data.Add(_jobManager._controller._lastAxisPos[0] + div * i);
-		}
+		// for (int i = 0; i < 400; ++i) {
+		// 	data.Add(_jobManager._controller._lastAxisPos[0] + div * i);
+		// }
 
-		//_jobManager.SetLineRaster(200, 200, 10, data.ToArray());
-		_jobManager.SetTaskLineTest(_canvasRawData, _jobManager._controller._lastAxisPos[0], _jobManager._controller._lastAxisPos[1], _sourceImage.width, _sourceImage.height);
+		// //_jobManager.SetLineRaster(200, 200, 10, data.ToArray());
+		// _jobManager.SetTaskLineTest(_canvasRawData, _jobManager._controller._lastAxisPos[0], _jobManager._controller._lastAxisPos[1], _sourceImage.width, _sourceImage.height);
+	}
+
+	private float _GetMoveAmount() {
+		return float.Parse(uiTextMoveAmount.text);
 	}
 
 	public void uiBtnMirrorLeft() {
-		_jobManager.SetTaskSimpleMoveRelative(2, -10, 200);
+		_jobManager.StartTaskSimpleMoveRelative(2, -_GetMoveAmount(), 200);
 	}
 
 	public void uiBtnMirrorRight() {
-		_jobManager.SetTaskSimpleMoveRelative(2, 10, 200);
+		_jobManager.StartTaskSimpleMoveRelative(2, _GetMoveAmount(), 200);
 	}
 
 	public void uiBtnLeft() {
-		_jobManager.SetTaskSimpleMoveRelative(0, -1.0f, 200);
+		_jobManager.StartTaskSimpleMoveRelative(0, -_GetMoveAmount(), 200);
 	}
 
 	public void uiBtnRight() {
-		_jobManager.SetTaskSimpleMoveRelative(0, 1.0f, 200);
+		_jobManager.StartTaskSimpleMoveRelative(0, _GetMoveAmount(), 200);
 	}
 
 	public void uiBtnUp() {
-		_jobManager.SetTaskSimpleMoveRelative(1, 0.5f, 200);
+		_jobManager.StartTaskSimpleMoveRelative(1, _GetMoveAmount(), 200);
 	}
 
 	public void uiBtnDown() {
-		_jobManager.SetTaskSimpleMoveRelative(1, -0.5f, 200);
+		_jobManager.StartTaskSimpleMoveRelative(1, -_GetMoveAmount(), 200);
 	}
 
 	public void uiBtnLaserBurst() {
@@ -145,9 +257,15 @@ public class core : MonoBehaviour {
 	}
 
 	public void uiBtnSlowLaser() {
-		_jobManager.SetTaskStartLaser(10000, 30, 950);
+		_jobManager.StartTaskModulateLaser(1000, 3);
+		// _jobManager.SetTaskStartLaser(10000, 30, 950);
+		
 		// _jobManager.SetTaskStartLaser(10000, 5, 975);
 		// _jobManager.SetTaskStartLaser(1, 60000, 0);
+	}
+
+	public void uiBtnStopLaser() {
+		_jobManager.StartTaskStopLaser();
 	}
 
 	private ComputeBuffer _candidateCountBuffer;
@@ -158,6 +276,9 @@ public class core : MonoBehaviour {
 	private Texture2D gPdDiffusionTex;
 
 	void Start() {
+		_textRenderer = new TextRenderer();
+		ImageData textTest = _textRenderer.GetTextImage("100%", 32, this);
+		
 		_candidateCountBuffer = new ComputeBuffer(1, 4);
 		candidateMetaBuffer = new ComputeBuffer(7 * 1024 * 1024, 4);
 
@@ -174,7 +295,6 @@ public class core : MonoBehaviour {
 		gPdDiffusionTex.filterMode = FilterMode.Point;
 
 		_diffuser = new Diffuser(this);
-
 		_ClearCoverageMap();
 
 		// _RunDiffuser();
@@ -194,7 +314,7 @@ public class core : MonoBehaviour {
 		// _diffuser.Process();
 		// _diffuser.DrawDebug();
 	}
-
+	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
 		double sigma = StdDev;
 		double r, s = 2.0 * sigma * sigma;
@@ -219,42 +339,246 @@ public class core : MonoBehaviour {
 		return kernel;
 	}
 
+	public void SaveImageDataToPng(byte[] Data, int Width, int Height, string FileName) {
+		int totalPixels = Width * Height;
+		Color32[] tempCols = new Color32[totalPixels];
+
+		Texture2D tex = new Texture2D(Width, Height);
+
+		for (int i = 0; i < totalPixels; ++i) {
+			float srgb = Mathf.Pow(Data[i] / 255.0f, 1.0f / 2.2f);
+			byte v = (byte)(srgb * 255.0f);
+			tempCols[i].r = v;
+			tempCols[i].g = v;
+			tempCols[i].b = v;
+			tempCols[i].a = 255;
+		}
+		
+		tex.SetPixels32(tempCols);
+		tex.Apply(false);
+
+		byte[] bytes = tex.EncodeToPNG();
+		System.IO.File.WriteAllBytes(FileName, bytes);
+
+		GameObject.Destroy(tex);
+	}
+
+	public void SaveImageDataToPng(ImageData Data, string FileName) {
+		int totalPixels = Data.width * Data.height;
+		Color32[] tempCols = new Color32[totalPixels];
+
+		Texture2D tex = new Texture2D(Data.width, Data.height);
+
+		for (int i = 0; i < totalPixels; ++i) {
+			byte v = (byte)(Data.data[i] * 255);
+			tempCols[i].r = v;
+			tempCols[i].g = v;
+			tempCols[i].b = v;
+			tempCols[i].a = 255;
+		}
+		
+		tex.SetPixels32(tempCols);
+		tex.Apply(false);
+
+		byte[] bytes = tex.EncodeToPNG();
+		System.IO.File.WriteAllBytes(FileName, bytes);
+
+		GameObject.Destroy(tex);
+	}
+
+	private void _PrintCMYK(MagickImage Img) {
+		byte[] data = Img.GetPixels().ToArray();
+		Debug.Log("CMYK: " + data[0] + " " + data[1] + " " + data[2] + " " + data[3]);
+	}
+
+	private void _PrintRGB(MagickImage Img) {
+		byte[] data = Img.GetPixels().ToArray();
+		Debug.Log("RGB: " + data[0] + " " + data[1] + " " + data[2]);
+	}
+
+	private void CMYKToSRGB(float C, float M, float Y, float K) {
+		byte[] calcData = new byte[4];
+		calcData[0] = (byte)(C * 255.0f);
+		calcData[1] = (byte)(M * 255.0f);
+		calcData[2] = (byte)(Y * 255.0f);
+		calcData[3] = (byte)(K * 255.0f);
+
+		MagickReadSettings readSettings = new MagickReadSettings();
+		// readSettings.ColorType = ColorType.Bilevel
+		readSettings.Width = 1;
+		readSettings.Height = 1;
+		readSettings.ColorSpace = ImageMagick.ColorSpace.CMYK;
+		readSettings.Format = MagickFormat.Cmyk;
+		
+		MagickImage calcImg = new MagickImage(calcData, readSettings);
+		
+		_PrintCMYK(calcImg);
+		// byte[] iccProfile = System.IO.File.ReadAllBytes("USWebUncoated.icc");
+		// bool result = calcImg.TransformColorSpace(new ColorProfile(iccProfile), ColorProfile.SRGB, ColorTransformMode.HighRes);
+		bool result = calcImg.TransformColorSpace(ColorProfile.USWebCoatedSWOP, ColorProfile.SRGB, ColorTransformMode.HighRes);
+		// Debug.Log("TEST: " + result + " " + calcImg.ChannelCount);
+		_PrintRGB(calcImg);
+
+		calcImg.Write("cmykToSrgb.png");
+	}
+
+	private int _CountDots(ImageData Img) {
+		int result = 0;
+
+		for (int j = 0; j < Img.width * Img.height; ++j) {
+				if (Img.data[j] == 0) {
+					++result;
+				}
+			}
+
+		return result;
+	}
+
+	private byte[][] _SRGBFileToCMYKChannels(string Path, out int Width, out int Height) {
+		byte[][] channels = new byte[4][];
+		Width = 0;
+		Height = 0;
+
+		using (MagickImage image = new MagickImage(Path)) {
+			// byte[] iccProfile = System.IO.File.ReadAllBytes("SWOP2006_Coated3_GCR_bas.icc");
+			// byte[] iccProfile = System.IO.File.ReadAllBytes("USWebCoatedSWOP.icc");
+			// byte[] iccProfile = System.IO.File.ReadAllBytes("WebCoatedSWOP2006Grade5.icc");
+			// byte[] iccProfile = System.IO.File.ReadAllBytes("RSWOP.icm");
+			// byte[] iccProfile = System.IO.File.ReadAllBytes("USWebUncoated.icc");
+			// bool result = image.TransformColorSpace(ColorProfile.SRGB, new ColorProfile(iccProfile), ColorTransformMode.HighRes);
+			bool result = image.TransformColorSpace(ColorProfile.SRGB, ColorProfile.USWebCoatedSWOP, ColorTransformMode.HighRes);
+			Debug.Log("Channels: " + image.ChannelCount + " " + result);
+
+			IPixelCollection<byte> pixels = image.GetPixels();
+
+			byte[] rawPixels = pixels.ToArray();
+			int channelByteCount = image.Width * image.Height;
+
+			Width = image.Width;
+			Height = image.Height;
+
+			// byte[][] channels = new byte[4][];
+			
+			for (int i = 0; i < 4; ++i) {
+				channels[i] = new byte[channelByteCount];
+			}
+
+			// byte[] imgC = new byte[channelByteCount];
+			// byte[] imgM = new byte[channelByteCount];
+			// byte[] imgY = new byte[channelByteCount];
+			// byte[] imgK = new byte[channelByteCount];
+
+			// resultImg.width = image.Width;
+			// resultImg.height = image.Height;
+			// resultImg.data = new float[channelByteCount];
+
+			for (int iY = 0; iY < image.Height; ++iY) {
+				for (int iX = 0; iX < image.Width; ++iX) {
+					int idx = iY * image.Width + iX;
+					// int dIdx = (image.Height - 1 - iY) * image.Width + iX;
+					int dIdx = (iY) * image.Width + iX;
+
+					float c = rawPixels[idx * 4 + 0] / 255.0f;
+					float m = rawPixels[idx * 4 + 1] / 255.0f;
+					float y = rawPixels[idx * 4 + 2] / 255.0f;
+					float k = rawPixels[idx * 4 + 3] / 255.0f;
+
+					// Convert value to sRGB for viewing purposes.
+					// c = Mathf.Pow(c, 1.0f / 2.2f);
+					// m = Mathf.Pow(m, 1.0f / 2.2f);
+					// y = Mathf.Pow(y, 1.0f / 2.2f);
+					// k = Mathf.Pow(k, 1.0f / 2.2f);
+
+					channels[0][dIdx] = (byte)((1.0f - c) * 255);
+					channels[1][dIdx] = (byte)((1.0f - m) * 255);
+					channels[2][dIdx] = (byte)((1.0f - y) * 255);
+					channels[3][dIdx] = (byte)((1.0f - k) * 255);
+
+					// resultImg.data[dIdx] = channels[Channel][dIdx] / 255.0f;
+				}
+			}
+			
+			// SaveImageDataToPng(imgC, image.Width, image.Height, "0.png");
+			// SaveImageDataToPng(imgM, image.Width, image.Height, "1.png");
+			// SaveImageDataToPng(imgY, image.Width, image.Height, "2.png");
+			// SaveImageDataToPng(imgK, image.Width, image.Height, "3.png");
+		}
+
+		return channels;
+	}
+
 	private void _StartDiffuser() {
-		_sourceImage = _LoadImage("content/test_pattern.png");
-		//_sourceImage = _LoadImage("content/gradient.png");
-		// _sourceImage = _LoadImage("content/colorchart_disc_grid_1_channel.png");
-		//_sourceImage = _LoadImage("content/cmyk_test/y.png");
+		int cmykWidth = 0;
+		int cmykHeight = 0;
+		byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/small_texture_test.png", out cmykWidth, out cmykHeight);
+		
+		ImageData[] channels = new ImageData[4];
+		int totalBurnDots = 0;
 
-		//_sourceImage = _LoadImage("content/drag_rawr/k.png");
+		for (int i = 0; i < 4; ++i) {
+			ImageData channel = new ImageData();
+			channel.width = cmykWidth;
+			channel.height = cmykHeight;
+			channel.data = new float[channel.width * channel.height];
 
-		//_sourceImage = _LoadImage("content/drag_2cm/b.png");
-		//_sourceImage = _LoadImage("content/drag/b.png");
-		//_sourceImage = _LoadImage("content/chars/toon.png");
-		//_sourceImage = _LoadImage("content/chars/disc.png");
+			for (int j = 0; j < channel.width * channel.height; ++j) {
+				channel.data[j] = cmykChannels[i][j] / 255.0f;
+			}
 
-		uiOriginalImage.texture = _sourceImage;
-		float scale = 0.2f;
-		uiOriginalImage.rectTransform.sizeDelta = new Vector2(_sourceImage.width, _sourceImage.height) * scale;
+			channels[i] = _Dither(channel);
 
-		// Workspace image resolution.
-		// 50um per point @ 50mm * 50mm
-		// Canvas size: 1000 * 1000
+			int dots = _CountDots(channels[i]);
+			Debug.Log("Dots: " + dots + "/" + channels[i].width * channels[i].height);
 
-		_canvas = new Texture2D(1000, 1000, TextureFormat.RGB24, false, false);
+			totalBurnDots += dots;
+		}
+
+		Debug.Log("Total dots: " + totalBurnDots + "/" + ((cmykWidth * cmykHeight) * 4));
+
+		// Texture2D sourceImage = _LoadImage("content/char_render_sat.png");
+		// Texture2D sourceImage = _LoadImage("content/gradient.png");
+		// Texture2D sourceImage = _LoadImage("content/colorchart_disc_grid_1_channel.png");
+		// Texture2D sourceImage = _LoadImage("content/cmyk_test/m.png");
+		// Texture2D sourceImage = _LoadImage("content/drag_rawr/k.png");
+		// Texture2D sourceImage = _LoadImage("content/drag_rawr/lorg_k.png");
+		// Texture2D sourceImage = _LoadImage("content/drag_rawr/smol_c.png");
+		// Texture2D sourceImage = _LoadImage("content/drag_2cm/b.png");
+		// Texture2D sourceImage = _LoadImage("content/drag/b.png");
+		// Texture2D sourceImage = _LoadImage("content/chars/toon.png");
+		// Texture2D sourceImage = _LoadImage("content/chars/disc.png");
+
+		// _diffusedImg = _Dither(sourceImage, sourceImage.width, sourceImage.height);
+		// _diffusedImg = _Dither(imgCmyk);
+		
+		_diffusedImg = channels[3];
+
+		// Apply image to preview canvas.
+		int pWidth = _diffusedImg.width;
+		int pHeight = _diffusedImg.height;
+		Color32[] tempCols = new Color32[pWidth * pHeight];
+		_canvas = new Texture2D(pWidth, pHeight, TextureFormat.RGB24, false, false);
 		_canvas.filterMode = FilterMode.Point;
 		uiCanvas.texture = _canvas;
-		uiCanvas.rectTransform.sizeDelta = new Vector2(1000, 1000);
-
-		_canvasRawData = new float[1000 * 1000];
-		_sourceRawData = _sourceImage.GetPixels32();
-		_tempCols = new Color32[1000 * 1000];
-
-		// _Histogram(_sourceRawData, _sourceImage.width * _sourceImage.height);
+		uiCanvas.rectTransform.sizeDelta = new Vector2(pWidth, pHeight);
 		
-		_CopyAndDither(_sourceImage, _canvas, _sourceImage.width, _sourceImage.height);
+		int maxX = Mathf.Min(pWidth, _diffusedImg.width);
+		int maxY = Mathf.Min(pHeight, _diffusedImg.height);
 
-		uiPreviewImage.rectTransform.sizeDelta = new Vector2(215, 215);
-		uiPreviewImage.texture = _canvas;
+		for (int iY = 0; iY < maxY; ++iY) {
+			for (int iX = 0; iX < maxX; ++iX) {
+				int sIdx = iY * _diffusedImg.width + iX;
+				int idx = iY * pWidth + iX;
+
+				byte lumByte = (byte)(Mathf.Clamp01(_diffusedImg.data[sIdx]) * 255.0f);
+
+				tempCols[idx].r = lumByte;
+				tempCols[idx].g = lumByte;
+				tempCols[idx].b = lumByte;
+			}
+		}
+		
+		_canvas.SetPixels32(tempCols);
+		_canvas.Apply(false);
 	}
 
 	private void _RunDiffuser() {
@@ -971,89 +1295,205 @@ public class core : MonoBehaviour {
 		// Convert LAB to CMYK for print.
 	}
 
-	private void _CopyAndDither(Texture2D Source, Texture2D Dest, int SourceWidth, int SourceHeight) {
+	// Vector3 GammaToLinear(Vector3 In) {
+	// 	float3 linearRGBLo = In / 12.92;;
+	// 	float3 linearRGBHi = pow(max(abs((In + 0.055) / 1.055), 1.192092896e-07), float3(2.4, 2.4, 2.4));
+	// 	Out = float3(In <= 0.04045) ? linearRGBLo : linearRGBHi;
+	// }
+
+	// void LinearToGamma(float3 In, out float3 Out) {
+	// 	float3 sRGBLo = In * 12.92;
+	// 	float3 sRGBHi = (pow(max(abs(In), 1.192092896e-07), float3(1.0 / 2.4, 1.0 / 2.4, 1.0 / 2.4)) * 1.055) - 0.055;
+	// 	Out = float3(In <= 0.0031308) ? sRGBLo : sRGBHi;
+	// }
+
+	private ImageData _Dither(ImageData Data) {
+		ImageData result = new ImageData();
+		result.width = Data.width;
+		result.height = Data.height;
+		result.data = new float[Data.width * Data.height];
+
 		// Get image.
-		for (int i = 0; i < 1000 * 1000; ++i) {
-			int dX = i % 1000;
-			int dY = i / 1000;
-
-			// int sIdx = (dY + 500) * SourceWidth + (dX + 500);
-			int sIdx = (dY) * SourceWidth + (dX);
-
-			if (sIdx < SourceWidth * SourceHeight && dY < SourceHeight && dX < SourceWidth) {
-				float lum = _sourceRawData[sIdx].r * 0.2126f + _sourceRawData[sIdx].g * 0.7152f + _sourceRawData[sIdx].b * 0.0722f;
-				_canvasRawData[i] = lum / 255.0f;
+		for (int iY = 0; iY < Data.height; ++iY) {
+			for (int iX = 0; iX < Data.width; ++iX) {
+				int idx = iY * Data.width + iX;
+				
+				// result.data[idx] = 1.0f - Data.data[idx];
+				result.data[idx] = Data.data[idx];
 
 				// sRGB to linear.
-				_canvasRawData[i] = Mathf.Pow(_canvasRawData[i], 2.2f);
+				// result.data[idx] = Mathf.Pow(result.data[idx], 2.2f);
 				// Linear to sRGB.
-				// _canvasRawData[i] = Mathf.Pow(_canvasRawData[i], 1.0f / 2.2f);
-			} else {
-				_canvasRawData[i] = 1.0f;
+				// result.data[idx] = Mathf.Pow(result.data[idx], 1.0f / 2.2f);
 			}
-
-			// Apply brightness, contrast.
-			float l = _canvasRawData[i];
-			l = Mathf.Pow(l, _threshold) + _brightness;
-
-			//_canvasRawData[i] = 1.0f - Mathf.Clamp01(l);
-			_canvasRawData[i] = Mathf.Clamp01(l);
-		}
-
-		// Probability based dithering.
-		// for (int i = 0; i < 1000 * 1000; ++i) {
-		// 	int dX = i % 1000;
-		// 	int dY = i / 1000;
-
-		// 	float r = UnityEngine.Random.value;
-
-		// 	if (r > _canvasRawData[i])
-		// 		_canvasRawData[i] = 0;
-		// 	else 
-		// 		_canvasRawData[i] = 1;
-		// }
-
-		// Floyd boi dithering.
-		for (int i = 0; i < 1000 * 1000; ++i) {
-			int dX = i % 1000;
-			int dY = i / 1000;
-
-			float finalColor = _GetClosestLum(_canvasRawData[i]);
-
-			float error = _canvasRawData[i] - finalColor;
-
-			_canvasRawData[i] = finalColor;
-
-			if (dX < 1000 - 1) {
-				_canvasRawData[i + 1] += error * 7.0f / 16.0f;
-			}
-
-			if (dY < 1000 - 1) {
-				if (dX < 1000 - 1) {
-					_canvasRawData[i + 1000 + 1] += error * 1.0f / 16.0f;
-				}
-
-				if (dX > 0) {
-					_canvasRawData[i + 1000 - 1] += error * 3.0f / 16.0f;
-				}
-
-				_canvasRawData[i + 1000] += error * 5.0f / 16.0f;
-			}
-		}
-
-		// Apply final image.
-		for (int i = 0; i < 1000 * 1000; ++i) {
-			_canvasRawData[i] = Mathf.Clamp01(_canvasRawData[i]);
-			byte lumByte = (byte)(_canvasRawData[i] * 255.0f);
-
-			_tempCols[i].r = lumByte;
-			_tempCols[i].g = lumByte;
-			_tempCols[i].b = lumByte;
 		}
 		
-		Dest.SetPixels32(_tempCols);
-		Dest.Apply(false);
+		// Floyd boi dithering.
+		for (int iY = 0; iY < Data.height; ++iY) {
+			for (int iX = 0; iX < Data.width; ++iX) {
+				int sIdx = iY * Data.width + iX;
+				
+				float finalColor = _GetClosestLum(result.data[sIdx]);
+
+				float error = result.data[sIdx] - finalColor;
+
+				result.data[sIdx] = finalColor;
+
+				if (iX < Data.width - 1) {
+					result.data[sIdx + 1] += error * 7.0f / 16.0f;
+				}
+
+				if (iY < Data.height - 1) {
+					if (iX < Data.width - 1) {
+						result.data[sIdx + Data.width + 1] += error * 1.0f / 16.0f;
+					}
+
+					if (iX > 0) {
+						result.data[sIdx + Data.width - 1] += error * 3.0f / 16.0f;
+					}
+
+					result.data[sIdx + Data.width] += error * 5.0f / 16.0f;
+				}
+			}
+		}
+
+		return result;
 	}
+
+	private ImageData _Dither(Texture2D Source, int SourceWidth, int SourceHeight) {
+		Color32[] sourceRawData = Source.GetPixels32();
+		ImageData result = new ImageData();
+		result.width = SourceWidth;
+		result.height = SourceHeight;
+		result.data = new float[SourceWidth * SourceHeight];
+
+		// Get image.
+		for (int iY = 0; iY < SourceHeight; ++iY) {
+			for (int iX = 0; iX < SourceWidth; ++iX) {
+				int sIdx = (SourceHeight - 1 - iY) * SourceWidth + iX;
+				int idx = iY * SourceWidth + iX;
+				
+				float lum = sourceRawData[sIdx].r * 0.2126f + sourceRawData[sIdx].g * 0.7152f + sourceRawData[sIdx].b * 0.0722f;
+				result.data[idx] = lum / 255.0f;
+
+				// sRGB to linear.
+				result.data[idx] = Mathf.Pow(result.data[idx], 2.2f);
+				// Linear to sRGB.
+				// result.data[idx] = Mathf.Pow(result.data[idx], 1.0f / 2.2f);
+				
+				// Apply brightness, contrast.
+				// float l = result.data[idx];
+				// l = Mathf.Pow(l, _threshold) + _brightness;
+
+				// result.data[idx] = 1.0f - Mathf.Clamp01(l);
+				// result.data[idx] = Mathf.Clamp01(l);
+			}
+		}
+		
+		// Floyd boi dithering.
+		for (int iY = 0; iY < SourceHeight; ++iY) {
+			for (int iX = 0; iX < SourceWidth; ++iX) {
+				int sIdx = iY * SourceWidth + iX;
+				
+				float finalColor = _GetClosestLum(result.data[sIdx]);
+
+				float error = result.data[sIdx] - finalColor;
+
+				result.data[sIdx] = finalColor;
+
+				if (iX < SourceWidth - 1) {
+					result.data[sIdx + 1] += error * 7.0f / 16.0f;
+				}
+
+				if (iY < SourceHeight - 1) {
+					if (iX < SourceWidth - 1) {
+						result.data[sIdx + SourceWidth + 1] += error * 1.0f / 16.0f;
+					}
+
+					if (iX > 0) {
+						result.data[sIdx + SourceWidth - 1] += error * 3.0f / 16.0f;
+					}
+
+					result.data[sIdx + SourceWidth] += error * 5.0f / 16.0f;
+				}
+			}
+		}
+
+		return result;
+	}
+
+	// private void _CopyAndDither(Texture2D Source, Texture2D Dest, int SourceWidth, int SourceHeight) {
+	// 	Color32[] sourceRawData = Source.GetPixels32();
+
+	// 	// Get image.
+	// 	for (int i = 0; i < 1000 * 1000; ++i) {
+	// 		int dX = i % 1000;
+	// 		int dY = i / 1000;
+
+	// 		// int sIdx = (dY + 500) * SourceWidth + (dX + 500);
+	// 		int sIdx = (dY) * SourceWidth + (dX);
+
+	// 		if (sIdx < SourceWidth * SourceHeight && dY < SourceHeight && dX < SourceWidth) {
+	// 			float lum = sourceRawData[sIdx].r * 0.2126f + sourceRawData[sIdx].g * 0.7152f + sourceRawData[sIdx].b * 0.0722f;
+	// 			_canvasRawData[i] = lum / 255.0f;
+
+	// 			// sRGB to linear.
+	// 			_canvasRawData[i] = Mathf.Pow(_canvasRawData[i], 2.2f);
+	// 			// Linear to sRGB.
+	// 			// _canvasRawData[i] = Mathf.Pow(_canvasRawData[i], 1.0f / 2.2f);
+	// 		} else {
+	// 			_canvasRawData[i] = 1.0f;
+	// 		}
+
+	// 		// Apply brightness, contrast.
+	// 		float l = _canvasRawData[i];
+	// 		l = Mathf.Pow(l, _threshold) + _brightness;
+
+	// 		// _canvasRawData[i] = 1.0f - Mathf.Clamp01(l);
+	// 		_canvasRawData[i] = Mathf.Clamp01(l);
+	// 	}
+		
+	// 	// Floyd boi dithering.
+	// 	for (int i = 0; i < 1000 * 1000; ++i) {
+	// 		int dX = i % 1000;
+	// 		int dY = i / 1000;
+
+	// 		float finalColor = _GetClosestLum(_canvasRawData[i]);
+
+	// 		float error = _canvasRawData[i] - finalColor;
+
+	// 		_canvasRawData[i] = finalColor;
+
+	// 		if (dX < 1000 - 1) {
+	// 			_canvasRawData[i + 1] += error * 7.0f / 16.0f;
+	// 		}
+
+	// 		if (dY < 1000 - 1) {
+	// 			if (dX < 1000 - 1) {
+	// 				_canvasRawData[i + 1000 + 1] += error * 1.0f / 16.0f;
+	// 			}
+
+	// 			if (dX > 0) {
+	// 				_canvasRawData[i + 1000 - 1] += error * 3.0f / 16.0f;
+	// 			}
+
+	// 			_canvasRawData[i + 1000] += error * 5.0f / 16.0f;
+	// 		}
+	// 	}
+
+	// 	// Apply final image.
+	// 	for (int i = 0; i < 1000 * 1000; ++i) {
+	// 		_canvasRawData[i] = Mathf.Clamp01(_canvasRawData[i]);
+	// 		byte lumByte = (byte)(_canvasRawData[i] * 255.0f);
+
+	// 		_tempCols[i].r = lumByte;
+	// 		_tempCols[i].g = lumByte;
+	// 		_tempCols[i].b = lumByte;
+	// 	}
+		
+	// 	Dest.SetPixels32(_tempCols);
+	// 	Dest.Apply(false);
+	// }
 	
 	private Texture2D _LoadImage(string Path) {
 		Texture2D tex = null;
@@ -1085,10 +1525,10 @@ public class core : MonoBehaviour {
 		Vector3 laserPos = LaserLocator.transform.position;
 		LaserCoverageMat.SetVector("laserPos", new Vector4(laserPos.x, laserPos.y, laserPos.z, 0.0f));
 
-		if (_jobManager != null && _jobManager._controller != null) {
-			uiTextPosX.text = "X: " + _jobManager._controller._lastAxisPos[0];
-			uiTextPosY.text = "Y: " + _jobManager._controller._lastAxisPos[1];
-			uiTextPosZ.text = "Z: " + _jobManager._controller._lastAxisPos[2];
+		if (_jobManager != null && _jobManager.controller != null) {
+			uiTextPosX.text = "X: " + _jobManager.controller._lastAxisPos[0];
+			uiTextPosY.text = "Y: " + _jobManager.controller._lastAxisPos[1];
+			uiTextPosZ.text = "Z: " + _jobManager.controller._lastAxisPos[2];
 		}
 
 		// NOTE: Only if we have primed mesh.
