@@ -53,7 +53,7 @@
 			float4 frag (v2f i) : SV_Target
 			{
 				// return float4(1, 1, 1, 1);
-				return float4(0, 0, 0, 1);
+				// return float4(0, 0, 0, 1);
 
 				float4 s = tex2D(_MainTex, i.uv);
 
