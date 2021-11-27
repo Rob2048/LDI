@@ -16,43 +16,6 @@ using Debug = UnityEngine.Debug;
 
 public class core : MonoBehaviour {
 
-	/*
-	Coverage algo steps:
-
-	- Build reasonably uniform triangle mesh.
-		- Eliminates small bumps automatically.
-
-	- Build coverage map.
-		- Tris are mapped to pixels.
-		- Each pixel is coverage element (Coxel).
-		
-	- Use coxels to build list of scanner positions.
-		- Max 1 position per coxel. (Can have no positions if unreachable).
-		- Ideally, check for coxel scores and decide if coverage is already sufficient.
-		- Start search at optimal location, and move around until max angles are reached.
-			- Each view check renders model, writes quality to coxel, appropriate coxels checked for quality, if above certain threshold then accept.
-		- Figure out group score and write into coxel.
-			- Group score determines how effective this scanner position has been in covering pixels.
-			- This means a search will need to be done for every coxel.
-
-	- Build raster list for each scanner position.
-		- Start with highest score groups.
-		- Use coxels coverage to determine if it needs coverage.
-		- Render into coverage.
-
-	- Determine visit order of scanner position list.
-		- Travelling salesman problem.
-		- Use time of slowest axis to determine time from position to position.
-
-
-	angular frequency max
-	------------------------
-
-	fa = 400pixels * 3.14 * 300mm / (360 * 20)
-	fa = 376800 / 7200
-	fa max = 52.33 cycle/deg
-	*/
-
 	public TextMesh bakeTextMesh;
 	public Camera bakeTextCamera;
 
@@ -210,20 +173,6 @@ public class core : MonoBehaviour {
 		_jobManager.SetTaskList(taskList);
 	}
 
-	public void uiBtnStartLineTest() {
-		// // float[] data = new float[3];
-		// List<float> data = new List<float>();
-
-		// float div = 0.025f;
-
-		// for (int i = 0; i < 400; ++i) {
-		// 	data.Add(_jobManager._controller._lastAxisPos[0] + div * i);
-		// }
-
-		// //_jobManager.SetLineRaster(200, 200, 10, data.ToArray());
-		// _jobManager.SetTaskLineTest(_canvasRawData, _jobManager._controller._lastAxisPos[0], _jobManager._controller._lastAxisPos[1], _sourceImage.width, _sourceImage.height);
-	}
-
 	private float _GetMoveAmount() {
 		return float.Parse(uiTextMoveAmount.text);
 	}
@@ -258,10 +207,6 @@ public class core : MonoBehaviour {
 
 	public void uiBtnSlowLaser() {
 		_jobManager.StartTaskModulateLaser(1000, 3);
-		// _jobManager.SetTaskStartLaser(10000, 30, 950);
-		
-		// _jobManager.SetTaskStartLaser(10000, 5, 975);
-		// _jobManager.SetTaskStartLaser(1, 60000, 0);
 	}
 
 	public void uiBtnStopLaser() {
@@ -297,9 +242,9 @@ public class core : MonoBehaviour {
 		_diffuser = new Diffuser(this);
 		_ClearCoverageMap();
 
-		// _RunDiffuser();
-		_StartDiffuser();
-		// _PrimeMesh();
+		// _DiffusionPerceptualTest();
+		// _Diffuse2dImage();
+		_PrimeMesh();
 
 		_jobManager = new JobManager();
 		_jobManager.Init();
@@ -507,10 +452,10 @@ public class core : MonoBehaviour {
 		return channels;
 	}
 
-	private void _StartDiffuser() {
+	private void _Diffuse2dImage() {
 		int cmykWidth = 0;
 		int cmykHeight = 0;
-		byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/small_texture_test.png", out cmykWidth, out cmykHeight);
+		byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/galvoViewTest.png", out cmykWidth, out cmykHeight);
 		
 		ImageData[] channels = new ImageData[4];
 		int totalBurnDots = 0;
@@ -581,7 +526,7 @@ public class core : MonoBehaviour {
 		_canvas.Apply(false);
 	}
 
-	private void _RunDiffuser() {
+	private void _DiffusionPerceptualTest() {
 		Texture2D sourceImg = gSourceImg;
 
 		Debug.Log("Img: " + sourceImg.width + " " + sourceImg.height);
@@ -1052,10 +997,12 @@ public class core : MonoBehaviour {
 			int sIdx = (dY) * Source.width + (dX);
 
 			if (sIdx < Source.width * Source.height && dY < Source.height && dX < Source.width) {
-				float lum = srcRaw[sIdx].r * 0.2126f + srcRaw[sIdx].g * 0.7152f + srcRaw[sIdx].b * 0.0722f;
+				// float lum = srcRaw[sIdx].r * 0.2126f + srcRaw[sIdx].g * 0.7152f + srcRaw[sIdx].b * 0.0722f;
+				float lum = srcRaw[sIdx].r;
 				srcLum[i] = lum / 255.0f;
 
 				// sRGB to linear.
+				srcLum[i] = GammaToLinear(srcLum[i]);
 				// srcLum[i] = Mathf.Pow(srcLum[i], 2.2f);
 				// Linear to sRGB.
 				// srcLum[i] = Mathf.Pow(srcLum[i], 1.0f / 2.2f);
@@ -1094,7 +1041,7 @@ public class core : MonoBehaviour {
 				srcLum[i + Source.width] += error * 5.0f / 16.0f;
 			}
 		}
-
+		
 		float[] filterImg = new float[totalPixels];
 		// Note: Must be an odd number.
 		int filterSize = 5;
@@ -1122,9 +1069,10 @@ public class core : MonoBehaviour {
 		// Apply final image.
 		Color32[] _tempCols = new Color32[totalPixels];
 		for (int i = 0; i < totalPixels; ++i) {
-			// byte lumByte = (byte)(srcLum[i] * 255.0f);
+			byte lumByte = (byte)(srcLum[i] * 255.0f);
 			// filterImg[i] = Mathf.Pow(filterImg[i], 1.0f / 2.2f);
-			byte lumByte = (byte)(filterImg[i] * 255.0f);
+			// filterImg[i] = LinearToGamma(filterImg[i]);
+			// byte lumByte = (byte)(filterImg[i] * 255.0f);
 
 			_tempCols[i].r = lumByte;
 			_tempCols[i].g = lumByte;
@@ -1296,9 +1244,10 @@ public class core : MonoBehaviour {
 	}
 
 	// Vector3 GammaToLinear(Vector3 In) {
-	// 	float3 linearRGBLo = In / 12.92;;
-	// 	float3 linearRGBHi = pow(max(abs((In + 0.055) / 1.055), 1.192092896e-07), float3(2.4, 2.4, 2.4));
-	// 	Out = float3(In <= 0.04045) ? linearRGBLo : linearRGBHi;
+	// 	Vector3 linearRGBLo = In / 12.92f;
+	// 	Vector3 linearRGBHi = pow(max(abs((In + 0.055) / 1.055), 1.192092896e-07), float3(2.4, 2.4, 2.4));
+
+	// 	return Out = float3(In <= 0.04045) ? linearRGBLo : linearRGBHi;
 	// }
 
 	// void LinearToGamma(float3 In, out float3 Out) {
@@ -1306,6 +1255,19 @@ public class core : MonoBehaviour {
 	// 	float3 sRGBHi = (pow(max(abs(In), 1.192092896e-07), float3(1.0 / 2.4, 1.0 / 2.4, 1.0 / 2.4)) * 1.055) - 0.055;
 	// 	Out = float3(In <= 0.0031308) ? sRGBLo : sRGBHi;
 	// }
+
+	float GammaToLinear(float In) {
+		float linearRGBLo = In / 12.92f;
+		float linearRGBHi = Mathf.Pow(Mathf.Max(Mathf.Abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
+
+		return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
+	}
+
+	float LinearToGamma(float In) {
+		float sRGBLo = In * 12.92f;
+		float sRGBHi = (Mathf.Pow(Mathf.Max(Mathf.Abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
+		return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
+	}
 
 	private ImageData _Dither(ImageData Data) {
 		ImageData result = new ImageData();
@@ -1532,7 +1494,7 @@ public class core : MonoBehaviour {
 		}
 
 		// NOTE: Only if we have primed mesh.
-		//_ScannerViewHit(false);
+		_ScannerViewHit(false);
 
 		// if (_actualFactor != TargetFactor || _actualSpread != TargetSpread | _actualContrast != TargetContrast || _actualBrightness != TargetBrightness) {
 		// 	_actualFactor = TargetFactor;
@@ -1559,7 +1521,8 @@ public class core : MonoBehaviour {
 		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
 		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
 			
-		Matrix4x4 rotMatX = Matrix4x4.Rotate(Quaternion.Euler(-90, 0, 0));
+		// Matrix4x4 rotMatX = Matrix4x4.Rotate(Quaternion.Euler(-90, 0, 0));
+		Matrix4x4 rotMatX = Matrix4x4.Rotate(Quaternion.Euler(0, 0, 0));
 		Matrix4x4 rotMatY = Matrix4x4.Rotate(Quaternion.Euler(0, 0, 0));
 		Matrix4x4 offsetMat = Matrix4x4.Translate(new Vector3(0, -4.75f, 0));
 		Matrix4x4 modelMat = offsetMat * rotMatX * rotMatY;
@@ -1575,7 +1538,7 @@ public class core : MonoBehaviour {
 		PuffyMat.SetMatrix("vMat", (scaleMatrix * VisCam.worldToLocalMatrix));
 		PuffyMat.SetMatrix("pMat", realProj);
 		PuffyMat.SetVector("camWorldPos", VisCam.position);
-		cmdBuffer.DrawMesh(_puffyMesh, modelMat, PuffyMat);
+		// cmdBuffer.DrawMesh(_puffyMesh, modelMat, PuffyMat);
 
 		// Pixel candidates.
 		int[] candidateCountDataRaw = new int[1];
@@ -1787,9 +1750,11 @@ public class core : MonoBehaviour {
 		// Debug.Log(GL.GetGPUProjectionMatrix Camera.main.worldToCameraMatrix);
 
 		_pointsOnSphere = PointsOnSphere(1000);
-		for (int i = 0; i < _pointsOnSphere.Length; ++i) {
-			//GameObject.Instantiate(SampleLocatorPrefab, _pointsOnSphere[i] * 20.0f, Quaternion.LookRotation(-_pointsOnSphere[i], Vector3.up));
-		}
+
+		// Vector3[] searchLocations = PointsOnSphere(200);
+		// for (int i = 0; i < searchLocations.Length; ++i) {
+		// 	GameObject.Instantiate(SampleLocatorPrefab, searchLocations[i] * 20.0f, Quaternion.LookRotation(-searchLocations[i], Vector3.up));
+		// }
 
 		Stopwatch s = new Stopwatch();
 		s.Start();
@@ -1832,6 +1797,7 @@ public class core : MonoBehaviour {
 		_sourceTris = SourceMesh.GetTriangles(0);
 		_sourceVerts = SourceMesh.vertices;
 		_sourceNormals = SourceMesh.normals;
+		_sourceUV0 = SourceMesh.uv;
 		_sourceTriCount = _sourceTris.Length / 3;
 	}
 
@@ -1954,6 +1920,7 @@ public class core : MonoBehaviour {
 
 		Vector3[] verts = new Vector3[triCount * 3];
 		// Color32[] colors = new Color32[triCount * 3];
+		Vector2[] uvs = new Vector2[triCount * 3];
 		Vector3[] normals = new Vector3[triCount * 3];
 		int[] tris = new int[triCount * 3];
 		int idx = 0;
@@ -1973,6 +1940,10 @@ public class core : MonoBehaviour {
 			normals[idx * 3 + 0] = _sourceNormals[v0];
 			normals[idx * 3 + 1] = _sourceNormals[v1];
 			normals[idx * 3 + 2] = _sourceNormals[v2];
+
+			uvs[idx * 3 + 0] = _sourceUV0[v0];
+			uvs[idx * 3 + 1] = _sourceUV0[v1];
+			uvs[idx * 3 + 2] = _sourceUV0[v2];
 
 			tris[idx * 3 + 0] = idx * 3 + 0;
 			tris[idx * 3 + 1] = idx * 3 + 1;
@@ -1994,6 +1965,7 @@ public class core : MonoBehaviour {
 		visMesh.vertices = verts;
 		visMesh.triangles = tris;
 		visMesh.normals = normals;
+		visMesh.uv2 = uvs;
 		visMesh.name = "Vis mesh";
 		// _triIdMesh.colors32 = colors;
 
@@ -2209,7 +2181,6 @@ public class core : MonoBehaviour {
 			}
 		}
 
-		// NOTE: This writes directly over the imported asset?
 		Model.uv = uvs;
 	}
 
@@ -2223,8 +2194,9 @@ public class core : MonoBehaviour {
 		float triSize = 0.0025f;
 		float padding = 0.00025f;
 		float triPad = 0.00025f;
-		// float triScale = 0.025f;
-		float triScale = 0.042f;
+		float triScale = 0.025f;
+		// float triScale = 0.042f;
+		// float triScale = 0.08f;
 
 		// Vector2 packOffset = new Vector2(padding, padding);
 		Vector2 packOffset = new Vector2(0.0f, 0.0f);
@@ -2417,7 +2389,6 @@ public class core : MonoBehaviour {
 			uvs[sourceTris[tr.id * 3 + 2]] = tr.v2 + tr.rect.min;
 		}
 		
-		// NOTE: This writes directly over the imported asset?
 		Model.uv = uvs;
 	}
 

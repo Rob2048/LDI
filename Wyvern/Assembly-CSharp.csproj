@@ -36,21 +36,23 @@
     <ImplicitlyExpandDesignTimeFacades>false</ImplicitlyExpandDesignTimeFacades>
   </PropertyGroup>
   <ItemGroup>
-     <Compile Include="Assets\Scripts\jobmanager.cs" />
      <Compile Include="Assets\Scripts\diffuser.cs" />
-     <Compile Include="Assets\Scripts\controller.cs" />
-     <Compile Include="Assets\Scripts\laserAssembly.cs" />
      <Compile Include="Assets\Scripts\textRenderer.cs" />
      <Compile Include="Assets\Scripts\core.cs" />
+     <Compile Include="Assets\Scripts\jobmanager.cs" />
+     <Compile Include="Assets\Scripts\controller.cs" />
+     <Compile Include="Assets\Scripts\laserAssembly.cs" />
      <None Include="Assets\Shaders\laserLocator.shader" />
      <None Include="Assets\Shaders\triId.shader" />
      <None Include="Assets\Shaders\uvTriFlat.shader" />
+     <None Include="Assets\UIToolkit\UIMain.uxml" />
      <None Include="Assets\Shaders\orthoDepth.shader" />
      <None Include="Assets\Shaders\test.shader" />
      <None Include="Assets\Shaders\candidates.shader" />
      <None Include="Assets\Shaders\quantaScore.compute" />
      <None Include="Assets\Shaders\surfelDebug.shader" />
      <None Include="Assets\Shaders\quantaScoreVis.shader" />
+     <None Include="Assets\UI Toolkit\Sprites\EmojiOne Attribution.txt" />
      <None Include="Assets\Shaders\depthVis.shader" />
      <None Include="Assets\Shaders\quanta_vis.shader" />
      <None Include="Assets\Shaders\Puffy.shader" />
@@ -194,9 +196,6 @@
     <Reference Include="UnityEngine.UIModule">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEngine.UIModule.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEngine.UIElementsModule">
-        <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEngine.UIElementsModule.dll</HintPath>
-    </Reference>
     <Reference Include="UnityEngine.UIElementsNativeModule">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEngine.UIElementsNativeModule.dll</HintPath>
     </Reference>
@@ -268,9 +267,6 @@
     </Reference>
     <Reference Include="UnityEditor.SceneTemplateModule">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEditor.SceneTemplateModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEditor.UIElementsModule">
-        <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEditor.UIElementsModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEditor.UIElementsSamplesModule">
         <HintPath>C:/Program Files/Unity/Hub/Editor/2020.2.2f1/Editor/Data/Managed/UnityEngine/UnityEditor.UIElementsSamplesModule.dll</HintPath>
@@ -659,44 +655,68 @@
     <Reference Include="Unity.VisualStudio.Editor">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.VisualStudio.Editor.dll</HintPath>
     </Reference>
-    <Reference Include="Unity.Timeline.Editor">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Timeline.Editor.dll</HintPath>
-    </Reference>
     <Reference Include="Unity.Timeline">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Timeline.dll</HintPath>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.TextMeshPro.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEngine.Monetization">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.Monetization.dll</HintPath>
+    <Reference Include="UnityEngine.Advertisements">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.Advertisements.dll</HintPath>
     </Reference>
     <Reference Include="Unity.2D.Sprite.Editor">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.2D.Sprite.Editor.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEditor.Purchasing">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEditor.Purchasing.dll</HintPath>
-    </Reference>
     <Reference Include="UnityEditor.UI">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEditor.UI.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.Advertisements">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.Advertisements.dll</HintPath>
     </Reference>
     <Reference Include="Unity.Rider.Editor">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Rider.Editor.dll</HintPath>
     </Reference>
+    <Reference Include="Analytics">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Analytics.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.UI">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.UI.dll</HintPath>
     </Reference>
-    <Reference Include="Analytics">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Analytics.dll</HintPath>
+    <Reference Include="UnityEngine.UIElementsInputSystemModule">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.UIElementsInputSystemModule.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.Analytics.DataPrivacy">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Analytics.DataPrivacy.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.UIElements.Text">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.UIElements.Text.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextCore">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.TextCore.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.Timeline.Editor">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Timeline.Editor.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextCore.Editor">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.TextCore.Editor.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.Monetization">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.Monetization.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEditor.Purchasing">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEditor.Purchasing.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEditor.UIElementsModule">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEditor.UIElementsModule.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.UIElements.Editor.Text">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.UIElements.Editor.Text.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UIElementsModule">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.UIElementsModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.Advertisements.Editor">
         <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.Advertisements.Editor.dll</HintPath>
     </Reference>
-    <Reference Include="Unity.Analytics.DataPrivacy">
-        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/Unity.Analytics.DataPrivacy.dll</HintPath>
+    <Reference Include="UnityEngine.UIElementsGameObjectsModule">
+        <HintPath>C:/Projects/LDI/Wyvern/Library/ScriptAssemblies/UnityEngine.UIElementsGameObjectsModule.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

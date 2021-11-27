@@ -395,6 +395,7 @@ public class Diffuser {
 			uvs[i * 4 + 3] = new Vector2(1, 0);
 
 			byte v = (byte)(Mathf.Clamp01(s.discrete) * 255.0f);
+			// byte v = (byte)(Mathf.Clamp01(s.continuous) * 255.0f);
 			Color32 c = new Color32(v, v, v, 255);
 
 			// byte r = (byte)(i % 255);

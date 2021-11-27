@@ -38,6 +38,7 @@
 				float4 vertex : POSITION;
 				float4 normal : NORMAL;
 				float2 uv : TEXCOORD0;
+				float2 uv2 : TEXCOORD1;
 			};
 
 			struct v2f {
@@ -47,6 +48,7 @@
 				float4 camDepth : TEXCOORD1;
 				float4 worldPos : TEXCOORD2;
 				float2 uv : TEXCOORD3;
+				float2 uv2 : TEXCOORD4;
 			};
 			
 			v2f vert (appdata v) {
@@ -58,6 +60,7 @@
 				o.clipSpacePos = mul(vpMat, o.worldPos);
 				o.vertex = o.clipSpacePos;
 				o.uv = v.uv;
+				o.uv2 = v.uv2;
 
 				o.normal = mul(unity_ObjectToWorld, float4(v.normal.xyz, 0.0)).xyz;
 
@@ -108,8 +111,11 @@
 
 								// p = saturate(p) + 0.15;
 
-								float4 col = tex2D(_MainTex, i.worldPos.xy * float2(1, 0.5) * 0.8 + float2(0.5, 0.5));
-								float lum = col.r * 0.2126f + col.g * 0.7152f + col.b * 0.0722f;
+								// float4 col = tex2D(_MainTex, i.worldPos.xy * float2(1, 0.5) * 0.8 + float2(0.5, 0.5));
+								float4 col = tex2D(_MainTex, i.uv2);
+
+								// float lum = col.r * 0.2126f + col.g * 0.7152f + col.b * 0.0722f;
+								float lum = col.r;
 								p = lum;
 
 								// candidateMeta[idx + 6] = saturate(i.worldPos.y / 8.0);
