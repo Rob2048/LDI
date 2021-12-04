@@ -1,0 +1,87 @@
+:root {
+	--color-key: #C98DFF;
+	--color-key2: rgb(109, 71, 135);
+	--color-warning: rgb(200, 10, 5);
+	--color-light: rgb(245, 242, 241);
+	--color-mid: rgb(56, 56, 56);
+	--color-dark: rgb(41, 41, 41);
+}
+
+.warning-bkg {
+	background-color: var(--color-warning);
+}
+
+Button {
+	background-color: rgb(65, 65, 65);
+	font-size: 10px;
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+	border-left-color: rgb(41, 41, 41);
+	border-right-color: rgb(41, 41, 41);
+	border-top-color: rgb(41, 41, 41);
+	border-bottom-color: rgb(41, 41, 41);
+	padding-left: 5px;
+	padding-right: 5px;
+	padding-top: 5px;
+	padding-bottom: 5px;
+	border-left-width: 0;
+	border-right-width: 0;
+	border-top-width: 0;
+	border-bottom-width: 0;
+	color: rgb(231, 231, 231);
+	margin-bottom: 2px;
+	height: 30px;
+	margin-left: 2px;
+	margin-right: 2px;
+	margin-top: 2px;
+}
+
+Button:hover {
+	background-color: var(--color-key2);
+	border-bottom-width: 4px;
+}
+
+.axis-button {
+	width: 30px;
+}
+
+TextField {
+	font-size: 12px;
+}
+
+TextInput {
+	padding: 2px;
+	margin: 0px;
+}
+
+TextField Label {
+	color: var(--color-light);
+	font-size: 10px;
+	min-width: 50px;
+}
+
+TextField TextInput {
+	background-color: var(--color-dark);
+	color: var(--color-light);
+	font-size: 10px;
+}
+
+.rtTest {
+	background-image: url('/Assets/RenderTargets/ScannerView.renderTexture');
+}
+
+.rtTris {
+	background-image: url('/Assets/RenderTargets/UvTriVis.renderTexture');
+}
+
+.motion-label {
+	color: var(--color-key);
+	font-size: 14px;
+}
+
+.panel-border {
+	border-color: var(--color-dark);
+	border-width: 1px;
+}

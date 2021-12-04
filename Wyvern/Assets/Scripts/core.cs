@@ -19,6 +19,8 @@ public class core : MonoBehaviour {
 	public TextMesh bakeTextMesh;
 	public Camera bakeTextCamera;
 
+	public GameObject CameraController;
+
 	public RawImage uiCanvas;
 	
 	public Text uiTextPosX;
@@ -1484,6 +1486,8 @@ public class core : MonoBehaviour {
 	// 2.3, 10
 
 	void Update() {
+		CameraController.transform.localRotation = Quaternion.Euler(0, Time.time * 10.0f, 0);
+
 		Vector3 laserPos = LaserLocator.transform.position;
 		LaserCoverageMat.SetVector("laserPos", new Vector4(laserPos.x, laserPos.y, laserPos.z, 0.0f));
 
@@ -1728,6 +1732,10 @@ public class core : MonoBehaviour {
 	public GameObject DiffuserView3;
 
 	public Material BasicShaderMat;
+
+	public Shader QuantaScoreVis;
+
+	public RenderTexture PrimaryViewTexture;
 
 	private Mesh visMesh;
 	// private Mesh mesh;
@@ -2142,7 +2150,7 @@ public class core : MonoBehaviour {
 		Debug.Log("Done quanta view scores");
 
 		Renderer rend = GetComponent<Renderer>();
-		rend.material = new Material(Shader.Find("Misc/quantaScoreVis"));
+		rend.material = new Material(QuantaScoreVis);
 		rend.material.mainTexture = QuantaScores;
 
 		DebugQuantaScoreView.GetComponent<Renderer>().material = rend.material;
@@ -2194,9 +2202,9 @@ public class core : MonoBehaviour {
 		float triSize = 0.0025f;
 		float padding = 0.00025f;
 		float triPad = 0.00025f;
-		float triScale = 0.025f;
+		// float triScale = 0.025f;
 		// float triScale = 0.042f;
-		// float triScale = 0.08f;
+		float triScale = 0.08f;
 
 		// Vector2 packOffset = new Vector2(padding, padding);
 		Vector2 packOffset = new Vector2(0.0f, 0.0f);

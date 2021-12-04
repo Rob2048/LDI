@@ -1,0 +1,6 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" xsi="http://www.w3.org/2001/XMLSchema-instance" engine="UnityEngine.UIElements" editor="UnityEditor.UIElements" noNamespaceSchemaLocation="../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
+    <ui:VisualElement style="height: 288px; width: 303px; background-color: rgb(74, 56, 99); border-left-width: 1px; border-right-width: 1px; border-top-width: 1px; border-bottom-width: 1px; border-left-color: rgb(56, 56, 56); border-right-color: rgb(56, 56, 56); border-top-color: rgb(56, 56, 56); border-bottom-color: rgb(56, 56, 56);">
+        <ui:Label text="UV space 4096 x 4096 (coverage)" display-tooltip-when-elided="true" style="font-size: 10px; background-color: rgba(0, 0, 0, 0.59); margin-left: 0; margin-right: 0; margin-top: 0; margin-bottom: 0; padding-left: 2px; padding-right: 2px; padding-top: 2px; padding-bottom: 2px; color: rgb(255, 255, 255); position: relative; overflow: visible;" />
+        <ui:VisualElement name="unity-content-container" style="flex-grow: 1;" />
+    </ui:VisualElement>
+</ui:UXML>
