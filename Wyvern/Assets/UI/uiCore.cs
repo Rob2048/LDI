@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
+using SFB;
 
 public class uiCore : MonoBehaviour {
 
@@ -23,6 +24,15 @@ public class uiCore : MonoBehaviour {
 		Element.style.borderLeftColor = Color;
 		Element.style.borderRightColor = Color;
 		Element.style.borderBottomColor = Color;
+	}
+
+	public static Button createButton(VisualElement Parent, string Text, System.Action Callback) {
+		Button btn = new Button();
+		btn.text = Text;
+		btn.clicked += Callback;
+		Parent.Add(btn);
+
+		return btn;
 	}
 
 	public Texture GalvoViewVis;
@@ -50,14 +60,22 @@ public class uiCore : MonoBehaviour {
 		Singleton =  this;
 
 		VisualElement root = GetComponent<UIDocument>().rootVisualElement;
-		root.style.backgroundColor = new Color(0.1f, 0.1f, 0.1f);
-		root.style.flexGrow = 1;
+		root.AddToClassList("app-root");
 
+		VisualElement menuBar = new VisualElement();
+		// panelToolbar.style.flexDirection = FlexDirection.Row;
+		menuBar.AddToClassList("toolbar");
+		root.Add(menuBar);
+
+		
+		
 		//------------------------------------------------------------------------------------------------------------------------
 		// Toolbar.
 		//------------------------------------------------------------------------------------------------------------------------
-		uiPanel panelToolbar = new uiPanel("Wyvern");
-		panelToolbar.Content.style.flexDirection = FlexDirection.Row;
+		// uiPanel panelToolbar = new uiPanel("Wyvern");
+		VisualElement panelToolbar = new VisualElement();
+		// panelToolbar.style.flexDirection = FlexDirection.Row;
+		panelToolbar.AddToClassList("toolbar");
 		root.Add(panelToolbar);
 
 		Button btn = new Button();
@@ -70,7 +88,11 @@ public class uiCore : MonoBehaviour {
 			}
 
 		};
-		panelToolbar.Content.Add(btn);
+		panelToolbar.Add(btn);
+
+		VisualElement toolbarSep = new VisualElement();
+		toolbarSep.AddToClassList("toolbar-separator");
+		panelToolbar.Add(toolbarSep);
 
 		btn = new Button();
 		btn.text = "Images";
@@ -82,7 +104,7 @@ public class uiCore : MonoBehaviour {
 			}
 
 		};
-		panelToolbar.Content.Add(btn);
+		panelToolbar.Add(btn);
 
 		btn = new Button();
 		btn.text = "Model";
@@ -94,7 +116,7 @@ public class uiCore : MonoBehaviour {
 			}
 
 		};
-		panelToolbar.Content.Add(btn);
+		panelToolbar.Add(btn);
 
 		btn = new Button();
 		btn.text = "Test bench";
@@ -106,12 +128,12 @@ public class uiCore : MonoBehaviour {
 			}
 
 		};
-		panelToolbar.Content.Add(btn);
+		panelToolbar.Add(btn);
 
 		
 		VisualElement toolbarExpander = new VisualElement();
 		toolbarExpander.style.flexGrow = 1;
-		panelToolbar.Content.Add(toolbarExpander);
+		panelToolbar.Add(toolbarExpander);
 
 		//------------------------------------------------------------------------------------------------------------------------
 		// Panel container.
@@ -126,13 +148,23 @@ public class uiCore : MonoBehaviour {
 		//------------------------------------------------------------------------------------------------------------------------
 		uiPanel motionPanel = new uiPanel("Platform");
 		_platformPanel = motionPanel;
-		motionPanel.style.width = 200;
-		motionPanel.style.minWidth = 200;
+		motionPanel.style.width = 300;
+		motionPanel.style.minWidth = 300;
+		container.Add(motionPanel);
+
+		uiPanelCategory connectionCat = new uiPanelCategory("Connection");
+		motionPanel.Add(connectionCat);
+
+		uiCore.createButton(connectionCat.Content, "Connect", () => {
+		});
+
+		uiPanelCategory positionCat = new uiPanelCategory("Position");
+		motionPanel.Add(positionCat);
 
 		VisualElement axisContainer = new VisualElement();
 		axisContainer.style.flexDirection = FlexDirection.Row;
 		axisContainer.style.justifyContent = Justify.SpaceBetween;
-		motionPanel.Content.Add(axisContainer);
+		positionCat.Add(axisContainer);
 
 		Label axisPositionX = new Label("X: 0.00");
 		axisPositionX.AddToClassList("motion-label");
@@ -148,20 +180,20 @@ public class uiCore : MonoBehaviour {
 
 		Button findHomeBtn = new Button();
 		findHomeBtn.text = "Find home";
-		motionPanel.Content.Add(findHomeBtn);
+		positionCat.Add(findHomeBtn);
 
 		Button goHomeBtn = new Button();
 		goHomeBtn.text = "Go home";
-		motionPanel.Content.Add(goHomeBtn);
+		positionCat.Add(goHomeBtn);
 
 		TextField distText = new TextField("Distance");
 		distText.value = "1";
-		motionPanel.Content.Add(distText);
+		positionCat.Add(distText);
 
 		VisualElement axisNegContainer = new VisualElement();
 		axisNegContainer.style.flexDirection = FlexDirection.Row;
 		axisNegContainer.style.justifyContent = Justify.SpaceBetween;
-		motionPanel.Content.Add(axisNegContainer);
+		positionCat.Add(axisNegContainer);
 
 		Button moveNegX = new Button();
 		moveNegX.AddToClassList("axis-button");
@@ -181,7 +213,7 @@ public class uiCore : MonoBehaviour {
 		VisualElement axisPosContainer = new VisualElement();
 		axisPosContainer.style.flexDirection = FlexDirection.Row;
 		axisPosContainer.style.justifyContent = Justify.SpaceBetween;
-		motionPanel.Content.Add(axisPosContainer);
+		positionCat.Add(axisPosContainer);
 
 		Button movePosX = new Button();
 		movePosX.AddToClassList("axis-button");
@@ -197,7 +229,9 @@ public class uiCore : MonoBehaviour {
 		movePosZ.AddToClassList("axis-button");
 		movePosZ.text = "+Z";
 		axisPosContainer.Add(movePosZ);
-		
+
+		uiPanelCategory laserCat = new uiPanelCategory("Laser");
+		motionPanel.Add(laserCat);
 		
 		Button showLaserBtn = new Button();
 		showLaserBtn.text = "Start laser preview";
@@ -213,16 +247,15 @@ public class uiCore : MonoBehaviour {
 			}
 		};
 
-		motionPanel.Content.Add(showLaserBtn);
+		laserCat.Add(showLaserBtn);
 		
-
-		container.Add(motionPanel);
 		
 		//------------------------------------------------------------------------------------------------------------------------
 		// Image viewer.
 		//------------------------------------------------------------------------------------------------------------------------
 		uiPanel panelRight = new uiPanel("Image viewer");
 		_imageViewerPanel = panelRight;
+		_imageViewerPanel.style.display = DisplayStyle.None;
 		panelRight.style.flexGrow = 1;
 		panelRight.Content.style.flexDirection = FlexDirection.Row;
 
@@ -262,11 +295,12 @@ public class uiCore : MonoBehaviour {
 		uiPanel modelPanel = new uiPanel("Model");
 		_modelPanel = modelPanel;
 		modelPanel.style.flexGrow = 1;
+		_modelPanel.style.display = DisplayStyle.None;
 		// modelPanel.style.width = new StyleLength(200);
 
 		_modelCamViewContainer = new VisualElement();
 		_modelCamViewContainer.style.flexGrow = 1;
-		_modelCamViewContainer.AddToClassList("panel-border");
+		// _modelCamViewContainer.AddToClassList("panel-border");
 		// _modelCamViewContainer.style.backgroundColor = Color.green;
 		_modelCamViewContainer.style.overflow = Overflow.Hidden;
 
@@ -291,17 +325,77 @@ public class uiCore : MonoBehaviour {
 		//------------------------------------------------------------------------------------------------------------------------
 		// Test bench panel.
 		//------------------------------------------------------------------------------------------------------------------------
-		uiPanel testBenchPanel = new uiPanel("Test bench");
-		_testBenchPanel= testBenchPanel;
-		testBenchPanel.style.flexGrow = 1;
+		{
+			uiPanel testBenchPanel = new uiPanel("Test bench");
+			_testBenchPanel= testBenchPanel;
+			testBenchPanel.style.flexGrow = 1;
+			container.Add(testBenchPanel);
 
-		Button openImageBtn = new Button();
-		openImageBtn.text = "Open Image";
-		openImageBtn.clicked += () => {
-		};
-		testBenchPanel.Content.Add(openImageBtn);
+			VisualElement divider = new VisualElement();
+			divider.style.flexDirection = FlexDirection.Row;
+			divider.style.flexGrow = 1;
+			testBenchPanel.Content.Add(divider);
 
-		container.Add(testBenchPanel);
+			VisualElement controlsPanel = new VisualElement();
+			controlsPanel.style.width = 250;
+			divider.Add(controlsPanel);
+
+			uiImageViewer viewerPanel =  new uiImageViewer("2D diffusion image", null);
+			divider.Add(viewerPanel);
+
+			uiPanelCategory imageCat = new uiPanelCategory("Image");
+			controlsPanel.Add(imageCat);
+
+			uiCore.createButton(imageCat.Content, "Load image", () => {
+				string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", "", "png", false);
+				
+				if (paths.Length == 1) {
+					Texture2D diffImg = Core.Diffuse2dImage(paths[0]);
+					viewerPanel.SetImage(diffImg);
+				}
+			});
+
+			{
+				DropdownField combo = new DropdownField("Display channel");
+				List<string> choices = new List<string>();
+				choices.Add("sRGB");
+				choices.Add("C - Cyan");
+				choices.Add("M - Magenta");
+				choices.Add("Y - Yellow");
+				choices.Add("K - Black");
+				combo.choices = choices;
+				combo.index = 0;
+				// combo.RegisterValueChangedCallback<string>(
+				combo.RegisterCallback<ChangeEvent<string>>((evt) => {
+					Debug.Log("Combo change: " + combo.index);
+				});
+
+				imageCat.Content.Add(combo);
+			}
+
+			Toggle toggle = new Toggle("Show diffused");
+			imageCat.Content.Add(toggle);
+
+			uiPanelCategory jobCat = new uiPanelCategory("Job");
+			controlsPanel.Add(jobCat);
+			
+			{
+				DropdownField combo = new DropdownField("Channel");
+				List<string> choices = new List<string>();
+				choices.Add("C - Cyan");
+				choices.Add("M - Magenta");
+				choices.Add("Y - Yellow");
+				choices.Add("K - Black");
+				combo.choices = choices;
+				combo.index = 0;
+				
+				jobCat.Content.Add(combo);
+			}
+
+			uiCore.createButton(jobCat.Content, "Start job", () => {
+				Debug.Log("Start 2D job");
+			});
+		}
 	}
 
 	void Update() {

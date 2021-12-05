@@ -1,4 +1,9 @@
-﻿using System;
+﻿//------------------------------------------------------------------------------------------------------------------------------------------------------
+// Attribution notes:
+// https://github.com/gkngkc/UnityStandaloneFileBrowser
+//------------------------------------------------------------------------------------------------------------------------------------------------------
+
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -34,7 +39,7 @@ public class core : MonoBehaviour {
 
 	private JobManager _jobManager;
 	
-	private Texture2D _canvas;
+	// private Texture2D _canvas;
 	// private float[] _canvasRawData;
 	// private Color32[] _tempCols;
 	
@@ -246,7 +251,7 @@ public class core : MonoBehaviour {
 
 		// _DiffusionPerceptualTest();
 		// _Diffuse2dImage();
-		_PrimeMesh();
+		// _PrimeMesh();
 
 		_jobManager = new JobManager();
 		_jobManager.Init();
@@ -454,10 +459,13 @@ public class core : MonoBehaviour {
 		return channels;
 	}
 
-	private void _Diffuse2dImage() {
+	public Texture2D Diffuse2dImage(string FilePath) {
+		Debug.Log("Load 2D image for diffusion");
+
 		int cmykWidth = 0;
 		int cmykHeight = 0;
-		byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/galvoViewTest.png", out cmykWidth, out cmykHeight);
+		// byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/galvoViewTest.png", out cmykWidth, out cmykHeight);
+		byte[][] cmykChannels = _SRGBFileToCMYKChannels(FilePath, out cmykWidth, out cmykHeight);
 		
 		ImageData[] channels = new ImageData[4];
 		int totalBurnDots = 0;
@@ -482,6 +490,10 @@ public class core : MonoBehaviour {
 
 		Debug.Log("Total dots: " + totalBurnDots + "/" + ((cmykWidth * cmykHeight) * 4));
 
+		Texture2D sourceImage = _LoadImage(FilePath);
+
+		return sourceImage;
+
 		// Texture2D sourceImage = _LoadImage("content/char_render_sat.png");
 		// Texture2D sourceImage = _LoadImage("content/gradient.png");
 		// Texture2D sourceImage = _LoadImage("content/colorchart_disc_grid_1_channel.png");
@@ -503,10 +515,10 @@ public class core : MonoBehaviour {
 		int pWidth = _diffusedImg.width;
 		int pHeight = _diffusedImg.height;
 		Color32[] tempCols = new Color32[pWidth * pHeight];
-		_canvas = new Texture2D(pWidth, pHeight, TextureFormat.RGB24, false, false);
-		_canvas.filterMode = FilterMode.Point;
-		uiCanvas.texture = _canvas;
-		uiCanvas.rectTransform.sizeDelta = new Vector2(pWidth, pHeight);
+		Texture2D canvas = new Texture2D(pWidth, pHeight, TextureFormat.RGB24, false, false);
+		canvas.filterMode = FilterMode.Point;
+		// uiCanvas.texture = _canvas;
+		// uiCanvas.rectTransform.sizeDelta = new Vector2(pWidth, pHeight);
 		
 		int maxX = Mathf.Min(pWidth, _diffusedImg.width);
 		int maxY = Mathf.Min(pHeight, _diffusedImg.height);
@@ -524,8 +536,10 @@ public class core : MonoBehaviour {
 			}
 		}
 		
-		_canvas.SetPixels32(tempCols);
-		_canvas.Apply(false);
+		canvas.SetPixels32(tempCols);
+		canvas.Apply(false);
+
+		return canvas;
 	}
 
 	private void _DiffusionPerceptualTest() {
@@ -1498,7 +1512,7 @@ public class core : MonoBehaviour {
 		}
 
 		// NOTE: Only if we have primed mesh.
-		_ScannerViewHit(false);
+		// _ScannerViewHit(false);
 
 		// if (_actualFactor != TargetFactor || _actualSpread != TargetSpread | _actualContrast != TargetContrast || _actualBrightness != TargetBrightness) {
 		// 	_actualFactor = TargetFactor;

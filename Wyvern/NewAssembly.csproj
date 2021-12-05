@@ -36,11 +36,17 @@
     <ImplicitlyExpandDesignTimeFacades>false</ImplicitlyExpandDesignTimeFacades>
   </PropertyGroup>
   <ItemGroup>
+     <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserWindows.cs" />
+     <Compile Include="Assets\StandaloneFileBrowser\IStandaloneFileBrowser.cs" />
      <Compile Include="Assets\Scripts\textRenderer.cs" />
      <Compile Include="Assets\Scripts\core.cs" />
      <Compile Include="Assets\Scripts\jobmanager.cs" />
+     <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserEditor.cs" />
      <Compile Include="Assets\Scripts\diffuser.cs" />
+     <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowser.cs" />
+     <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserLinux.cs" />
      <Compile Include="Assets\UI\uiImageViewer.cs" />
+     <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserMac.cs" />
      <Compile Include="Assets\Scripts\controller.cs" />
      <Compile Include="Assets\Scripts\laserAssembly.cs" />
      <Compile Include="Assets\UI\uiCore.cs" />
@@ -292,6 +298,9 @@
     <Reference Include="UnityEditor.WindowsStandalone.Extensions">
         <HintPath>C:\Program Files\Unity\Hub\Editor\2020.3.23f1\Editor\Data\PlaybackEngines\WindowsStandaloneSupport\UnityEditor.WindowsStandalone.Extensions.dll</HintPath>
     </Reference>
+    <Reference Include="Ookii.Dialogs">
+        <HintPath>C:\Projects\LDI\Wyvern\Assets\StandaloneFileBrowser\Plugins\Ookii.Dialogs.dll</HintPath>
+    </Reference>
     <Reference Include="log4netPlastic">
         <HintPath>C:\Projects\LDI\Wyvern\Library\PackageCache\com.unity.collab-proxy@1.15.1\Lib\Editor\PlasticSCM\log4netPlastic.dll</HintPath>
     </Reference>
@@ -300,6 +309,9 @@
     </Reference>
     <Reference Include="Newtonsoft.Json">
         <HintPath>C:\Projects\LDI\Wyvern\Library\PackageCache\com.unity.nuget.newtonsoft-json@2.0.0\Runtime\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Windows.Forms">
+        <HintPath>C:\Projects\LDI\Wyvern\Assets\StandaloneFileBrowser\Plugins\System.Windows.Forms.dll</HintPath>
     </Reference>
     <Reference Include="Unity.Plastic.Newtonsoft.Json">
         <HintPath>C:\Projects\LDI\Wyvern\Library\PackageCache\com.unity.collab-proxy@1.15.1\Lib\Editor\PlasticSCM\Unity.Plastic.Newtonsoft.Json.dll</HintPath>
@@ -676,11 +688,11 @@
     <Reference Include="UnityEngine.UIElementsModule">
         <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEngine.UIElementsModule.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEditor.UI">
-        <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
-    </Reference>
     <Reference Include="UnityEngine.UI">
         <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEditor.UI">
+        <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

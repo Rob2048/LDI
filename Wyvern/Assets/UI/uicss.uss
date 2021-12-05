@@ -3,8 +3,10 @@
 	--color-key2: rgb(109, 71, 135);
 	--color-warning: rgb(200, 10, 5);
 	--color-light: rgb(245, 242, 241);
+	--color-btn: rgb(65, 65, 65);
 	--color-mid: rgb(56, 56, 56);
 	--color-dark: rgb(41, 41, 41);
+	--color-test: rgb(45, 45, 45);
 }
 
 .warning-bkg {
@@ -12,7 +14,7 @@
 }
 
 Button {
-	background-color: rgb(65, 65, 65);
+	background-color: var(--color-btn);
 	font-size: 10px;
 	border-top-left-radius: 0;
 	border-bottom-left-radius: 0;
@@ -22,29 +24,48 @@ Button {
 	border-right-color: rgb(41, 41, 41);
 	border-top-color: rgb(41, 41, 41);
 	border-bottom-color: rgb(41, 41, 41);
-	padding-left: 5px;
-	padding-right: 5px;
-	padding-top: 5px;
-	padding-bottom: 5px;
+	padding: 5px;
 	border-left-width: 0;
 	border-right-width: 0;
 	border-top-width: 0;
 	border-bottom-width: 0;
 	color: rgb(231, 231, 231);
-	margin-bottom: 2px;
-	height: 30px;
-	margin-left: 2px;
-	margin-right: 2px;
-	margin-top: 2px;
+	margin: 5px;
+
+	/* height: 30px; */
 }
 
 Button:hover {
 	background-color: var(--color-key2);
-	border-bottom-width: 4px;
+	/* border-bottom-width: 4px; */
 }
 
 .axis-button {
 	width: 30px;
+}
+
+DropdownField {
+	margin: 5px;
+	font-size: 10px;
+	/* color: var(--color-mid); */
+}
+
+.unity-popup-field__input {
+	border-width: 0px;
+	background-color: var(--color-test);
+	border-width: 0px;
+	color: var(--color-light);
+	margin-left: 0px;
+	padding: 5px;
+}
+
+.unity-base-popup-field__arrow {
+	-unity-background-image-tint-color: var(--color-btn);
+}
+
+.unity-base-field__label {
+	min-width: 100px;
+	color: var(--color-light);
 }
 
 TextField {
@@ -76,6 +97,34 @@ TextField TextInput {
 	background-image: url('/Assets/RenderTargets/UvTriVis.renderTexture');
 }
 
+.toolbar {
+	background-color: var(--color-dark);
+	flex-direction: row;
+	padding: 10px;
+}
+
+.toolbar-separator {
+	background-color: var(--color-key);
+	width: 1px;
+	height: 100%;
+	margin: 0px 10px;
+}
+
+.app-root {
+	background-color: var(--color-dark);
+	flex-grow: 1;
+}
+
+.toolbar Button {
+	padding: 10px;
+	font-size: 14px;
+	background-color: var(--color-dark);
+}
+
+.toolbar Button:hover {
+	color: #C98DFF;
+}
+
 .motion-label {
 	color: var(--color-key);
 	font-size: 14px;
@@ -84,4 +133,48 @@ TextField TextInput {
 .panel-border {
 	border-color: var(--color-dark);
 	border-width: 1px;
+}
+
+.unity-toggle__label {
+	color: var(--color-light);
+	font-size: 10px;
+}
+
+.unity-toggle__checkmark {
+	background-color: var(--color-dark);
+	-unity-background-image-tint-color: var(--color-light);
+}
+
+.panel-title-container {
+	align-items: flex-start;
+	background-color: var(--color-dark);
+	padding: 0px;
+}
+
+.panel-title-label {
+	margin: 0px;
+	background-color: var(--color-mid);
+	color: var(--color-light);
+	font-size: 10px;
+	padding: 10px 20px;
+	border-top-left-radius: 5px;
+	border-top-right-radius: 5px;
+}
+
+.panel-category {
+	padding: 0px;
+}
+
+.panel-category-title {
+	/* background-color: rgb(50, 50, 50); */
+	border-bottom-width: 1;
+	border-bottom-color: var(--color-dark);
+	padding: 10px;
+	color: var(--color-light);
+	font-size: 10px;
+	margin: 0px;
+}
+
+.panel-category-content {
+	padding: 15px;
 }

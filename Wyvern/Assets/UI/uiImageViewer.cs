@@ -64,16 +64,15 @@ public class uiImageViewer : VisualElement {
 		// grid.style.height = 200;
 		// this.Add(grid);
 
-		img = new Image();
-		img.image = Image;
-		img.style.position = Position.Absolute;
-		img.style.top = 0;
-		img.style.left = 0;
-		img.style.width = Image.width * imgZoom;
-		img.style.height = Image.height * imgZoom;
 
-		this.Add(img);
 		_img = Image;
+
+		img = new Image();
+		img.image = _img;
+		img.style.position = Position.Absolute;
+		this.Add(img);
+
+		_UpdateImageLayout();
 
 		VisualElement titleBar = new VisualElement();
 		titleBar.Add(titleLabel);
@@ -94,6 +93,22 @@ public class uiImageViewer : VisualElement {
 		RegisterCallback<WheelEvent>(OnWheelEvent);
 	}
 
+	public void SetImage(Texture Image) {
+		_img = Image;
+		img.image = _img;
+		_UpdateImageLayout();
+	}
+
+	private void _UpdateImageLayout() {
+		if (_img == null) {
+			return;
+		}
+
+		img.style.left = imgPos.x;
+		img.style.top = imgPos.y;
+		img.style.width = _img.width * imgZoom;
+		img.style.height = _img.height * imgZoom;
+	}
 
 	private void OnWheelEvent(WheelEvent evt) {
 		Vector2 canvasLocalStart = (evt.localMousePosition - imgPos) / imgZoom;
@@ -103,12 +118,7 @@ public class uiImageViewer : VisualElement {
 
 		imgPos = evt.localMousePosition - canvasLocalStart * imgZoom;
 
-		img.style.left = imgPos.x;
-		img.style.top = imgPos.y;
-		img.style.width = _img.width * imgZoom;
-		img.style.height = _img.height * imgZoom;
-
-		titleLabel.text = _title + " (" + imgZoom * 100 + " %)";
+		_UpdateImageLayout();
 	}
 
 	private void OnMouseDown(MouseDownEvent evt) {
@@ -164,28 +174,55 @@ public class uiPanel : VisualElement {
 		this.style.borderRightColor = borderColor;
 		this.style.borderBottomColor = borderColor;
 
-		Label titleLabel = new Label(Title);
-		titleLabel.style.backgroundColor = new StyleColor(new Color(0.1607843f, 0.1607843f, 0.1607843f));
-		titleLabel.style.marginBottom = 0;
-		titleLabel.style.marginTop = 0;
-		titleLabel.style.marginLeft = 0;
-		titleLabel.style.marginRight = 0;
-		titleLabel.style.paddingLeft = 5;
-		titleLabel.style.paddingRight = 2;
-		titleLabel.style.paddingTop = 4;
-		titleLabel.style.paddingBottom = 4;
-		titleLabel.style.fontSize = 10;
-		titleLabel.style.color = new StyleColor(new Color(0.945098f, 0.945098f, 0.945098f));
+		VisualElement titleContainer = new VisualElement();
+		titleContainer.AddToClassList("panel-title-container");
+		((VisualElement)this).Add(titleContainer);
 
-		this.Add(titleLabel);
+		Label titleLabel = new Label(Title);
+		titleLabel.AddToClassList("panel-title-label");
+		// titleLabel.style.backgroundColor = new StyleColor(new Color(0.1607843f, 0.1607843f, 0.1607843f));
+		// titleLabel.style.marginBottom = 0;
+		// titleLabel.style.marginTop = 0;
+		// titleLabel.style.marginLeft = 0;
+		// titleLabel.style.marginRight = 0;
+		// titleLabel.style.paddingLeft = 5;
+		// titleLabel.style.paddingRight = 2;
+		// titleLabel.style.paddingTop = 4;
+		// titleLabel.style.paddingBottom = 4;
+		// titleLabel.style.fontSize = 10;
+		// titleLabel.style.color = new StyleColor(new Color(0.945098f, 0.945098f, 0.945098f));
+		titleContainer.Add(titleLabel);
 
 		Content = new VisualElement();
 		Content.style.flexGrow = 1;
-		uiCore.SetPadding(Content, 5);
+		// uiCore.SetPadding(Content, 5);
 		// Content.style.flexGrow = 1;
 
-		this.Add(Content);
+		((VisualElement)this).Add(Content);
+	}
+
+	public new void Add(VisualElement Element) {
+		Content.Add(Element);
 	}
 }
 
+public class uiPanelCategory : VisualElement {
 
+	public VisualElement Content;
+	
+	public uiPanelCategory(string Title) {
+		this.AddToClassList("panel-category");
+
+		Label titleLabel = new Label(Title);
+		titleLabel.AddToClassList("panel-category-title");
+		((VisualElement)this).Add(titleLabel);
+
+		Content = new VisualElement();
+		Content.AddToClassList("panel-category-content");
+		((VisualElement)this).Add(Content);
+	}
+
+	public new void Add(VisualElement Element) {
+		Content.Add(Element);
+	}
+}
