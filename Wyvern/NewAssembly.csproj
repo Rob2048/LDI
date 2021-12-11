@@ -41,15 +41,19 @@
      <Compile Include="Assets\Scripts\textRenderer.cs" />
      <Compile Include="Assets\Scripts\core.cs" />
      <Compile Include="Assets\Scripts\jobmanager.cs" />
+     <Compile Include="Assets\Scripts\objImporter.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserEditor.cs" />
      <Compile Include="Assets\Scripts\diffuser.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowser.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserLinux.cs" />
+     <Compile Include="Assets\UI\uiVector3.cs" />
+     <Compile Include="Assets\Scripts\figure.cs" />
      <Compile Include="Assets\UI\uiImageViewer.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserMac.cs" />
      <Compile Include="Assets\Scripts\controller.cs" />
      <Compile Include="Assets\Scripts\laserAssembly.cs" />
      <Compile Include="Assets\UI\uiCore.cs" />
+     <Compile Include="Assets\Scripts\appContext.cs" />
      <None Include="Assets\Shaders\laserLocator.shader" />
      <None Include="Assets\Shaders\triId.shader" />
      <None Include="Assets\Shaders\uvTriFlat.shader" />
@@ -65,6 +69,7 @@
      <None Include="Assets\Shaders\quantaScoreVis.shader" />
      <None Include="Assets\Shaders\depthVis.shader" />
      <None Include="Assets\UI\uiEmpty.uxml" />
+     <None Include="Assets\Materials\BasicWire.shader" />
      <None Include="Assets\Shaders\quanta_vis.shader" />
      <None Include="Assets\Shaders\Puffy.shader" />
      <None Include="Assets\Shaders\uv_flat.shader" />
@@ -688,11 +693,11 @@
     <Reference Include="UnityEngine.UIElementsModule">
         <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEngine.UIElementsModule.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEngine.UI">
-        <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
-    </Reference>
     <Reference Include="UnityEditor.UI">
         <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+        <HintPath>C:\Projects\LDI\Wyvern\Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

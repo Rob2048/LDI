@@ -1,16 +1,32 @@
 :root {
 	--color-key: #C98DFF;
-	--color-key2: rgb(109, 71, 135);
+	--color-key-dark: rgb(109, 71, 135);
+	--color-key-darker: rgb(77, 50, 95);
+	
+	--color-key2: rgb(57, 176, 255);
+	--color-key2-dark: rgb(31, 95, 138);
+	
 	--color-warning: rgb(200, 10, 5);
+
 	--color-light: rgb(245, 242, 241);
 	--color-btn: rgb(65, 65, 65);
 	--color-mid: rgb(56, 56, 56);
 	--color-dark: rgb(41, 41, 41);
+	--color-darker: rgb(30, 30, 30);
 	--color-test: rgb(45, 45, 45);
+
+	--color-x: rgb(235, 32, 59);
+	--color-y: rgb(42, 241, 68);
+	--color-z: rgb(57, 176, 255);
 }
 
 .warning-bkg {
 	background-color: var(--color-warning);
+}
+
+.unity-label {
+	color: var(--color-light);
+	font-size: 10px;
 }
 
 Button {
@@ -36,8 +52,11 @@ Button {
 }
 
 Button:hover {
-	background-color: var(--color-key2);
-	/* border-bottom-width: 4px; */
+	background-color: var(--color-key-dark);
+}
+
+Button:active {
+	background-color: var(--color-key-darker);
 }
 
 .axis-button {
@@ -97,42 +116,106 @@ TextField TextInput {
 	background-image: url('/Assets/RenderTargets/UvTriVis.renderTexture');
 }
 
-.toolbar {
-	background-color: var(--color-dark);
-	flex-direction: row;
-	padding: 10px;
-}
-
-.toolbar-separator {
-	background-color: var(--color-key);
-	width: 1px;
-	height: 100%;
-	margin: 0px 10px;
-}
-
 .app-root {
-	background-color: var(--color-dark);
+	/* background-image: url('/Assets/Images/splash.png'); */
+	background-color: rgb(30, 30, 30);
 	flex-grow: 1;
 }
 
+.root-bkg {
+	-unity-background-image-tint-color: rgba(1, 1, 1, 0.514);
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	justify-content: center;
+	top: 60px;
+}
+
+.toolbar {
+	background-color: var(--color-darker);
+	flex-direction: row;
+	align-items: center;
+	padding: 0px;
+}
+
+.toolbar-separator {
+	background-color: var(--color-mid);
+	width: 2px;
+	height: 30px;
+	margin: 0px 10px;
+}
+
 .toolbar Button {
-	padding: 10px;
-	font-size: 14px;
-	background-color: var(--color-dark);
+	margin: 0px;
+	padding: 15px;
+	background-color: var(--color-darker);
 }
 
 .toolbar Button:hover {
-	color: #C98DFF;
-}
-
-.motion-label {
+	background-color: rgb(35, 35, 35);
+	border-top-left-radius: 5px;
+	border-top-right-radius: 5px;
 	color: var(--color-key);
-	font-size: 14px;
 }
 
-.panel-border {
-	border-color: var(--color-dark);
-	border-width: 1px;
+.toolbar .selected {
+	background-color: var(--color-dark);
+	border-top-left-radius: 5px;
+	border-top-right-radius: 5px;
+	color: var(--color-key);
+	/* border-top-width: 1px; */
+	/* border-top-color: var(--color-key); */
+}
+
+.toolbar .selected:hover {
+	background-color: var(--color-dark);
+	border-top-left-radius: 5px;
+	border-top-right-radius: 5px;
+	color: var(--color-key);
+}
+
+.menu-bar {
+	background-color: rgb(30, 30, 30);
+	flex-direction: row;
+	padding: 0px;
+}
+
+.menu-bar Label {
+	color: var(--color-light);
+	font-size: 10px;
+	padding: 5px 10px;
+	margin: 0px;
+}
+
+.menu-bar Label:hover {
+	background-color: var(--color-key-dark);
+}
+
+.motion-label-x {
+	color: var(--color-x);
+	font-size: 16px;
+}
+
+.motion-label-y {
+	color: var(--color-y);
+	font-size: 16px;
+}
+
+.motion-label-z {
+	color: var(--color-z);
+	font-size: 16px;
+}
+
+.bkg-x {
+	background-color: var(--color-x);
+}
+
+.bkg-y {
+	background-color: var(--color-y);
+}
+
+.bkg-z {
+	background-color: var(--color-z);
 }
 
 .unity-toggle__label {
@@ -146,28 +229,69 @@ TextField TextInput {
 }
 
 .panel-title-container {
+	/* display: none */
 	align-items: flex-start;
+	/* background-color: var(--color-dark); */
 	background-color: var(--color-dark);
 	padding: 0px;
+	height: 40px;
+
+	flex-direction: row;
+
+	align-items: flex-end;
 }
 
 .panel-title-label {
 	margin: 0px;
+	margin-left: 1px;
 	background-color: var(--color-mid);
-	color: var(--color-light);
+	color: var(--color-key);
 	font-size: 10px;
-	padding: 10px 20px;
+	padding: 6px 20px;
 	border-top-left-radius: 5px;
 	border-top-right-radius: 5px;
+
+	/* border-bottom-width: 3px; */
+	/* border-bottom-color: var(--color-key-dark); */
+
+	/* border-top-width: 3px; */
+	/* border-top-color: var(--color-key-dark); */
+}
+
+.panel-title-label-inactive {
+	margin: 0px;
+	margin-left: 1px;
+	/* background-color: rgb(35, 35, 35); */
+	color: var(--color-light);
+	font-size: 10px;
+	padding: 6px 20px;
+	border-top-left-radius: 5px;
+	border-top-right-radius: 5px;
+
+	/* border-bottom-width: 1px; */
+	/* border-bottom-color: rgb(30, 30, 30); */
+}
+
+.panel-title-label-inactive:hover {
+	background-color: rgb(50, 50, 50);
+	color: var(--color-key);
+}
+
+.panel-content {
+	flex-grow: 1;
+	border-width: 1px;
+	border-color: var(--color-dark);
+	border-top-width: 0px;
 }
 
 .panel-category {
 	padding: 0px;
+	background-color: rgb(50, 50, 50);
 }
 
 .panel-category-title {
-	/* background-color: rgb(50, 50, 50); */
-	border-bottom-width: 1;
+	background-color: var(--color-mid);
+	border-bottom-width: 1px;
 	border-bottom-color: var(--color-dark);
 	padding: 10px;
 	color: var(--color-light);
@@ -177,4 +301,17 @@ TextField TextInput {
 
 .panel-category-content {
 	padding: 15px;
+}
+
+.border-right {
+	border-right-width: 1px;
+	border-right-color: var(--color-dark);
+}
+
+.vector-label {
+	width: 20px;
+	height: 20px;
+	-unity-text-align: middle-center;
+	border-radius: 3px;
+	color: var(--color-darker);
 }

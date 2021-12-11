@@ -21,6 +21,10 @@ using Debug = UnityEngine.Debug;
 
 public class core : MonoBehaviour {
 
+	public static core singleton;
+
+	public static AppContext appContext;
+
 	public TextMesh bakeTextMesh;
 	public Camera bakeTextCamera;
 
@@ -51,6 +55,11 @@ public class core : MonoBehaviour {
 	private TextRenderer _textRenderer;
 
 	private ImageData _diffusedImg;
+
+	public Material BasicMaterial;
+	public Material BasicWireMaterial;
+
+	public Figure figure;
 
 	public void uiBtnCapture() {
 		_ScannerViewHit(true);
@@ -227,6 +236,11 @@ public class core : MonoBehaviour {
 	private Texture2D gSourceImg;
 	private Texture2D gPdDiffusionTex;
 
+	void Awake() {
+		core.singleton = this;
+		appContext = new AppContext();
+	}
+
 	void Start() {
 		_textRenderer = new TextRenderer();
 		ImageData textTest = _textRenderer.GetTextImage("100%", 32, this);
@@ -234,14 +248,14 @@ public class core : MonoBehaviour {
 		_candidateCountBuffer = new ComputeBuffer(1, 4);
 		candidateMetaBuffer = new ComputeBuffer(7 * 1024 * 1024, 4);
 
-		// gSourceImg = _LoadImage("content/gradient.png");
-		// gSourceImg = _LoadImage("content/cmyk_test/c.png");
-		//gSourceImg = _LoadImage("content/test_pattern.png");
-		gSourceImg = _LoadImage("content/drag_rawr/k.png");
-		// gSourceImg = _LoadImage("content/drag_2cm/b.png");
-		//gSourceImg = _LoadImage("content/drag/b.png");
-		//  gSourceImg = _LoadImage("content/chars/toon.png");
-		//gSourceImg = _LoadImage("content/chars/disc.png");
+		// gSourceImg = LoadImage("content/gradient.png");
+		// gSourceImg = LoadImage("content/cmyk_test/c.png");
+		//gSourceImg = LoadImage("content/test_pattern.png");
+		gSourceImg = LoadImage("content/drag_rawr/k.png");
+		// gSourceImg = LoadImage("content/drag_2cm/b.png");
+		//gSourceImg = LoadImage("content/drag/b.png");
+		//  gSourceImg = LoadImage("content/chars/toon.png");
+		//gSourceImg = LoadImage("content/chars/disc.png");
 
 		gPdDiffusionTex = new Texture2D(gSourceImg.width, gSourceImg.height, TextureFormat.RGB24, false, false);
 		gPdDiffusionTex.filterMode = FilterMode.Point;
@@ -258,13 +272,20 @@ public class core : MonoBehaviour {
 		
 		// for (int i = 0; i < 6; ++i) {
 		// 	float y = i * 35;
-		// 	_diffuser.AddTexture(_LoadImage("content/drag_rawr/c.png"), new Vector3(0, y, 0));
-		// 	_diffuser.AddTexture(_LoadImage("content/drag_rawr/m.png"), new Vector3(0, y, 15));
-		// 	_diffuser.AddTexture(_LoadImage("content/drag_rawr/y.png"), new Vector3(0, y, 30));
-		// 	_diffuser.AddTexture(_LoadImage("content/drag_rawr/k.png"), new Vector3(0, y, 45));
+		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/c.png"), new Vector3(0, y, 0));
+		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/m.png"), new Vector3(0, y, 15));
+		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/y.png"), new Vector3(0, y, 30));
+		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/k.png"), new Vector3(0, y, 45));
 		// }
 		// _diffuser.Process();
 		// _diffuser.DrawDebug();
+
+		// Load mesh for testing.
+		MeshInfo figureLoadedMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
+		Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png");
+		appContext.figure.SetMesh(figureLoadedMeshInfo);
+		appContext.figure.SetTexture(figureLoadedTexture);
+		appContext.figure.ShowImportedMesh();
 	}
 	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
@@ -490,21 +511,21 @@ public class core : MonoBehaviour {
 
 		Debug.Log("Total dots: " + totalBurnDots + "/" + ((cmykWidth * cmykHeight) * 4));
 
-		Texture2D sourceImage = _LoadImage(FilePath);
+		Texture2D sourceImage = LoadImage(FilePath);
 
 		return sourceImage;
 
-		// Texture2D sourceImage = _LoadImage("content/char_render_sat.png");
-		// Texture2D sourceImage = _LoadImage("content/gradient.png");
-		// Texture2D sourceImage = _LoadImage("content/colorchart_disc_grid_1_channel.png");
-		// Texture2D sourceImage = _LoadImage("content/cmyk_test/m.png");
-		// Texture2D sourceImage = _LoadImage("content/drag_rawr/k.png");
-		// Texture2D sourceImage = _LoadImage("content/drag_rawr/lorg_k.png");
-		// Texture2D sourceImage = _LoadImage("content/drag_rawr/smol_c.png");
-		// Texture2D sourceImage = _LoadImage("content/drag_2cm/b.png");
-		// Texture2D sourceImage = _LoadImage("content/drag/b.png");
-		// Texture2D sourceImage = _LoadImage("content/chars/toon.png");
-		// Texture2D sourceImage = _LoadImage("content/chars/disc.png");
+		// Texture2D sourceImage = LoadImage("content/char_render_sat.png");
+		// Texture2D sourceImage = LoadImage("content/gradient.png");
+		// Texture2D sourceImage = LoadImage("content/colorchart_disc_grid_1_channel.png");
+		// Texture2D sourceImage = LoadImage("content/cmyk_test/m.png");
+		// Texture2D sourceImage = LoadImage("content/drag_rawr/k.png");
+		// Texture2D sourceImage = LoadImage("content/drag_rawr/lorg_k.png");
+		// Texture2D sourceImage = LoadImage("content/drag_rawr/smol_c.png");
+		// Texture2D sourceImage = LoadImage("content/drag_2cm/b.png");
+		// Texture2D sourceImage = LoadImage("content/drag/b.png");
+		// Texture2D sourceImage = LoadImage("content/chars/toon.png");
+		// Texture2D sourceImage = LoadImage("content/chars/disc.png");
 
 		// _diffusedImg = _Dither(sourceImage, sourceImage.width, sourceImage.height);
 		// _diffusedImg = _Dither(imgCmyk);
@@ -1473,7 +1494,7 @@ public class core : MonoBehaviour {
 	// 	Dest.Apply(false);
 	// }
 	
-	private Texture2D _LoadImage(string Path) {
+	public Texture2D LoadImage(string Path) {
 		Texture2D tex = null;
 		byte[] fileData;
 
@@ -1500,7 +1521,7 @@ public class core : MonoBehaviour {
 	// 2.3, 10
 
 	void Update() {
-		CameraController.transform.localRotation = Quaternion.Euler(0, Time.time * 10.0f, 0);
+		// CameraController.transform.localRotation = Quaternion.Euler(0, Time.time * 10.0f, 0);
 
 		Vector3 laserPos = LaserLocator.transform.position;
 		LaserCoverageMat.SetVector("laserPos", new Vector4(laserPos.x, laserPos.y, laserPos.z, 0.0f));
@@ -2075,7 +2096,7 @@ public class core : MonoBehaviour {
 		return scale;
 	}
 
-	Vector3[] PointsOnSphere(int n)
+	public static Vector3[] PointsOnSphere(int n)
 	{
 		List<Vector3> upts = new List<Vector3>();
 		float inc = Mathf.PI * (3 - Mathf.Sqrt(5));

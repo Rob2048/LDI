@@ -23,8 +23,6 @@ public class uiGridBackground : ImmediateModeElement {
 		GL.Vertex(new Vector3(600, 20));
 		GL.Vertex(new Vector3(0, 20));
 		GL.End();
-
-		
 	}
 }
 
@@ -64,7 +62,6 @@ public class uiImageViewer : VisualElement {
 		// grid.style.height = 200;
 		// this.Add(grid);
 
-
 		_img = Image;
 
 		img = new Image();
@@ -89,7 +86,6 @@ public class uiImageViewer : VisualElement {
 		RegisterCallback<MouseDownEvent>(OnMouseDown);
 		RegisterCallback<MouseUpEvent>(OnMouseUp);
 		RegisterCallback<MouseMoveEvent>(OnMouseMove);
-
 		RegisterCallback<WheelEvent>(OnWheelEvent);
 	}
 
@@ -158,46 +154,24 @@ public class uiImageViewer : VisualElement {
 public class uiPanel : VisualElement {
 
 	public VisualElement Content;
+	public VisualElement _titleContainer;
 
 	public uiPanel(string Title) {
 		this.style.backgroundColor = new StyleColor(new Color(0.2196078f, 0.2196078f, 0.2196078f));
 
 		uiCore.SetPadding(this, 0);
+		
 
-		this.style.borderTopWidth = 1;
-		this.style.borderLeftWidth = 1;
-		this.style.borderRightWidth = 1;
-		this.style.borderBottomWidth = 1;
-		Color borderColor = new Color(0.1607843f, 0.1607843f, 0.1607843f);
-		this.style.borderTopColor = borderColor;
-		this.style.borderLeftColor = borderColor;
-		this.style.borderRightColor = borderColor;
-		this.style.borderBottomColor = borderColor;
-
-		VisualElement titleContainer = new VisualElement();
-		titleContainer.AddToClassList("panel-title-container");
-		((VisualElement)this).Add(titleContainer);
+		_titleContainer = new VisualElement();
+		_titleContainer.AddToClassList("panel-title-container");
+		((VisualElement)this).Add(_titleContainer);
 
 		Label titleLabel = new Label(Title);
 		titleLabel.AddToClassList("panel-title-label");
-		// titleLabel.style.backgroundColor = new StyleColor(new Color(0.1607843f, 0.1607843f, 0.1607843f));
-		// titleLabel.style.marginBottom = 0;
-		// titleLabel.style.marginTop = 0;
-		// titleLabel.style.marginLeft = 0;
-		// titleLabel.style.marginRight = 0;
-		// titleLabel.style.paddingLeft = 5;
-		// titleLabel.style.paddingRight = 2;
-		// titleLabel.style.paddingTop = 4;
-		// titleLabel.style.paddingBottom = 4;
-		// titleLabel.style.fontSize = 10;
-		// titleLabel.style.color = new StyleColor(new Color(0.945098f, 0.945098f, 0.945098f));
-		titleContainer.Add(titleLabel);
+		_titleContainer.Add(titleLabel);
 
 		Content = new VisualElement();
-		Content.style.flexGrow = 1;
-		// uiCore.SetPadding(Content, 5);
-		// Content.style.flexGrow = 1;
-
+		Content.AddToClassList("panel-content");
 		((VisualElement)this).Add(Content);
 	}
 
