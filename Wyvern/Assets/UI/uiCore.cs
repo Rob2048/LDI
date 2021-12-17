@@ -7,7 +7,7 @@ using System.IO;
 
 public class uiCore : MonoBehaviour {
 
-	public static uiCore Singleton;
+	public static uiCore singleton;
 
 	public static string EscapeString(string Str) {
 		return Str.Replace("\\", "\\\\");
@@ -46,13 +46,6 @@ public class uiCore : MonoBehaviour {
 	public Texture PrimaryView; 
 	public Texture AppBkg;
 
-	public Material MeshPreviewMaterial;
-	public Material MeshPreviewWireMaterial;
-
-	public Material UILinesMat;
-
-	public core Core;
-
 	public Camera PrimaryCamera;
 
 	private bool _showLaser = false;
@@ -62,6 +55,7 @@ public class uiCore : MonoBehaviour {
 
 	private VisualElement _testBenchPanel;
 	private VisualElement _modelPanel;
+	private VisualElement _scanPanel;
 	private VisualElement _platformPanel;
 
 	private int _mouseCapButton = -1;
@@ -72,9 +66,11 @@ public class uiCore : MonoBehaviour {
 	// TODO: Make sure this isn't only baked at startup.
 	private float _dpiScale = 1.0f;
 
-	void Start() {
-		Singleton =  this;
+	void Awake() {
+		singleton = this;
+	}
 
+	void Start() {
 		VisualElement root = GetComponent<UIDocument>().rootVisualElement;
 		root.AddToClassList("app-root");
 
@@ -104,6 +100,7 @@ public class uiCore : MonoBehaviour {
 		tLabel = new Label("Help");
 		menuBar.Add(tLabel);
 
+		uiImageViewer viewerPanel =  new uiImageViewer("2D diffusion image", null);
 		
 		//------------------------------------------------------------------------------------------------------------------------
 		// Toolbar.
@@ -188,10 +185,6 @@ public class uiCore : MonoBehaviour {
 		motionPanel.style.width = 300;
 		motionPanel.style.minWidth = 300;
 		container.Add(motionPanel);
-
-		// Label titleLabel = new Label("New panel");
-		// titleLabel.AddToClassList("panel-title-label-inactive");
-		// motionPanel._titleContainer.Add(titleLabel);
 
 		uiPanelCategory connectionCat = new uiPanelCategory("Connection");
 		motionPanel.Add(connectionCat);
@@ -301,6 +294,10 @@ public class uiCore : MonoBehaviour {
 			// modelPanel.style.width = new StyleLength(200);
 			container.Add(modelPanel);
 
+			Label titleLabel = new Label("Textures");
+			titleLabel.AddToClassList("panel-title-label-inactive");
+			((uiPanel)_modelPanel)._titleContainer.Add(titleLabel);
+			
 			VisualElement divider = new VisualElement();
 			divider.style.flexDirection = FlexDirection.Row;
 			divider.style.flexGrow = 1;
@@ -310,7 +307,7 @@ public class uiCore : MonoBehaviour {
 			controlsPanel.style.width = 300;
 			controlsPanel.AddToClassList("border-right");
 			divider.Add(controlsPanel);
-
+			
 			_modelCamViewContainer = new VisualElement();
 			_modelCamViewContainer.style.flexGrow = 1;
 			// _modelCamViewContainer.AddToClassList("panel-border");
@@ -377,7 +374,7 @@ public class uiCore : MonoBehaviour {
 					string fileName = Path.GetFileName(paths[0]);
 					textureSourcePath.text = EscapeString(fileName);
 
-					Texture2D texture = Core.LoadImage(paths[0]);
+					Texture2D texture = core.LoadImage(paths[0]);
 
 					core.appContext.figure.SetTexture(texture);
 					core.appContext.figure.ShowImportedMesh();
@@ -390,7 +387,7 @@ public class uiCore : MonoBehaviour {
 
 			sourceCat.Content.Add(textureSourcePath);
 
-			uiPanelCategory propCat = new uiPanelCategory("Properties");
+			uiPanelCategory propCat = new uiPanelCategory("Stage A");
 			controlsPanel.Add(propCat);
 
 			TextField scaleInput = new TextField("Scale");
@@ -400,7 +397,7 @@ public class uiCore : MonoBehaviour {
 			uiVector3 translation = new uiVector3(Vector3.zero);
 			propCat.Add(translation);
 
-			uiCore.createButton(propCat.Content, "Process", () => {
+			uiCore.createButton(propCat.Content, "Process stage A", () => {
 				float scale = 1.0f;
 				if (!float.TryParse(scaleInput.value, out scale)) {
 					scale = 1.0f;
@@ -410,8 +407,24 @@ public class uiCore : MonoBehaviour {
 				Vector3 pos = translation.GetVector3();
 				
 				core.appContext.figure.Process(scale, pos);
-				// Core.figure.GenerateDisplayMesh(Core.figure.processedMeshInfo, MeshPreviewMaterial);
-				// Core.figure.GenerateDisplayWireMesh(Core.figure.processedMeshInfo, MeshPreviewWireMaterial);
+			});
+
+			uiPanelCategory stageBCat = new uiPanelCategory("Stage B");
+			controlsPanel.Add(stageBCat);
+
+			uiCore.createButton(stageBCat.Content, "Process stage B", () => {
+				core.appContext.figure.ProcessB();
+				// viewerPanel.SetImage(core.singleton.UvTriRt);
+				viewerPanel.SetImage(core.appContext.figure.coverageResultRt);
+				// viewerPanel.SetImage(core.singleton.OrthoDepthRt);
+				viewerPanel.modelTest.mesh = core.appContext.figure.GenerateUiMesh(core.appContext.figure.processedMeshInfo);
+			});
+
+			uiPanelCategory stageCCat = new uiPanelCategory("Stage C");
+			controlsPanel.Add(stageCCat);
+
+			uiCore.createButton(stageCCat.Content, "Process stage C", () => {
+				core.appContext.figure.ProcessC();
 			});
 		}
 
@@ -434,7 +447,6 @@ public class uiCore : MonoBehaviour {
 			controlsPanel.style.width = 250;
 			divider.Add(controlsPanel);
 
-			uiImageViewer viewerPanel =  new uiImageViewer("2D diffusion image", null);
 			divider.Add(viewerPanel);
 
 			uiPanelCategory imageCat = new uiPanelCategory("Image");
@@ -444,7 +456,7 @@ public class uiCore : MonoBehaviour {
 				string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", "", "png", false);
 				
 				if (paths.Length == 1) {
-					Texture2D diffImg = Core.Diffuse2dImage(paths[0]);
+					Texture2D diffImg = core.singleton.Diffuse2dImage(paths[0]);
 					viewerPanel.SetImage(diffImg);
 				}
 			});
@@ -535,7 +547,7 @@ public class uiCore : MonoBehaviour {
 		_mouseCapButton = evt.button;
 		MouseCaptureController.CaptureMouse(_modelCamViewContainer);
 		_mouseCapStart = evt.localMousePosition;
-		_camPos = Core.CameraController.transform.position;
+		_camPos = core.singleton.CameraController.transform.position;
 	}
 
 	private void OnMouseUp(MouseUpEvent evt) {
@@ -545,7 +557,7 @@ public class uiCore : MonoBehaviour {
 
 		if (_mouseCapButton == 0) {
 			Vector2 moveDelta = evt.localMousePosition - _mouseCapStart;
-			moveDelta *= 0.35f;
+			moveDelta *= 0.4f;
 		
 			_camData.x += moveDelta.x;
 			_camData.y -= moveDelta.y;
@@ -560,18 +572,18 @@ public class uiCore : MonoBehaviour {
 			Vector2 moveDelta = evt.localMousePosition - _mouseCapStart;
 
 			if (_mouseCapButton == 0) {
-				moveDelta *= 0.35f;
+				moveDelta *= 0.4f;
 
 				Quaternion camRotX = Quaternion.AngleAxis(_camData.x + moveDelta.x, Vector3.up);
 				Quaternion camRotY = Quaternion.AngleAxis(_camData.y - moveDelta.y, Vector3.left);
 				
-				Core.CameraController.transform.rotation = camRotX * camRotY;
+				core.singleton.CameraController.transform.rotation = camRotX * camRotY;
 			} else if (_mouseCapButton == 1) {
 				moveDelta *= 0.001f * _camData.z;
 
-				Vector3 worldMove = Core.CameraController.transform.TransformVector(new Vector3(-moveDelta.x, moveDelta.y, 0));
+				Vector3 worldMove = core.singleton.CameraController.transform.TransformVector(new Vector3(-moveDelta.x, moveDelta.y, 0));
 
-				Core.CameraController.transform.position = _camPos + worldMove;
+				core.singleton.CameraController.transform.position = _camPos + worldMove;
 			}
 		}
 	}

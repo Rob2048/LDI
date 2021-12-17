@@ -28,7 +28,9 @@ def draw_registration_result_temp(source, target, transformation):
 	target_temp.paint_uniform_color([0.6, 0.2, 0.65])
 	source_temp.transform(transformation)
 	# target_temp.translate((3, 0, 0))
-	o3d.visualization.draw_geometries([source_temp, target_temp])
+	# o3d.visualization.draw_geometries([source_temp, target_temp])
+	mesh.transform(transformation)
+	o3d.visualization.draw_geometries([source_temp, target_temp, mesh])
 
 def preprocess_point_cloud(pcd, voxel_size):
 	print(":: Downsample with a voxel size %.3f." % voxel_size)
@@ -117,7 +119,12 @@ downpcd.paint_uniform_color([0.6, 0.2, 0.65])
 # downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
 downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
 print(downpcd)
-o3d.visualization.draw_geometries([downpcd])
+# o3d.visualization.draw_geometries([downpcd])
+
+
+# pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
+# pcd.paint_uniform_color([0.6, 0.2, 0.65])
+# o3d.visualization.draw_geometries([pcd])
 
 #----------------------------------------------------------------------------------------------------------------------------------
 # Global registration.

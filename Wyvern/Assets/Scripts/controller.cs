@@ -7,14 +7,6 @@ using System.Text;
 using System.Threading;
 using UnityEngine;
 
-public class TriangleRect {
-	public Vector2 v0;
-	public Vector2 v1;
-	public Vector2 v2;
-	public Rect rect;
-	public int id;
-}
-
 public class PBCommand {
 	public byte[] packet;
 	

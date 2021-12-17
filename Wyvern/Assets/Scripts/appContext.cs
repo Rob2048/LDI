@@ -30,8 +30,12 @@ public class ProfileTimer {
 
 	public double Stop(string msg) {
 		_sw.Stop();
+		PrintTime(msg);
+		return _sw.Elapsed.TotalMilliseconds;
+	}
+
+	public void PrintTime(string msg) {
 		double t = _sw.Elapsed.TotalMilliseconds;
 		Debug.Log("[Profile timer] (" + msg + ") " + t + " ms");
-		return t;
 	}
 }

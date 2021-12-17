@@ -58,6 +58,10 @@ public class core : MonoBehaviour {
 
 	public Material BasicMaterial;
 	public Material BasicWireMaterial;
+	public Material BasicUnlitMaterial;
+	public Material UiLinesMateral;
+	public Material CoveragetMeshViewMat;
+	public Material QuadWireMaterial;
 
 	public Figure figure;
 
@@ -281,11 +285,13 @@ public class core : MonoBehaviour {
 		// _diffuser.DrawDebug();
 
 		// Load mesh for testing.
-		MeshInfo figureLoadedMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
-		Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png");
+		MeshInfo figureLoadedMeshInfo = PlyImporter.LoadQuadOnly("C:/Projects/LDI/Wyvern/Content/figure.ply");
+		// MeshInfo figureLoadedMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
+		// Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png", true);
 		appContext.figure.SetMesh(figureLoadedMeshInfo);
-		appContext.figure.SetTexture(figureLoadedTexture);
+		// appContext.figure.SetTexture(figureLoadedTexture);
 		appContext.figure.ShowImportedMesh();
+		appContext.figure.GenerateQuadWireMesh(figureLoadedMeshInfo, QuadWireMaterial);
 	}
 	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
@@ -1494,14 +1500,18 @@ public class core : MonoBehaviour {
 	// 	Dest.Apply(false);
 	// }
 	
-	public Texture2D LoadImage(string Path) {
+	public static Texture2D LoadImage(string path, bool filtered = false) {
 		Texture2D tex = null;
 		byte[] fileData;
 
-		if (File.Exists(Path)) {
-			fileData = File.ReadAllBytes(Path);
+		if (File.Exists(path)) {
+			fileData = File.ReadAllBytes(path);
 			tex = new Texture2D(2, 2, TextureFormat.RGB24, false, false);
-			tex.filterMode = FilterMode.Point;
+
+			if (!filtered) {
+				tex.filterMode = FilterMode.Point;
+			}
+
 			tex.LoadImage(fileData);
 		}
 

@@ -3,32 +3,62 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-public class uiGridBackground : ImmediateModeElement {
+public class uiModelTest : ImmediateModeElement {
 
-	public uiGridBackground() {
+	public Mesh mesh;
+	public Vector3 position;
+	public float scale;
 
+	public uiModelTest() {
+		// mesh = new Mesh();
+
+		// Vector3[] verts = new Vector3[3];
+		// Color32[] colors = new Color32[3];
+		// int[] indices = new int[6];
+
+		// verts[0] = new Vector3(0, 0, 0);
+		// verts[1] = new Vector3(100, 0, 0);
+		// verts[2] = new Vector3(100, 100, 0);
+
+		// colors[0] = new Color32(255, 255, 255, 128);
+		// colors[1] = new Color32(255, 255, 255, 128);
+		// colors[2] = new Color32(255, 255, 255, 128);
+
+		// indices[0] = 0;
+		// indices[1] = 1;
+		// indices[2] = 1;
+		// indices[3] = 2;
+		// indices[4] = 2;
+		// indices[5] = 0;
+
+		// mesh.SetVertices(verts);
+		// mesh.SetColors(colors);
+		// mesh.SetIndices(indices, MeshTopology.Lines, 0);
+
+		position = Vector3.zero;
+		scale = 1.0f;
 	}
 
 	protected override void ImmediateRepaint() {
+		if (mesh == null) {
+			return;
+		}
 
-		// UnityEditor.HandleUtility.ApplyWireMaterial
-		Material mat = uiCore.Singleton.UILinesMat;
-		// mat.SetFloat("_HandleZTest", (float)zTest);
+		Material mat = core.singleton.UiLinesMateral;
+		Shader.SetGlobalColor("_Color", new Color(0.2f, 0.5f, 1.0f, 1));
+		Shader.SetGlobalVector("_ClipRect", new Vector4(worldBound.xMin, worldBound.yMin, worldBound.xMax, worldBound.yMax));
+		Shader.SetGlobalVector("ScreenParams", new Vector4(Screen.width, Screen.height, 0, 0));
+		Shader.SetGlobalVector("Transform", new Vector4(position.x, position.y, scale, 0));
 		mat.SetPass(0);
 
-		GL.Begin(GL.QUADS);
-		GL.Color(new Color(1, 0, 0, 1));
-		GL.Vertex(new Vector3(0, 0));
-		GL.Vertex(new Vector3(600, 0));
-		GL.Vertex(new Vector3(600, 20));
-		GL.Vertex(new Vector3(0, 20));
-		GL.End();
+		Graphics.DrawMeshNow(mesh, Matrix4x4.identity);
 	}
 }
 
 public class uiImageViewer : VisualElement {
 
 	private Image img;
+	public uiModelTest modelTest;
 	private string _title;
 	private Vector2 mouseCapStart;
 	private Vector2 imgPos = new Vector2(0, 0);
@@ -69,6 +99,13 @@ public class uiImageViewer : VisualElement {
 		img.style.position = Position.Absolute;
 		this.Add(img);
 
+		modelTest = new uiModelTest();
+		modelTest.style.position = Position.Absolute;
+		modelTest.style.width = Length.Percent(100);
+		modelTest.style.height = Length.Percent(100);
+		// _modelTest.style.backgroundColor = new Color(0.5f, 0,0, 0.5f);
+		this.Add(modelTest);
+
 		_UpdateImageLayout();
 
 		VisualElement titleBar = new VisualElement();
@@ -96,14 +133,15 @@ public class uiImageViewer : VisualElement {
 	}
 
 	private void _UpdateImageLayout() {
-		if (_img == null) {
-			return;
+		if (_img != null) {
+			img.style.left = imgPos.x;
+			img.style.top = imgPos.y;
+			img.style.width = _img.width * imgZoom;
+			img.style.height = _img.height * imgZoom;
 		}
 
-		img.style.left = imgPos.x;
-		img.style.top = imgPos.y;
-		img.style.width = _img.width * imgZoom;
-		img.style.height = _img.height * imgZoom;
+		modelTest.position = new Vector3(imgPos.x, imgPos.y, 0);
+		modelTest.scale = imgZoom;
 	}
 
 	private void OnWheelEvent(WheelEvent evt) {
@@ -131,8 +169,9 @@ public class uiImageViewer : VisualElement {
 			Vector2 moveDelta = evt.localMousePosition - mouseCapStart;
 			imgPos = moveDelta;
 
-			img.style.left = imgPos.x;
-			img.style.top = imgPos.y;
+			_UpdateImageLayout();
+			// img.style.left = imgPos.x;
+			// img.style.top = imgPos.y;
 		}
 	}
 

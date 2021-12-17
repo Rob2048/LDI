@@ -1,0 +1,18 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> Source;
+// RWStructuredBuffer<float> Scores;
+RWTexture2D<float4> Result;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	float4 source = Source[id.xy];
+	float4 c = Result[id.xy];
+	
+	// if (source.r > c.r || source.a > c.a) {
+	if (source.r > c.r) {
+		Result[id.xy] = source;
+	}
+}

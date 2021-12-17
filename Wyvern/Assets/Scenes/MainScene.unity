@@ -847,8 +847,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 143792917}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 3.0793, y: 0.02271587, z: 3.0793}
+  m_LocalPosition: {x: 0, y: -0.1, z: 0}
+  m_LocalScale: {x: 3.0793, y: 0.1, z: 3.0793}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 22
@@ -3718,8 +3718,8 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.3
-  far clip plane: 1000
+  near clip plane: 0.01
+  far clip plane: 100
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -3796,6 +3796,11 @@ MonoBehaviour:
   SurfelDebugMat: {fileID: 2100000, guid: 14d6b71767b162142823434d873fb475, type: 2}
   BasicMaterial: {fileID: 2100000, guid: 921d2a916fd36f242818d12d7c63d203, type: 2}
   BasicWireMaterial: {fileID: 2100000, guid: 9804f36482d24e7498780485ad482093, type: 2}
+  BasicUnlitMaterial: {fileID: 2100000, guid: 9530b2cbb571ea0408b4718af8f86dcb, type: 2}
+  UiLinesMateral: {fileID: 2100000, guid: 53a41febf56b13b4a96ac0248af0399e, type: 2}
+  CoveragetMeshViewMat: {fileID: 2100000, guid: f63dfaba778e2474793666983ea62be7,
+    type: 2}
+  QuadWireMaterial: {fileID: 2100000, guid: aa43079ac779ffe42beb452db3ee49bf, type: 2}
   TargetFactor: 1.7
   TargetSpread: 7
   TargetContrast: 1.6
@@ -5741,7 +5746,7 @@ GameObject:
   - component: {fileID: 1410215465}
   - component: {fileID: 1410215467}
   - component: {fileID: 1410215466}
-  m_Layer: 0
+  m_Layer: 12
   m_Name: Text
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -7237,7 +7242,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 4096
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -7864,11 +7869,6 @@ MonoBehaviour:
   TextureMap: {fileID: 2800000, guid: d9bc18d30c0229b42ba308eed1bef544, type: 3}
   PrimaryView: {fileID: 8400000, guid: 11813c202b085354cb78fab03a7de09d, type: 2}
   AppBkg: {fileID: 2800000, guid: af0f20ffc8c983840869ab8954e6928c, type: 3}
-  MeshPreviewMaterial: {fileID: 2100000, guid: 921d2a916fd36f242818d12d7c63d203, type: 2}
-  MeshPreviewWireMaterial: {fileID: 2100000, guid: 9804f36482d24e7498780485ad482093,
-    type: 2}
-  UILinesMat: {fileID: 2100000, guid: 53a41febf56b13b4a96ac0248af0399e, type: 2}
-  Core: {fileID: 975874972}
   PrimaryCamera: {fileID: 963194227}
 --- !u!1 &1992062360
 GameObject:

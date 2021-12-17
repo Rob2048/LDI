@@ -37,12 +37,12 @@
 				float4 clipSpacePos : TEXCOORD1;
 			};
 
-			v2f vert(appdata_base v) 
+			v2f vert(appdata_full v) 
 			{
 				v2f o;
-				o.pos = float4(v.texcoord.xy * 2 - 1, 1, 1);
+				o.pos = float4(v.texcoord1.xy * 2 - 1, 1, 1);
 				o.pos.y = -o.pos.y;
-				o.uv = v.texcoord.xy;
+				o.uv = v.texcoord1.xy;
 				
 				// TODO: Also view.
 				// o.normal = mul(mul(modelMat, viewMat), float4(v.normal.xyz, 0.0)).xyz;
@@ -72,9 +72,9 @@
 
 				// Convert range to 0 - 45 degrees.
 				// float hv = saturate((nD - 0.7071) * 3.14159);
-				// 60 deg.
-				float hv = saturate((nD - 0.5) * 2.0);
-				// float hv = saturate(nD);
+				// 60 deg.				
+				// float hv = saturate((nD - 0.5) * 2.0);
+				float hv = saturate(nD);
 
 				// Stretch range to favor head on angle.
 				// hv = pow(hv, 10);
