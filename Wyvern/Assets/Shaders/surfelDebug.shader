@@ -11,7 +11,7 @@ Shader "Unlit/surfelDebug"
 
 		Pass
 		{
-			Offset -1, -1
+			// Offset -1, -1
 			
 			CGPROGRAM
 			#pragma vertex vert
@@ -52,7 +52,7 @@ Shader "Unlit/surfelDebug"
 				clip(col.a - 0.1);
 
 				
-				float4 outC = col * i.color;
+				float4 outC = i.color;
 				outC.rgb = pow(outC.rgb, 2.2f);
 
 				return outC;

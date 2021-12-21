@@ -378,16 +378,18 @@ public class Diffuser {
 			
 			Vector3 tangent = Vector3.Cross(normal, tempVec).normalized;
 			Vector3 bitangent = Vector3.Cross(tangent, normal).normalized;
-
+			
 			Vector3 v0 = tangent * -hscale + bitangent * -hscale;
 			Vector3 v1 = tangent * -hscale + bitangent * hscale;
 			Vector3 v2 = tangent * hscale + bitangent * hscale;
 			Vector3 v3 = tangent * hscale + bitangent * -hscale;
 
-			verts[i * 4 + 0] = s.pos + v0;
-			verts[i * 4 + 1] = s.pos + v1;
-			verts[i * 4 + 2] = s.pos + v2;
-			verts[i * 4 + 3] = s.pos + v3;
+			Vector3 basePos = s.pos + normal * 0.0015f;
+
+			verts[i * 4 + 0] = basePos + v0;
+			verts[i * 4 + 1] = basePos + v1;
+			verts[i * 4 + 2] = basePos + v2;
+			verts[i * 4 + 3] = basePos + v3;
 
 			uvs[i * 4 + 0] = new Vector2(0, 0);
 			uvs[i * 4 + 1] = new Vector2(0, 1);

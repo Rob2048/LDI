@@ -44,6 +44,7 @@
      <Compile Include="Assets\Scripts\objImporter.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserEditor.cs" />
      <Compile Include="Assets\Scripts\diffuser.cs" />
+     <Compile Include="Assets\Scripts\plyImporter.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowser.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserLinux.cs" />
      <Compile Include="Assets\UI\uiVector3.cs" />
@@ -54,8 +55,8 @@
      <Compile Include="Assets\Scripts\controller.cs" />
      <Compile Include="Assets\Scripts\laserAssembly.cs" />
      <Compile Include="Assets\UI\uiCore.cs" />
-     <Compile Include="Assets\Scripts\plyImporter.cs" />
      <None Include="Assets\Shaders\laserLocator.shader" />
+     <None Include="Assets\ProjectionTesting\candidatesSoft.shader" />
      <None Include="Assets\Shaders\triId.shader" />
      <None Include="Assets\MeshProcessing\coverageMeshView.shader" />
      <None Include="Assets\Shaders\uvTriFlat.shader" />
@@ -64,9 +65,11 @@
      <None Include="Assets\Shaders\Skybox Gradient.shader" />
      <None Include="Assets\MeshProcessing\orthoDepth.shader" />
      <None Include="Assets\UI\uicss.uss" />
+     <None Include="Assets\Shaders\sampledMesh.shader" />
      <None Include="Assets\Shaders\test.shader" />
      <None Include="Assets\Shaders\basicUnlit.shader" />
      <None Include="Assets\MeshProcessing\candidates.shader" />
+     <None Include="Assets\ProjectionTesting\ProjectionShader.shader" />
      <None Include="Assets\MeshProcessing\quantaScore.compute" />
      <None Include="Assets\UI\ImageViewer.uxml" />
      <None Include="Assets\Shaders\surfelDebug.shader" />

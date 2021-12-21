@@ -85,7 +85,9 @@
 				// NOTE: Check for point depth. Including puffy mesh. - TODO: Watch for depths that are allowed, but should not be. Like tiny/close details.
 				if (i.clipSpacePos.z >= (depthPre.r - 0.008)) {
 					// NOTE: Check for surface angles.
-					if (f > (90.0 - maxAngle) / 90.0) {
+					// TODO: This is wrong, F is not in degree space.
+					// if (f > (90.0 - maxAngle) / 90.0) {
+					if (f > cos(radians(maxAngle))) {
 						// NOTE: Check for focal depth.
 						if (i.camDepth.x <= 20.15 && i.camDepth.x >= 19.85) {
 							// NOTE: Check for coverage.

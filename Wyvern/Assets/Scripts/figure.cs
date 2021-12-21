@@ -150,6 +150,47 @@ public class Figure {
 		return result;
 	}
 
+	public Mesh GenerateUiMeshQuads(MeshInfo meshInfo) {
+		int quadCount = meshInfo.vertUvsUnique.Length / 4;
+
+		Vector3[] verts = new Vector3[quadCount * 4];
+		Color32[] colors = new Color32[quadCount * 4];
+		int[] indices = new int[quadCount * 8];
+
+		Vector2 pixelScale = new Vector2(4096, -4096);
+		Vector2 pixelOffset = new Vector2(0, 4096);
+		Color32 color = new Color32(255, 255, 255, 255);
+
+		for (int i = 0; i < quadCount; ++i) {
+			verts[i * 4 + 0] = meshInfo.vertUvsUnique[i * 4 + 0] * pixelScale + pixelOffset;
+			verts[i * 4 + 1] = meshInfo.vertUvsUnique[i * 4 + 1] * pixelScale + pixelOffset;
+			verts[i * 4 + 2] = meshInfo.vertUvsUnique[i * 4 + 2] * pixelScale + pixelOffset;
+			verts[i * 4 + 3] = meshInfo.vertUvsUnique[i * 4 + 3] * pixelScale + pixelOffset;
+
+			colors[i * 4 + 0] = color;
+			colors[i * 4 + 1] = color;
+			colors[i * 4 + 2] = color;
+			colors[i * 4 + 3] = color;
+
+			indices[i * 8 + 0] = i * 4 + 0;
+			indices[i * 8 + 1] = i * 4 + 1;
+			indices[i * 8 + 2] = i * 4 + 1;
+			indices[i * 8 + 3] = i * 4 + 2;
+			indices[i * 8 + 4] = i * 4 + 2;
+			indices[i * 8 + 5] = i * 4 + 3;
+			indices[i * 8 + 6] = i * 4 + 3;
+			indices[i * 8 + 7] = i * 4 + 0;
+		}
+
+		Mesh result = new Mesh();
+		result.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;	
+		result.SetVertices(verts);
+		result.SetColors(colors);
+		result.SetIndices(indices, MeshTopology.Lines, 0);
+		
+		return result;
+	}
+
 	public void GenerateDisplayMesh(MeshInfo meshInfo, Material material) {
 		if (previewGob != null) {
 			GameObject.Destroy(previewGob);
@@ -174,6 +215,7 @@ public class Figure {
 
 		previewGob = new GameObject();
 		MeshRenderer renderer = previewGob.AddComponent<MeshRenderer>();
+		renderer.shadowCastingMode = ShadowCastingMode.Off;
 		renderer.material = material;
 
 		if (texture != null) {
@@ -376,6 +418,86 @@ public class Figure {
 		for (int i = 0; i < views.Length; ++i) {
 			GameObject viewMarker = GameObject.Instantiate(core.singleton.SampleLocatorPrefab, views[i] * 20.0f, Quaternion.LookRotation(-views[i], Vector3.up));
 		}
+	}
+
+	public MeshInfo CreateUniqueUvsQuadMesh(MeshInfo meshInfo) {
+		if (meshInfo.triangles.Length % 6 != 0) {
+			Debug.LogError("Mesh contains non-quads");
+			return null;
+		}
+
+		int quadCount = meshInfo.triangles.Length / 6;
+
+		Debug.Log("Quad count: " + quadCount);
+
+		float totalArea = 0.0f;
+
+		for (int i = 0; i < quadCount; ++i) {
+			Vector3 v0 = meshInfo.vertPositions[meshInfo.triangles[i * 6 + 0]];
+			Vector3 v1 = meshInfo.vertPositions[meshInfo.triangles[i * 6 + 1]];
+			Vector3 v2 = meshInfo.vertPositions[meshInfo.triangles[i * 6 + 5]];
+
+			Vector3 l0 = v0 - v1;
+			Vector3 l1 = v2 - v1;
+
+			float area = l0.magnitude * l1.magnitude;
+
+			totalArea += area;
+		}
+
+		totalArea /= quadCount;
+		float squareLength = Mathf.Sqrt(totalArea);
+		Debug.Log("Average area: " + totalArea + " length: " + (squareLength * 10000) + " um");
+
+		// Create shared verts per quad.
+
+		Vector3[] vertPositions = new Vector3[quadCount * 4];
+		Vector2[] vertUvs = new Vector2[quadCount * 4];
+		int[] triangles = new int[quadCount * 6];
+
+		float currentX = 0.0f;
+		float currentY = 0.0f;
+		float quadSize = 3.0f / 4096.0f;
+		float padding = 0.05f / 4096.0f;
+
+		for (int i = 0; i < quadCount; ++i) {
+			int vIdx0 = meshInfo.triangles[i * 6 + 0];
+			int vIdx1 = meshInfo.triangles[i * 6 + 1];
+			int vIdx2 = meshInfo.triangles[i * 6 + 5];
+			int vIdx3 = meshInfo.triangles[i * 6 + 2];
+
+			vertPositions[i * 4 + 0] = meshInfo.vertPositions[vIdx0];
+			vertPositions[i * 4 + 1] = meshInfo.vertPositions[vIdx1];
+			vertPositions[i * 4 + 2] = meshInfo.vertPositions[vIdx2];
+			vertPositions[i * 4 + 3] = meshInfo.vertPositions[vIdx3];
+
+			if (currentX + quadSize >= 1.0f) {
+				currentX = 0.0f;
+				currentY += quadSize;
+			}
+
+			vertUvs[i * 4 + 0] = new Vector2(currentX + padding, currentY + padding);
+			vertUvs[i * 4 + 1] = new Vector2(currentX + padding, currentY + quadSize - padding);
+			vertUvs[i * 4 + 2] = new Vector2(currentX + quadSize - padding, currentY + quadSize - padding);
+			vertUvs[i * 4 + 3] = new Vector2(currentX + quadSize - padding, currentY + padding);
+
+			currentX += quadSize;
+
+			triangles[i * 6 + 0] = i * 4 + 0;
+			triangles[i * 6 + 1] = i * 4 + 1;
+			triangles[i * 6 + 2] = i * 4 + 2;
+			triangles[i * 6 + 3] = i * 4 + 0;
+			triangles[i * 6 + 4] = i * 4 + 2;
+			triangles[i * 6 + 5] = i * 4 + 3;
+		}
+
+		MeshInfo result = new MeshInfo();
+		result.vertPositions = vertPositions;
+		// result.vertUvs = vertUvs;
+		result.vertUvsUnique = vertUvs;
+		result.triangles = triangles;
+
+		return result;
 	}
 
 	private void _CreateUniqueUVs(MeshInfo meshInfo) {
@@ -621,7 +743,7 @@ public class Figure {
 
 	// Creates a coverage map that uses non-machine aware view points.
 	private void _GenerateCoverageMap(Mesh visibilityMesh) {
-		coverageResultRt = new RenderTexture(8192, 8192, 0, RenderTextureFormat.ARGB32);
+		coverageResultRt = new RenderTexture(4096, 4096, 0, RenderTextureFormat.ARGB32);
 		coverageResultRt.filterMode = FilterMode.Point;
 		coverageResultRt.enableRandomWrite = true;
 		coverageResultRt.useMipMap = false;
@@ -683,8 +805,8 @@ public class Figure {
 			qCmdBuffer.Release();
 
 			// Accumulate quanta scores.
-			// coverageCompute.Dispatch(kernelIndex, 4096 / 8, 4096 / 8, 1);
-			coverageCompute.Dispatch(kernelIndex, 8192 / 8, 8192 / 8, 1);
+			coverageCompute.Dispatch(kernelIndex, 4096 / 8, 4096 / 8, 1);
+			// coverageCompute.Dispatch(kernelIndex, 8192 / 8, 8192 / 8, 1);
 		}
 
 		// coverageBufferRt.Release();
@@ -739,5 +861,13 @@ public class Figure {
 
 	public void ShowImportedMesh() {
 		GenerateDisplayMesh(initialMeshInfo, core.singleton.BasicMaterial);
+	}
+
+	public void ProcessQuadRemeshProjectionStrategy() {
+		processedMeshInfo = CreateUniqueUvsQuadMesh(initialMeshInfo);
+		// GenerateDisplayMesh(processedMeshInfo, core.singleton.BasicMaterial);
+		Mesh uniqueUvMesh = GenerateMesh(processedMeshInfo, true, true);
+		_GenerateCoverageMap(uniqueUvMesh);
+		_ShowCoveragePreviewMesh(uniqueUvMesh);
 	}
 }

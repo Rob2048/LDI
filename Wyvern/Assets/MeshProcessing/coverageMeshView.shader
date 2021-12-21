@@ -52,9 +52,8 @@
 			
 			float4 frag (v2f i) : SV_Target
 			{
-				// Surfel.
-				float triScale = 0.08 * 20;
-				float2 uvs = ((i.uv) * 4096.0 / triScale) % 2.0;
+				// float2 perTexelUv = trunc(i.uv * 8192.0) / 8192.0;
+				// return float4(perTexelUv * 64.0 % 1.0, 0, 1);
 
 				// Texel.
 				// NOTE: 1 texel = 50um, this could change.
@@ -144,8 +143,8 @@
 				// 	return float4(fade, fade, fade, 1);
 				// }
 
-				return float4(f, 1);
-				// return float4(f * fade, 1);
+				// return float4(f, 1);
+				return float4(f * fade, 1);
 			}
 			ENDCG
 		}

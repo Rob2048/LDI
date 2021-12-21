@@ -59,9 +59,12 @@ public class core : MonoBehaviour {
 	public Material BasicMaterial;
 	public Material BasicWireMaterial;
 	public Material BasicUnlitMaterial;
+	public Material SampledMeshMaterial;
 	public Material UiLinesMateral;
 	public Material CoveragetMeshViewMat;
 	public Material QuadWireMaterial;
+	public Material ProjectionMaterial;
+	public Material CandidatesSoftMat;
 
 	public Figure figure;
 
@@ -245,6 +248,8 @@ public class core : MonoBehaviour {
 		appContext = new AppContext();
 	}
 
+	private GameObject _sampledMeshGob;
+
 	void Start() {
 		_textRenderer = new TextRenderer();
 		ImageData textTest = _textRenderer.GetTextImage("100%", 32, this);
@@ -285,13 +290,101 @@ public class core : MonoBehaviour {
 		// _diffuser.DrawDebug();
 
 		// Load mesh for testing.
+		MeshInfo sourceMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
 		MeshInfo figureLoadedMeshInfo = PlyImporter.LoadQuadOnly("C:/Projects/LDI/Wyvern/Content/figure.ply");
 		// MeshInfo figureLoadedMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
-		// Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png", true);
+		Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png", true);
+
+		Mesh figureMeshNormals = appContext.figure.GenerateMesh(figureLoadedMeshInfo, false, true);
+		figureLoadedMeshInfo.vertNormals = figureMeshNormals.normals;
+		Destroy(figureMeshNormals);
+
 		appContext.figure.SetMesh(figureLoadedMeshInfo);
 		// appContext.figure.SetTexture(figureLoadedTexture);
-		appContext.figure.ShowImportedMesh();
-		appContext.figure.GenerateQuadWireMesh(figureLoadedMeshInfo, QuadWireMaterial);
+		// appContext.figure.ShowImportedMesh();
+		// appContext.figure.GenerateQuadWireMesh(figureLoadedMeshInfo, QuadWireMaterial);
+
+		// Projection.
+		// appContext.figure.GenerateDisplayMesh(appContext.figure.initialMeshInfo, ProjectionMaterial);
+
+		// Textured base mesh.
+		Mesh sourceMesh = appContext.figure.GenerateMesh(sourceMeshInfo, true, true);
+		GameObject sourceMeshGob = new GameObject("source mesh");
+		sourceMeshGob.AddComponent<MeshFilter>().mesh = sourceMesh;
+		sourceMeshGob.layer = LayerMask.NameToLayer("VisLayer");
+		MeshRenderer sourceMeshRenderer = sourceMeshGob.AddComponent<MeshRenderer>();
+		sourceMeshRenderer.material = BasicMaterial;
+		sourceMeshRenderer.material.SetTexture("_MainTex", figureLoadedTexture);
+
+		ProfileTimer pt = new ProfileTimer();
+		MeshCollider sourceMeshCollider = sourceMeshGob.AddComponent<MeshCollider>();
+		//sourceMeshCollider.cookingOptions = 
+		sourceMeshCollider.sharedMesh = sourceMesh;
+		pt.Stop("Created mesh collider");
+
+		// Raycast test.
+		MeshInfo figureMeshInfo = appContext.figure.initialMeshInfo;
+		int figureMeshVertCount = figureMeshInfo.vertPositions.Length;
+		figureMeshInfo.vertColors = new Color32[figureMeshVertCount];
+
+		int jobCount = figureMeshVertCount;
+
+		var results = new NativeArray<RaycastHit>(jobCount, Allocator.TempJob);
+		var commands = new NativeArray<RaycastCommand>(jobCount, Allocator.TempJob);
+
+		LayerMask mask = LayerMask.GetMask("VisLayer");
+
+		for (int i = 0; i < jobCount; ++i) {
+			Vector3 dir = -figureLoadedMeshInfo.vertNormals[i];
+			Vector3 origin = figureLoadedMeshInfo.vertPositions[i];
+			origin = origin - dir * 0.02f;
+			
+			commands[i] = new RaycastCommand(origin, dir, 0.1f, mask);
+		}
+
+		pt.Start();
+		JobHandle handle = RaycastCommand.ScheduleBatch(commands, results, 1, default(JobHandle));
+		handle.Complete();
+		pt.Stop("Raycasting");
+
+		pt.Start();
+		for (int i = 0; i < jobCount; ++i) {
+			if (results[i].collider == null) {
+				figureMeshInfo.vertColors[i] = new Color32(255, 0, 255, 255);
+			} else {
+				Vector2 uv = results[i].textureCoord;
+				// NOTE: Color is sampled in sRGB space.
+				figureMeshInfo.vertColors[i] = figureLoadedTexture.GetPixelBilinear(uv.x, uv.y);
+			}
+		}
+		pt.Stop("Color sampling");
+
+		results.Dispose();
+		commands.Dispose();
+
+		Mesh sampledMesh = appContext.figure.GenerateMesh(figureMeshInfo, true, true);
+		GameObject sampledMeshGob = new GameObject("sampled mesh");
+		sampledMeshGob.AddComponent<MeshFilter>().mesh = sampledMesh;
+		MeshRenderer sampledMeshRenderer = sampledMeshGob.AddComponent<MeshRenderer>();
+		sampledMeshRenderer.material = SampledMeshMaterial;
+		// sampledMeshRenderer.material = ProjectionMaterial;
+
+		sourceMeshGob.SetActive(false);
+		_sampledMeshGob = sampledMeshGob;
+
+		// Diffusion test.
+		for (int i = 0; i < figureMeshVertCount; ++i) {
+		// for (int i = 0; i < 500000; ++i) {
+			Surfel s = new Surfel();
+			s.scale = 0.005f;
+			s.continuous = figureMeshInfo.vertColors[i].r / 255.0f;
+			s.pos = figureMeshInfo.vertPositions[i] * 0.5f;
+			s.normal = figureMeshInfo.vertNormals[i];
+			_diffuser.surfels.Add(s);
+		}
+
+		_diffuser.Process();
+		_diffuser.DrawDebug();
 	}
 	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
@@ -1556,6 +1649,53 @@ public class core : MonoBehaviour {
 		// 	DiffuserView3.GetComponent<MeshRenderer>().material.SetTexture("_MainTex", gPdDiffusionTex);
 		// 	DiffuserView3.transform.localScale = new Vector3(gPdDiffusionTex.width / 200.0f, 1.0f, gPdDiffusionTex.height / 200.0f);
 		// }
+
+		return;
+
+		// Projection test updating.
+		{
+			// GameObject previewModel = appContext.figure.previewGob;
+			GameObject previewModel = _sampledMeshGob;
+
+			CommandBuffer cmdBuffer = new CommandBuffer();
+			cmdBuffer.name = "Render scanner view";
+
+			// Get galvo view.
+			Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+			Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
+			Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+
+			Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+			Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+			// Draw depth.
+			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+			BasicShaderMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+			// Draw pixel candidate buffer.
+			cmdBuffer.SetRenderTarget(ScannerViewRt);
+			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+			cmdBuffer.ClearRenderTarget(true, true, new Color(1.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+			CandidatesSoftMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+			CandidatesSoftMat.SetVector("camWorldPos", RayTester.transform.position);
+			CandidatesSoftMat.SetTexture("depthPreTex", ScannerViewDepthRt);
+			cmdBuffer.DrawMesh(figureMesh, figureMatrix, CandidatesSoftMat);
+
+			// Execute commands.
+			Graphics.ExecuteCommandBuffer(cmdBuffer);
+			cmdBuffer.Release();
+			
+			// Update figure projection test material.
+			Material ptMaterial = previewModel.GetComponent<MeshRenderer>().material;
+			ptMaterial.SetTexture("depthPreTex", ScannerViewDepthRt);
+			ptMaterial.SetTexture("candidateTex", ScannerViewRt);
+			ptMaterial.SetMatrix("projVpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+			ptMaterial.SetMatrix("projPInvMat", realProj.inverse);
+			ptMaterial.SetVector("camWorldPos", RayTester.transform.position);
+		}
 	}
 
 	public void RenderFromScannerView(bool Capture) {

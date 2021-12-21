@@ -3732,7 +3732,7 @@ Camera:
   m_TargetDisplay: 0
   m_TargetEye: 3
   m_HDR: 1
-  m_AllowMSAA: 1
+  m_AllowMSAA: 0
   m_AllowDynamicResolution: 0
   m_ForceIntoRT: 0
   m_OcclusionCulling: 1
@@ -3801,6 +3801,8 @@ MonoBehaviour:
   CoveragetMeshViewMat: {fileID: 2100000, guid: f63dfaba778e2474793666983ea62be7,
     type: 2}
   QuadWireMaterial: {fileID: 2100000, guid: aa43079ac779ffe42beb452db3ee49bf, type: 2}
+  ProjectionMaterial: {fileID: 2100000, guid: 91b41fc5c3c33a641aa8a989617b83f2, type: 2}
+  CandidatesSoftMat: {fileID: 2100000, guid: 488faa8a4a457a04bac2afb394baa7e6, type: 2}
   TargetFactor: 1.7
   TargetSpread: 7
   TargetContrast: 1.6
@@ -7173,13 +7175,13 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1747303434}
-  m_LocalRotation: {x: -0, y: -0.4667868, z: -0, w: 0.8843699}
-  m_LocalPosition: {x: 17.548, y: -0.14, z: -11.34}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalPosition: {x: 0, y: 7.23, z: 20}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 14
-  m_LocalEulerAnglesHint: {x: 0, y: -55.652, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!1 &1747777162
 GameObject:
   m_ObjectHideFlags: 0

@@ -406,7 +406,10 @@ public class uiCore : MonoBehaviour {
 
 				Vector3 pos = translation.GetVector3();
 				
-				core.appContext.figure.Process(scale, pos);
+				// core.appContext.figure.Process(scale, pos);
+				core.appContext.figure.ProcessQuadRemeshProjectionStrategy();
+				viewerPanel.SetImage(core.appContext.figure.coverageResultRt);
+				viewerPanel.modelTest.mesh = core.appContext.figure.GenerateUiMeshQuads(core.appContext.figure.processedMeshInfo);
 			});
 
 			uiPanelCategory stageBCat = new uiPanelCategory("Stage B");
@@ -579,7 +582,7 @@ public class uiCore : MonoBehaviour {
 				
 				core.singleton.CameraController.transform.rotation = camRotX * camRotY;
 			} else if (_mouseCapButton == 1) {
-				moveDelta *= 0.001f * _camData.z;
+				moveDelta *= 0.002f * _camData.z;
 
 				Vector3 worldMove = core.singleton.CameraController.transform.TransformVector(new Vector3(-moveDelta.x, moveDelta.y, 0));
 
