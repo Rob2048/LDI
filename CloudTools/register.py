@@ -28,9 +28,9 @@ def draw_registration_result_temp(source, target, transformation):
 	target_temp.paint_uniform_color([0.6, 0.2, 0.65])
 	source_temp.transform(transformation)
 	# target_temp.translate((3, 0, 0))
-	# o3d.visualization.draw_geometries([source_temp, target_temp])
-	mesh.transform(transformation)
-	o3d.visualization.draw_geometries([source_temp, target_temp, mesh])
+	o3d.visualization.draw_geometries([source_temp, target_temp])
+	# mesh.transform(transformation)
+	# o3d.visualization.draw_geometries([source_temp, target_temp, mesh])
 
 def preprocess_point_cloud(pcd, voxel_size):
 	print(":: Downsample with a voxel size %.3f." % voxel_size)
@@ -61,6 +61,14 @@ def prepare_dataset(voxel_size, sourcePcd, targetPcd):
 	target_down, target_fpfh = preprocess_point_cloud(target, voxel_size)
 	return source, target, source_down, target_down, source_fpfh, target_fpfh
 
+def prepare_segment_dataset(voxel_size, sourcePcd):
+	source = sourcePcd
+	
+	source_down, source_fpfh = preprocess_point_cloud(source, voxel_size)
+	
+	return source_down
+
+
 def execute_global_registration(source_down, target_down, source_fpfh,
 								target_fpfh, voxel_size):
 	distance_threshold = voxel_size * 1.5
@@ -80,15 +88,6 @@ def execute_global_registration(source_down, target_down, source_fpfh,
 	return result
 
 #----------------------------------------------------------------------------------------------------------------------------------
-# Triangulation.
-#----------------------------------------------------------------------------------------------------------------------------------
-# #radii = [0.005, 0.01, 0.02, 0.04]
-#radii = [0.05, 0.1, 0.2, 0.4]
-#rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(downpcd, o3d.utility.DoubleVector(radii))
-#o3d.visualization.draw_geometries([rec_mesh])
-
-
-#----------------------------------------------------------------------------------------------------------------------------------
 # Load and prepare data.
 #----------------------------------------------------------------------------------------------------------------------------------
 print("Point cloud test")
@@ -101,42 +100,44 @@ mesh.paint_uniform_color([0.07058821, 0.7273544, 1.0])
 R = mesh.get_rotation_matrix_from_xyz((-np.pi / 2, 0, np.pi * 0))
 mesh.rotate(R, center=(0, 0, 0))
 mesh.scale(0.049, center=(0, 0, 0))
-# mesh.scale(0.0, center=(0, 0, 0))
+
+mesh_segment = o3d.io.read_triangle_mesh("modelTail.stl")
+mesh_segment.compute_vertex_normals()
+mesh_segment.paint_uniform_color([0.8, 0.05, 0.1])
+
+R = mesh_segment.get_rotation_matrix_from_xyz((-np.pi / 2, 0, np.pi * 0))
+mesh_segment.rotate(R, center=(0, 0, 0))
+mesh_segment.scale(0.049, center=(0, 0, 0))
 
 meshCloud = mesh.sample_points_poisson_disk(number_of_points=20000, init_factor=5)
+mesh_segment_cloud = mesh_segment.sample_points_poisson_disk(number_of_points=2000, init_factor=5)
+mesh_segment_cloud.paint_uniform_color([0.6, 0.2, 0.1])
 
 # Target mesh (scan).
 pcd = o3d.io.read_point_cloud("scanPoints.ply")
 print(pcd)
 
-cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-inlier_cloud = pcd.select_by_index(ind)
+# cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+# inlier_cloud = pcd.select_by_index(ind)
 #display_inlier_outlier(pcd, ind)
 
-# downpcd = inlier_cloud.voxel_down_sample(voxel_size=0.01)
-downpcd = pcd.voxel_down_sample(voxel_size=0.01)
-downpcd.paint_uniform_color([0.6, 0.2, 0.65])
-# downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-downpcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
-print(downpcd)
-# o3d.visualization.draw_geometries([downpcd])
-
-
-# pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
-# pcd.paint_uniform_color([0.6, 0.2, 0.65])
-# o3d.visualization.draw_geometries([pcd])
+# scan_down_pcd = inlier_cloud.voxel_down_sample(voxel_size=0.01)
+scan_down_pcd = pcd.voxel_down_sample(voxel_size=0.01)
+scan_down_pcd.paint_uniform_color([0.6, 0.2, 0.65])
+# scan_down_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+scan_down_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=200))
+# print(scan_down_pcd)
 
 #----------------------------------------------------------------------------------------------------------------------------------
 # Global registration.
 #----------------------------------------------------------------------------------------------------------------------------------
-
-source, target, source_down, target_down, source_fpfh, target_fpfh = prepare_dataset(0.05, meshCloud, downpcd)
+source, target, source_down, target_down, source_fpfh, target_fpfh = prepare_dataset(0.025, meshCloud, scan_down_pcd)
 
 result_ransac = execute_global_registration(source_down, target_down,
-                                            source_fpfh, target_fpfh,
-                                            0.05)
+											source_fpfh, target_fpfh,
+											0.05)
 
-# o3d.visualization.draw_geometries([downpcd, meshCloud])
+# o3d.visualization.draw_geometries([scan_down_pcd, meshCloud])
 
 #apply_registration_result(source_down, target_down, result_ransac.transformation)
 #o3d.visualization.draw_geometries([source_down, target_down])
@@ -144,15 +145,34 @@ result_ransac = execute_global_registration(source_down, target_down,
 #----------------------------------------------------------------------------------------------------------------------------------
 # Local registration.
 #----------------------------------------------------------------------------------------------------------------------------------
-threshold = 0.02
+# NOTE: Value was 0.02
+threshold = 0.1
 trans_init = result_ransac.transformation
 evaluation = o3d.pipelines.registration.evaluate_registration(source_down, target_down, threshold, trans_init)
 print(evaluation)
 
 print("Apply point-to-point ICP")
 reg_p2p = o3d.pipelines.registration.registration_icp(
-    source_down, target_down, threshold, trans_init,
-    o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=True),
+	source_down, target_down, threshold, trans_init,
+	o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=True),
+	o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10000))
+print(reg_p2p)
+print("Transformation is:")
+print(reg_p2p.transformation)
+draw_registration_result_temp(source_down, target_down, reg_p2p.transformation)
+
+#----------------------------------------------------------------------------------------------------------------------------------
+# Local registration of segment.
+#----------------------------------------------------------------------------------------------------------------------------------
+source_down = prepare_segment_dataset(0.025, mesh_segment_cloud)
+
+evaluation = o3d.pipelines.registration.evaluate_registration(source_down, target_down, threshold, trans_init)
+print(evaluation)
+
+print("Apply point-to-point ICP")
+reg_p2p = o3d.pipelines.registration.registration_icp(
+	source_down, target_down, 0.1, trans_init,
+	o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=False),
 	o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10000))
 print(reg_p2p)
 print("Transformation is:")

@@ -10,6 +10,11 @@ using UnityEngine;
 
 using Debug = UnityEngine.Debug;
 
+public struct SurfelComputeData {
+	Vector3 position;
+	Vector3 normal;
+}
+
 public static class DebugDrawTools {
 	public static void DrawBounds(Bounds B, Vector3 Offset, Color C) {
 		Vector3 c0 = Offset + new Vector3(B.min.x, B.min.y, B.min.z);
@@ -342,8 +347,8 @@ public class Diffuser {
 			}
 		}
 	}
-
-	public void DrawDebug() {
+	
+	public void DrawDebugFastSurfels(ComputeBuffer surfelDataBuffer) {
 		if (debugGob != null) {
 			GameObject.Destroy(debugGob.GetComponent<MeshFilter>().mesh);
 			GameObject.Destroy(debugGob);
@@ -352,15 +357,22 @@ public class Diffuser {
 		debugGob = new GameObject("diffuserDebug");
 		MeshFilter mf = debugGob.AddComponent<MeshFilter>();
 		MeshRenderer mr = debugGob.AddComponent<MeshRenderer>();
-
 		mr.material = unityInterface.SurfelDebugMat;
 
 		int surfelCount = fastSurfels.Length;
+
+		float[] intensityBuffer = new float[surfelCount];
 
 		Vector3[] verts = new Vector3[surfelCount * 4];
 		Vector2[] uvs = new Vector2[surfelCount * 4];
 		Color32[] cols = new Color32[surfelCount * 4];
 		int[] inds = new int[surfelCount * 6];
+
+		if (surfelCount > 255 * 255 * 255) {
+			Debug.LogError("Surfel count exceeds ID bytes");
+		}
+
+		bool firstLight = false;
 
 		for (int i = 0; i < surfelCount; ++i) {
 			FastSurfel s = fastSurfels[i];
@@ -370,7 +382,7 @@ public class Diffuser {
 			Vector3 normal = s.normal;
 			Vector3 tempVec;
 
-			if (normal != Vector3.up) {
+			if (normal != Vector3.up && normal != Vector3.down) {
 				tempVec = Vector3.Cross(normal, Vector3.up).normalized;
 			} else {
 				tempVec = Vector3.Cross(normal, Vector3.left).normalized;
@@ -398,7 +410,18 @@ public class Diffuser {
 
 			byte v = (byte)(Mathf.Clamp01(s.discrete) * 255.0f);
 			// byte v = (byte)(Mathf.Clamp01(s.continuous) * 255.0f);
-			Color32 c = new Color32(v, v, v, 255);
+
+			if (s.discrete == 0.0f) {
+				if (!firstLight) {
+					firstLight = true;
+					Debug.Log("First light surfel: " + i);
+				}
+			}
+
+			intensityBuffer[i] = s.discrete;
+
+			Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
+			// Color32 c = new Color32(v, v, v, 255);
 
 			// byte r = (byte)(i % 255);
 			// byte b = (byte)((i / (255)) % 255);
@@ -406,6 +429,103 @@ public class Diffuser {
 			
 			// UnityEngine.Random.InitState(s.cellId);
 			// Color32 c = UnityEngine.Random.ColorHSV(0, 1, 1.0f, 1.0f);
+
+			cols[i * 4 + 0] = c;
+			cols[i * 4 + 1] = c;
+			cols[i * 4 + 2] = c;
+			cols[i * 4 + 3] = c;
+
+			inds[i * 6 + 0] = i * 4 + 0;
+			inds[i * 6 + 1] = i * 4 + 1;
+			inds[i * 6 + 2] = i * 4 + 2;
+
+			inds[i * 6 + 3] = i * 4 + 0;
+			inds[i * 6 + 4] = i * 4 + 2;
+			inds[i * 6 + 5] = i * 4 + 3;
+
+			// Debug.DrawLine(s.pos, s.pos + normal * 0.1f, Color.red, float.MaxValue);
+			// Debug.DrawLine(s.pos, s.pos + tangent * 0.1f, Color.green, float.MaxValue);
+			// Debug.DrawLine(s.pos, s.pos + bitangent * 0.1f, Color.blue, float.MaxValue);
+		}
+
+		// ComputeBuffer surfelIntensityBuffer = new ComputeBuffer(surfelCount, 4, ComputeBufferType.Structured);
+		// surfelIntensityBuffer.SetData(intensityBuffer);
+
+		Mesh mesh = new Mesh();
+		mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+		mesh.vertices = verts;
+		mesh.uv = uvs;
+		mesh.colors32 = cols;
+		mesh.triangles = inds;
+		
+		mf.mesh = mesh;
+
+		mr.material.SetBuffer("surfelData", surfelDataBuffer);
+	}
+
+	public Material DrawDebug() {
+		if (debugGob != null) {
+			GameObject.Destroy(debugGob.GetComponent<MeshFilter>().mesh);
+			GameObject.Destroy(debugGob);
+		}
+
+		debugGob = new GameObject("diffuserDebug");
+		MeshFilter mf = debugGob.AddComponent<MeshFilter>();
+		MeshRenderer mr = debugGob.AddComponent<MeshRenderer>();
+
+		mr.material = unityInterface.SurfelDebugMat;
+
+		int surfelCount = surfels.Count;
+
+		Vector3[] verts = new Vector3[surfelCount * 4];
+		Vector2[] uvs = new Vector2[surfelCount * 4];
+		Color32[] cols = new Color32[surfelCount * 4];
+		int[] inds = new int[surfelCount * 6];
+
+		if (surfelCount > 255 * 255 * 255) {
+			Debug.LogError("Surfel count exceeds ID bytes");
+		}
+
+		for (int i = 0; i < surfelCount; ++i) {
+			Surfel s = surfels[i];
+			float hscale = s.scale * 0.5f;
+			// float hscale = s.scale * 2.0f;
+
+			// Calculate surfel plane.
+			Vector3 normal = s.normal;
+			Vector3 tempVec;
+
+			if (normal != Vector3.up && normal != Vector3.down) {
+				tempVec = Vector3.Cross(normal, Vector3.up).normalized;
+			} else {
+				tempVec = Vector3.Cross(normal, Vector3.left).normalized;
+			}
+			
+			Vector3 tangent = Vector3.Cross(normal, tempVec).normalized;
+			Vector3 bitangent = Vector3.Cross(tangent, normal).normalized;
+			
+			Vector3 v0 = tangent * -hscale + bitangent * -hscale;
+			Vector3 v1 = tangent * -hscale + bitangent * hscale;
+			Vector3 v2 = tangent * hscale + bitangent * hscale;
+			Vector3 v3 = tangent * hscale + bitangent * -hscale;
+
+			Vector3 basePos = s.pos + normal * 0.0015f;
+			// Vector3 basePos = s.pos + normal * 20.0f;
+
+			verts[i * 4 + 0] = basePos + v0;
+			verts[i * 4 + 1] = basePos + v1;
+			verts[i * 4 + 2] = basePos + v2;
+			verts[i * 4 + 3] = basePos + v3;
+
+			uvs[i * 4 + 0] = new Vector2(0, 0);
+			uvs[i * 4 + 1] = new Vector2(0, 1);
+			uvs[i * 4 + 2] = new Vector2(1, 1);
+			uvs[i * 4 + 3] = new Vector2(1, 0);
+
+			byte v = (byte)(Mathf.Clamp01(s.discrete) * 255.0f);
+			// byte v = (byte)(Mathf.Clamp01(s.continuous) * 255.0f);
+			
+			Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
 
 			cols[i * 4 + 0] = c;
 			cols[i * 4 + 1] = c;
@@ -433,6 +553,8 @@ public class Diffuser {
 		mesh.triangles = inds;
 		
 		mf.mesh = mesh;
+
+		return mr.material;
 	}
 
 	public float GetSurfelPercep(Surfel S) {

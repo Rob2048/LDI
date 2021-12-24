@@ -7,6 +7,17 @@ using UnityEngine.Rendering;
 
 using Debug = UnityEngine.Debug;
 
+public class ViewCache {
+	public byte[] visibleSurfelMask;
+	public int resultCount;
+}
+
+public class SurfelViewsBake {
+	public int surfelCount;
+	public byte[] workingSet;
+	public ViewCache[] views;
+}
+
 public class TriangleRect {
 	public Vector2 v0;
 	public Vector2 v1;

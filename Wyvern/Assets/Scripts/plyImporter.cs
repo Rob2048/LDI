@@ -38,8 +38,7 @@ public class PlyImporter {
 
 			while (true) {
 				string line = ReadAsciiLine(r);
-				Debug.Log("PLY line: " + line);
-
+				
 				if (line == "end_header") {
 					break;
 				} else if (line.StartsWith("element vertex")) {

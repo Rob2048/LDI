@@ -427,7 +427,8 @@ public class uiCore : MonoBehaviour {
 			controlsPanel.Add(stageCCat);
 
 			uiCore.createButton(stageCCat.Content, "Process stage C", () => {
-				core.appContext.figure.ProcessC();
+				// core.appContext.figure.ProcessC();
+				core.singleton.CaptureSurfels();
 			});
 		}
 

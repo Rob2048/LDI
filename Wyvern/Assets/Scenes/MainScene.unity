@@ -3797,6 +3797,7 @@ MonoBehaviour:
   BasicMaterial: {fileID: 2100000, guid: 921d2a916fd36f242818d12d7c63d203, type: 2}
   BasicWireMaterial: {fileID: 2100000, guid: 9804f36482d24e7498780485ad482093, type: 2}
   BasicUnlitMaterial: {fileID: 2100000, guid: 9530b2cbb571ea0408b4718af8f86dcb, type: 2}
+  SampledMeshMaterial: {fileID: 2100000, guid: be390b51dcb7dfa41b84903761f5a838, type: 2}
   UiLinesMateral: {fileID: 2100000, guid: 53a41febf56b13b4a96ac0248af0399e, type: 2}
   CoveragetMeshViewMat: {fileID: 2100000, guid: f63dfaba778e2474793666983ea62be7,
     type: 2}
@@ -3811,6 +3812,7 @@ MonoBehaviour:
     type: 3}
   VisCompute: {fileID: 7200000, guid: 0f5d41d31958a774ea909aaa64edd7ae, type: 3}
   QuantaScoreCompute: {fileID: 7200000, guid: 662081e00e9ae8446845c32f9a9b941c, type: 3}
+  SurfelVisCompute: {fileID: 7200000, guid: 6ad461f8968af7043a13715fdb63d541, type: 3}
   VisRt: {fileID: 8400000, guid: 704da86e99da2744cb09c129a9655cd7, type: 2}
   ScannerViewRt: {fileID: 8400000, guid: 864ae9f4d7db4b94a9cfae435710955b, type: 2}
   ScannerViewDepthRt: {fileID: 8400000, guid: 08e11fda420fb964c857d70b08d6a3c8, type: 2}
@@ -7176,7 +7178,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1747303434}
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: 0, y: 7.23, z: 20}
+  m_LocalPosition: {x: 0, y: 2.9, z: 40}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

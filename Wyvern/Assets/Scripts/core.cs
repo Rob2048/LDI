@@ -250,12 +250,16 @@ public class core : MonoBehaviour {
 
 	private GameObject _sampledMeshGob;
 
+	private byte[] _bitCount;
+
 	void Start() {
 		_textRenderer = new TextRenderer();
 		ImageData textTest = _textRenderer.GetTextImage("100%", 32, this);
 		
-		_candidateCountBuffer = new ComputeBuffer(1, 4);
+		_candidateCountBuffer = new ComputeBuffer(4000, 4);
 		candidateMetaBuffer = new ComputeBuffer(7 * 1024 * 1024, 4);
+
+		_surfelCandidateBuffer = new ComputeBuffer(1024 * 1024 * 2, 4);
 
 		// gSourceImg = LoadImage("content/gradient.png");
 		// gSourceImg = LoadImage("content/cmyk_test/c.png");
@@ -289,12 +293,19 @@ public class core : MonoBehaviour {
 		// _diffuser.Process();
 		// _diffuser.DrawDebug();
 
-		// Load mesh for testing.
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Load mesh resources.
+		//----------------------------------------------------------------------------------------------------------------------------
 		MeshInfo sourceMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
 		MeshInfo figureLoadedMeshInfo = PlyImporter.LoadQuadOnly("C:/Projects/LDI/Wyvern/Content/figure.ply");
 		// MeshInfo figureLoadedMeshInfo = ObjImporter.Load("C:/Projects/LDI/Wyvern/Content/figure.obj");
 		Texture2D figureLoadedTexture = LoadImage("C:/Projects/LDI/Wyvern/Content/None_Base_Color.png", true);
 
+		// Temp resizing.
+		sourceMeshInfo.Scale(0.5f);
+		figureLoadedMeshInfo.Scale(0.5f);
+
+		// Calculate normals for mesh.
 		Mesh figureMeshNormals = appContext.figure.GenerateMesh(figureLoadedMeshInfo, false, true);
 		figureLoadedMeshInfo.vertNormals = figureMeshNormals.normals;
 		Destroy(figureMeshNormals);
@@ -307,7 +318,7 @@ public class core : MonoBehaviour {
 		// Projection.
 		// appContext.figure.GenerateDisplayMesh(appContext.figure.initialMeshInfo, ProjectionMaterial);
 
-		// Textured base mesh.
+		// Textured source mesh.
 		Mesh sourceMesh = appContext.figure.GenerateMesh(sourceMeshInfo, true, true);
 		GameObject sourceMeshGob = new GameObject("source mesh");
 		sourceMeshGob.AddComponent<MeshFilter>().mesh = sourceMesh;
@@ -316,13 +327,15 @@ public class core : MonoBehaviour {
 		sourceMeshRenderer.material = BasicMaterial;
 		sourceMeshRenderer.material.SetTexture("_MainTex", figureLoadedTexture);
 
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Project source mesh texture to retopo mesh verts.
+		//----------------------------------------------------------------------------------------------------------------------------
 		ProfileTimer pt = new ProfileTimer();
 		MeshCollider sourceMeshCollider = sourceMeshGob.AddComponent<MeshCollider>();
 		//sourceMeshCollider.cookingOptions = 
 		sourceMeshCollider.sharedMesh = sourceMesh;
 		pt.Stop("Created mesh collider");
-
-		// Raycast test.
+		
 		MeshInfo figureMeshInfo = appContext.figure.initialMeshInfo;
 		int figureMeshVertCount = figureMeshInfo.vertPositions.Length;
 		figureMeshInfo.vertColors = new Color32[figureMeshVertCount];
@@ -372,19 +385,183 @@ public class core : MonoBehaviour {
 		sourceMeshGob.SetActive(false);
 		_sampledMeshGob = sampledMeshGob;
 
-		// Diffusion test.
-		for (int i = 0; i < figureMeshVertCount; ++i) {
-		// for (int i = 0; i < 500000; ++i) {
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Generate surfels.
+		//----------------------------------------------------------------------------------------------------------------------------
+		int surfelCount = figureMeshVertCount;
+		_surfelCount = surfelCount;
+		for (int i = 0; i < surfelCount; ++i) {
 			Surfel s = new Surfel();
 			s.scale = 0.005f;
 			s.continuous = figureMeshInfo.vertColors[i].r / 255.0f;
-			s.pos = figureMeshInfo.vertPositions[i] * 0.5f;
+			s.pos = figureMeshInfo.vertPositions[i];
 			s.normal = figureMeshInfo.vertNormals[i];
 			_diffuser.surfels.Add(s);
 		}
 
-		_diffuser.Process();
-		_diffuser.DrawDebug();
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Prepare surfel visibility test.
+		//----------------------------------------------------------------------------------------------------------------------------
+		float[] surfelData = new float[surfelCount * 6];
+		_surfelDataBuffer = new ComputeBuffer(surfelCount, 4 * 6, ComputeBufferType.Structured);
+		_resultsBuffer = new ComputeBuffer(surfelCount, 4 * 4, ComputeBufferType.Structured);
+		_consumedSurfels = new ComputeBuffer(surfelCount, 4, ComputeBufferType.Structured);
+
+		for (int i = 0; i < surfelCount; ++i) {
+			surfelData[i * 6 + 0] = _diffuser.surfels[i].pos.x;
+			surfelData[i * 6 + 1] = _diffuser.surfels[i].pos.y;
+			surfelData[i * 6 + 2] = _diffuser.surfels[i].pos.z;
+			surfelData[i * 6 + 3] = _diffuser.surfels[i].normal.x;
+			surfelData[i * 6 + 4] = _diffuser.surfels[i].normal.y;
+			surfelData[i * 6 + 5] = _diffuser.surfels[i].normal.z;
+		}
+
+		_surfelDataBuffer.SetData(surfelData);
+
+		_surfelVisJobCount = Mathf.CeilToInt(surfelCount / 32.0f);
+		Debug.Log("Surfel vis jobs: " + _surfelVisJobCount);
+
+		// Vector4[] resultData = new Vector4[surfelCount];
+		// resultsBuffer.GetData(resultData);
+
+		// for (int i = 0; i < surfelCount; ++i) {
+		// 	Debug.Log("Result: " + i + " " + resultData[i] + " " + _diffuser.surfels[i].normal);
+		// }
+
+		// float[] tempData = new float[surfelCount * 4];
+		// for (int i = 0; i < surfelCount; ++i) {
+		// 	tempData[i * 4 + 0] = _diffuser.surfels[i].normal.x;
+		// 	tempData[i * 4 + 1] = _diffuser.surfels[i].normal.y;
+		// 	tempData[i * 4 + 2] = _diffuser.surfels[i].normal.z;
+		// 	tempData[i * 4 + 3] = 1.0f;
+		// }
+
+		// resultsBuffer.SetData(tempData);
+
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Visualize surfels.
+		//----------------------------------------------------------------------------------------------------------------------------
+		// _diffuser.Process();
+		_surfelDebugMaterial = _diffuser.DrawDebug();
+
+		_bitCount = new byte[256];
+		for (int i = 0; i < 256; ++i) {
+			int counter = 
+			((i >> 0) & 1) +
+			((i >> 1) & 1) +
+			((i >> 2) & 1) +
+			((i >> 3) & 1) +
+			((i >> 4) & 1) +
+			((i >> 5) & 1) +
+			((i >> 6) & 1) +
+			((i >> 7) & 1);
+
+			_bitCount[i] = (byte)counter;
+		}
+
+		Vector3[] visibilityViews = core.PointsOnSphere(1);
+		SurfelViewsBake viewBake = BakeSurfelVisRough(visibilityViews);
+
+		// for (int i = 0; i < 1; ++i) {
+		// 	int viewId = CalcSurfelVisRough(visibilityViews);
+		// 	Debug.Log("Found view: " + viewId);
+
+		// 	if (viewId != -1) {
+		// 		SetSurfelCoverageRough(visibilityViews[viewId], i + 1);
+		// 	}
+		// }
+
+		// {
+
+		// 	int threadCount = 12;
+		// 	Thread[] threads = new Thread[threadCount];
+
+		// 	// Speed test for buffer savings.
+		// 	int totalSurfels = 1200000;
+		// 	int maskBytes = Mathf.CeilToInt(totalSurfels / 8.0f);
+		// 	byte[] stConsumed = new byte[maskBytes];
+
+		// 	for (int i = 0; i < maskBytes; ++i) {
+		// 		stConsumed[i] = (byte)(UnityEngine.Random.value * 255);
+		// 	}
+
+		// 	// NOTE: Set remainder bits to not visible.
+
+		// 	int stViewCount = 2000;
+
+		// 	ViewCache[] viewCaches = new ViewCache[stViewCount];
+
+		// 	for (int i = 0; i < stViewCount; ++i) {
+		// 		byte[] stViewVis = new byte[maskBytes];
+
+		// 		for (int j = 0; j < maskBytes; ++j) {
+		// 			if (UnityEngine.Random.value >= 0.6f) {
+		// 				stViewVis[j] = (byte)(UnityEngine.Random.value * 255);
+		// 			} else {
+		// 				stViewVis[j] = 0;
+		// 			}
+		// 		}
+
+		// 		viewCaches[i] = new ViewCache();
+		// 		viewCaches[i].visibleSurfelMask = stViewVis;
+		// 	}
+
+		// 	ProfileTimer stPt = new ProfileTimer();
+
+		// 	Queue<ViewCache> viewJobs = new Queue<ViewCache>();
+
+		// 	for (int i = 0; i < viewCaches.Length; ++i) {
+		// 		viewJobs.Enqueue(viewCaches[i]);
+		// 	}
+
+		// 	for (int t = 0; t < threadCount; ++t) {
+		// 		threads[t] = new Thread(_ThreadCountSurfels);
+
+		// 		object[] args = { stConsumed, t, viewJobs };
+		// 		threads[t].Start(args);
+		// 	}
+
+		// 	for (int i = 0; i < threadCount; ++i) {
+		// 		threads[i].Join();
+		// 	}
+			
+		// 	stPt.Stop("ST Iter");
+
+		// 	// for (int i = 0; i < viewCaches.Length; ++i) {
+		// 	// 	Debug.Log("Count live: " + viewCaches[i].resultCount);
+		// 	// }
+		// }
+
+		// appContext.figure.GenerateDisplayViews(visibilityViews);
+	}
+
+	private void _ThreadCountSurfels(object Data) {
+		byte[] stConsumed = (byte[])((object[])Data)[0];
+		int threadId = (int)((object[])Data)[1];
+		Queue<ViewCache> viewJobs = (Queue<ViewCache>)((object[])Data)[2];
+
+		while (true) {
+			ViewCache nextJob = null;
+
+			lock (viewJobs) {
+				if (viewJobs.Count == 0) {
+					break;
+				}
+
+				nextJob = viewJobs.Dequeue();
+			}
+
+			int countLive = 0;
+			for (int i = 0; i < nextJob.visibleSurfelMask.Length; ++i) {
+				int bA = stConsumed[i];
+				int bB = nextJob.visibleSurfelMask[i];
+				int bC = bA & bB;
+
+				countLive += _bitCount[bC];
+			}
+
+			nextJob.resultCount = countLive;
+		}
 	}
 	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
@@ -1621,7 +1798,283 @@ public class core : MonoBehaviour {
 	private float _actualContrast = 1.0f;
 	private float _actualBrightness = 0.0f;
 
-	// 2.3, 10
+	private int _surfelCount;
+	private int _surfelVisJobCount;
+	private int _surfelKernelIndex;
+	private ComputeBuffer _surfelDataBuffer;
+	private ComputeBuffer _resultsBuffer;
+	private ComputeBuffer _consumedSurfels;
+	private Material _surfelDebugMaterial;
+	private ComputeBuffer _surfelCandidateBuffer;
+
+	public void CaptureSurfels() {
+		Debug.Log("Capture surfel view");
+		int[] candidateCount = new int[1];
+		candidateCount[0] = 69;
+
+		_candidateCountBuffer.SetData(candidateCount);
+
+		// Projector view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+		Matrix4x4 projVP = realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix);
+
+		GameObject previewModel = _sampledMeshGob;
+
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
+
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+		// Draw depth.
+		cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+		cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+		cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+		BasicShaderMat.SetMatrix("vpMat", projVP);
+		cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+		Graphics.ExecuteCommandBuffer(cmdBuffer);
+		cmdBuffer.Release();
+
+		// NOTE: Force updates to all shader params to support hot reloading.
+		int kernelIdx = SurfelVisCompute.FindKernel("GetCandidates");
+		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+		SurfelVisCompute.SetBuffer(kernelIdx, "candidateCounter", _candidateCountBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "candidateMeta", _surfelCandidateBuffer);
+		SurfelVisCompute.SetTexture(kernelIdx, "depthBuffer", ScannerViewDepthRt);
+		SurfelVisCompute.SetBuffer(kernelIdx, "consumed", _consumedSurfels);
+		SurfelVisCompute.SetBuffer(kernelIdx, "surfels", _surfelDataBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "results", _resultsBuffer);
+		SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+		SurfelVisCompute.SetMatrix("projVP", projVP);
+		SurfelVisCompute.SetVector("projWorldPos", RayTester.transform.position);
+		SurfelVisCompute.Dispatch(kernelIdx, _surfelVisJobCount, 1, 1);
+		
+		_candidateCountBuffer.GetData(candidateCount);
+
+		Debug.Log("Candidate count: " + candidateCount[0]);
+	}
+
+	public void SetSurfelCoverageRough(Vector3 visView, int coverageValue) {
+		GameObject previewModel = _sampledMeshGob;
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+		int kernelIdx = SurfelVisCompute.FindKernel("CoverageSetNoFocalDepth");
+		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+		
+		SurfelVisCompute.SetTexture(kernelIdx, "depthBuffer", ScannerViewDepthRt);
+		SurfelVisCompute.SetBuffer(kernelIdx, "consumed", _consumedSurfels);
+		SurfelVisCompute.SetBuffer(kernelIdx, "surfels", _surfelDataBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "candidateCounter", _candidateCountBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "results", _resultsBuffer);
+		SurfelVisCompute.SetInt("coverageValue", coverageValue);
+		SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+
+		// Projector view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 100.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
+
+		Vector3 dir = visView;
+
+		Vector3 camPos = dir * 40.0f;
+		Matrix4x4 camViewMat = Matrix4x4.TRS(camPos, Quaternion.LookRotation(-dir, Vector3.up), Vector3.one);
+		camViewMat = camViewMat.inverse;
+		Matrix4x4 projVP = realProj * (scaleMatrix * camViewMat);
+		
+		cmdBuffer.Clear();
+
+		// Draw depth.
+		cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+		cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+		cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+		BasicShaderMat.SetMatrix("vpMat", projVP);
+		cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+		Graphics.ExecuteCommandBuffer(cmdBuffer);
+		
+		SurfelVisCompute.SetMatrix("projVP", projVP);
+		SurfelVisCompute.SetVector("projWorldPos", camPos);
+		SurfelVisCompute.Dispatch(kernelIdx, _surfelVisJobCount, 1, 1);
+
+		cmdBuffer.Release();
+	}
+
+	public int CalcSurfelVisRough(Vector3[] visibilityViews) {
+		GameObject previewModel = _sampledMeshGob;
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+		int kernelIdx = SurfelVisCompute.FindKernel("CoverageNoFocalDepth");
+		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+		SurfelVisCompute.SetTexture(kernelIdx, "depthBuffer", ScannerViewDepthRt);
+		SurfelVisCompute.SetBuffer(kernelIdx, "consumed", _consumedSurfels);
+		SurfelVisCompute.SetBuffer(kernelIdx, "surfels", _surfelDataBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "candidateCounter", _candidateCountBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "results", _resultsBuffer);
+		SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+
+		// Projector view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 100.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
+
+		ProfileTimer pt = new ProfileTimer();
+
+		int[] countBuffer = new int[visibilityViews.Length];
+		_candidateCountBuffer.SetData(countBuffer);
+
+		for (int i = 0; i < visibilityViews.Length; ++i) {
+			// countBuffer[0] = 0;
+			// _candidateCountBuffer.SetData(countBuffer);
+
+			Vector3 dir = visibilityViews[i];
+
+			Vector3 camPos = dir * 40.0f;
+			Matrix4x4 camViewMat = Matrix4x4.TRS(camPos, Quaternion.LookRotation(-dir, Vector3.up), Vector3.one);
+			camViewMat = camViewMat.inverse;
+			Matrix4x4 projVP = realProj * (scaleMatrix * camViewMat);
+			
+			cmdBuffer.Clear();
+
+			// Draw depth.
+			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+			BasicShaderMat.SetMatrix("vpMat", projVP);
+			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+			Graphics.ExecuteCommandBuffer(cmdBuffer);
+			
+			SurfelVisCompute.SetInt("coverageValue", i);
+			SurfelVisCompute.SetMatrix("projVP", projVP);
+			SurfelVisCompute.SetVector("projWorldPos", camPos);
+			SurfelVisCompute.Dispatch(kernelIdx, _surfelVisJobCount, 1, 1);
+		}
+
+		_candidateCountBuffer.GetData(countBuffer);
+
+		int highestCount = 0;
+		int highestId = -1;
+
+		for (int i = 0; i < visibilityViews.Length; ++i) {
+			if (countBuffer[i] > highestCount) {
+				highestCount = countBuffer[i];
+				highestId = i;
+			}
+		}
+
+		Debug.Log("Highest: " + highestId + " " + highestCount);
+
+		cmdBuffer.Release();
+
+		pt.Stop("Calc surfel vis rough");
+
+		return highestId;
+	}
+
+	public SurfelViewsBake BakeSurfelVisRough(Vector3[] visibilityViews) {
+		SurfelViewsBake result = new SurfelViewsBake();
+		result.surfelCount = _surfelCount;
+		int byteMaskCount = Mathf.CeilToInt(_surfelCount / 8);
+		result.workingSet = new byte[byteMaskCount];
+		result.views = new ViewCache[visibilityViews.Length];
+
+		// Set all surfels as part of working set.
+		for (int i = 0; i < byteMaskCount; ++i) {
+			result.workingSet[i] = 255;
+		}
+
+		// Clear remaining bits.
+		int remainingBits = _surfelCount % 8;
+		int finalByte = 255 >> remainingBits;
+		result.workingSet[byteMaskCount - 1] = (byte)finalByte;
+		Debug.Log(finalByte);
+
+		GameObject previewModel = _sampledMeshGob;
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+		int kernelIdx = SurfelVisCompute.FindKernel("CoverageNoFocalDepth");
+		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+		SurfelVisCompute.SetTexture(kernelIdx, "depthBuffer", ScannerViewDepthRt);
+		SurfelVisCompute.SetBuffer(kernelIdx, "consumed", _consumedSurfels);
+		SurfelVisCompute.SetBuffer(kernelIdx, "surfels", _surfelDataBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "candidateCounter", _candidateCountBuffer);
+		SurfelVisCompute.SetBuffer(kernelIdx, "results", _resultsBuffer);
+		SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+
+		// Projector view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 100.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
+
+		ProfileTimer pt = new ProfileTimer();
+
+		int[] countBuffer = new int[1];
+
+		for (int i = 0; i < visibilityViews.Length; ++i) {
+			countBuffer[0] = 0;
+			_candidateCountBuffer.SetData(countBuffer);
+
+			Vector3 dir = visibilityViews[i];
+
+			Vector3 camPos = dir * 40.0f;
+			Matrix4x4 camViewMat = Matrix4x4.TRS(camPos, Quaternion.LookRotation(-dir, Vector3.up), Vector3.one);
+			camViewMat = camViewMat.inverse;
+			Matrix4x4 projVP = realProj * (scaleMatrix * camViewMat);
+			
+			cmdBuffer.Clear();
+
+			// Draw depth.
+			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+			BasicShaderMat.SetMatrix("vpMat", projVP);
+			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+			Graphics.ExecuteCommandBuffer(cmdBuffer);
+			
+			SurfelVisCompute.SetInt("coverageValue", i);
+			SurfelVisCompute.SetMatrix("projVP", projVP);
+			SurfelVisCompute.SetVector("projWorldPos", camPos);
+			SurfelVisCompute.Dispatch(kernelIdx, _surfelVisJobCount, 1, 1);
+		}
+
+		_candidateCountBuffer.GetData(countBuffer);
+
+		int highestCount = 0;
+		int highestId = -1;
+
+		for (int i = 0; i < visibilityViews.Length; ++i) {
+			if (countBuffer[i] > highestCount) {
+				highestCount = countBuffer[i];
+				highestId = i;
+			}
+		}
+
+		Debug.Log("Highest: " + highestId + " " + highestCount);
+
+		cmdBuffer.Release();
+
+		pt.Stop("Calc surfel vis rough");
+
+		return highestId;
+
+		return result;
+	}
 
 	void Update() {
 		// CameraController.transform.localRotation = Quaternion.Euler(0, Time.time * 10.0f, 0);
@@ -1650,9 +2103,54 @@ public class core : MonoBehaviour {
 		// 	DiffuserView3.transform.localScale = new Vector3(gPdDiffusionTex.width / 200.0f, 1.0f, gPdDiffusionTex.height / 200.0f);
 		// }
 
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Surfel updating.
+		//----------------------------------------------------------------------------------------------------------------------------
+		{
+			// Projector view.
+			Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+			Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
+			Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+			Matrix4x4 projVP = realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix);
+
+			GameObject previewModel = _sampledMeshGob;
+
+			CommandBuffer cmdBuffer = new CommandBuffer();
+			cmdBuffer.name = "Render scanner view";
+
+			Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+			Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+
+			// Draw depth.
+			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+			BasicShaderMat.SetMatrix("vpMat", projVP);
+			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+
+			Graphics.ExecuteCommandBuffer(cmdBuffer);
+			cmdBuffer.Release();
+
+			// NOTE: Force updates to all shader params to support hot reloading.
+			_surfelKernelIndex = SurfelVisCompute.FindKernel("CSMain");
+			SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+			SurfelVisCompute.SetTexture(_surfelKernelIndex, "depthBuffer", ScannerViewDepthRt);
+			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "consumed", _consumedSurfels);
+			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "surfels", _surfelDataBuffer);
+			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "results", _resultsBuffer);
+			SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+			SurfelVisCompute.SetMatrix("projVP", projVP);
+			SurfelVisCompute.SetVector("projWorldPos", RayTester.transform.position);
+			SurfelVisCompute.Dispatch(_surfelKernelIndex, _surfelVisJobCount, 1, 1);
+			
+			_surfelDebugMaterial.SetBuffer("surfelData", _resultsBuffer);
+		}
+
 		return;
 
+		//----------------------------------------------------------------------------------------------------------------------------
 		// Projection test updating.
+		//----------------------------------------------------------------------------------------------------------------------------
 		{
 			// GameObject previewModel = appContext.figure.previewGob;
 			GameObject previewModel = _sampledMeshGob;
@@ -1783,7 +2281,7 @@ public class core : MonoBehaviour {
 			}
 
 			_diffuser.Process();
-			_diffuser.DrawDebug();
+			_diffuser.DrawDebugFastSurfels(null);
 
 			//----------------------------------------------------------------------------------------------------------------------------
 			// Update coverage map.
@@ -1886,6 +2384,7 @@ public class core : MonoBehaviour {
 	public Mesh SourceMesh;
 	public ComputeShader VisCompute;
 	public ComputeShader QuantaScoreCompute;
+	public ComputeShader SurfelVisCompute;
 	public RenderTexture VisRt;
 	public RenderTexture ScannerViewRt;
 	public RenderTexture ScannerViewDepthRt;
