@@ -459,8 +459,12 @@ public class core : MonoBehaviour {
 			_bitCount[i] = (byte)counter;
 		}
 
-		Vector3[] visibilityViews = core.PointsOnSphere(1);
+		Vector3[] visibilityViews = core.PointsOnSphere(2000);
 		SurfelViewsBake viewBake = BakeSurfelVisRough(visibilityViews);
+
+		for (int i = 0; i < 40; ++i) {
+			CountBakedSurfels(viewBake);
+		}
 
 		// for (int i = 0; i < 1; ++i) {
 		// 	int viewId = CalcSurfelVisRough(visibilityViews);
@@ -535,35 +539,6 @@ public class core : MonoBehaviour {
 		// appContext.figure.GenerateDisplayViews(visibilityViews);
 	}
 
-	private void _ThreadCountSurfels(object Data) {
-		byte[] stConsumed = (byte[])((object[])Data)[0];
-		int threadId = (int)((object[])Data)[1];
-		Queue<ViewCache> viewJobs = (Queue<ViewCache>)((object[])Data)[2];
-
-		while (true) {
-			ViewCache nextJob = null;
-
-			lock (viewJobs) {
-				if (viewJobs.Count == 0) {
-					break;
-				}
-
-				nextJob = viewJobs.Dequeue();
-			}
-
-			int countLive = 0;
-			for (int i = 0; i < nextJob.visibleSurfelMask.Length; ++i) {
-				int bA = stConsumed[i];
-				int bB = nextJob.visibleSurfelMask[i];
-				int bC = bA & bB;
-
-				countLive += _bitCount[bC];
-			}
-
-			nextJob.resultCount = countLive;
-		}
-	}
-	
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {
 		double sigma = StdDev;
 		double r, s = 2.0 * sigma * sigma;
@@ -1982,10 +1957,79 @@ public class core : MonoBehaviour {
 		return highestId;
 	}
 
+	public void CountBakedSurfels(SurfelViewsBake bakedViews) {
+		int threadCount = 12;
+		Thread[] threads = new Thread[threadCount];
+
+		ProfileTimer stPt = new ProfileTimer();
+
+		Queue<ViewCache> viewJobs = new Queue<ViewCache>();
+
+		for (int i = 0; i < bakedViews.views.Length; ++i) {
+			viewJobs.Enqueue(bakedViews.views[i]);
+		}
+
+		for (int t = 0; t < threadCount; ++t) {
+			threads[t] = new Thread(_ThreadCountSurfels);
+
+			object[] args = { bakedViews.workingSet, viewJobs };
+			threads[t].Start(args);
+		}
+
+		for (int i = 0; i < threadCount; ++i) {
+			threads[i].Join();
+		}
+		
+		int highest = 0;
+		int highestId = -1;
+
+		for (int i = 0; i < bakedViews.views.Length; ++i) {
+			ViewCache v = bakedViews.views[i];
+			// Debug.Log("Count live: " + bakedViews.views[i].resultCount);
+
+			if (v.resultCount > highest) {
+				highest = v.resultCount;
+				highestId = i;
+			}
+		}
+
+		stPt.Stop("Count baked views");
+		Debug.Log("Highest: " + highestId + " " + highest);
+	}
+
+	private void _ThreadCountSurfels(object Data) {
+		byte[] workingSet = (byte[])((object[])Data)[0];
+		Queue<ViewCache> viewJobs = (Queue<ViewCache>)((object[])Data)[1];
+
+		while (true) {
+			ViewCache nextJob = null;
+
+			lock (viewJobs) {
+				if (viewJobs.Count == 0) {
+					break;
+				}
+
+				nextJob = viewJobs.Dequeue();
+			}
+
+			int countLive = 0;
+			for (int i = 0; i < nextJob.visibleSurfelMask.Length; ++i) {
+				int bA = workingSet[i];
+				int bB = nextJob.visibleSurfelMask[i];
+				int bC = bA & bB;
+
+				countLive += _bitCount[bC];
+			}
+
+			nextJob.resultCount = countLive;
+		}
+	}
+	
+
 	public SurfelViewsBake BakeSurfelVisRough(Vector3[] visibilityViews) {
 		SurfelViewsBake result = new SurfelViewsBake();
 		result.surfelCount = _surfelCount;
-		int byteMaskCount = Mathf.CeilToInt(_surfelCount / 8);
+		int byteMaskCount = Mathf.CeilToInt(_surfelCount / 8.0f);
 		result.workingSet = new byte[byteMaskCount];
 		result.views = new ViewCache[visibilityViews.Length];
 
@@ -2004,7 +2048,7 @@ public class core : MonoBehaviour {
 		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
 		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
 
-		int kernelIdx = SurfelVisCompute.FindKernel("CoverageNoFocalDepth");
+		int kernelIdx = SurfelVisCompute.FindKernel("CoverageNoFocalDepthBits");
 		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
 		SurfelVisCompute.SetTexture(kernelIdx, "depthBuffer", ScannerViewDepthRt);
 		SurfelVisCompute.SetBuffer(kernelIdx, "consumed", _consumedSurfels);
@@ -2023,11 +2067,17 @@ public class core : MonoBehaviour {
 
 		ProfileTimer pt = new ProfileTimer();
 
-		int[] countBuffer = new int[1];
+		int intByteMaskCount = Mathf.CeilToInt(_surfelCount / 32.0f);
+		ComputeBuffer maskBuffer = new ComputeBuffer(intByteMaskCount, 4, ComputeBufferType.Structured);
+		SurfelVisCompute.SetBuffer(kernelIdx, "maskBuffer", maskBuffer);
+
+		Debug.Log("SurfelCount: " + _surfelCount);
+		Debug.Log("byteMaskCount: " + byteMaskCount);
+		Debug.Log("intMaskCount: " + intByteMaskCount);
 
 		for (int i = 0; i < visibilityViews.Length; ++i) {
-			countBuffer[0] = 0;
-			_candidateCountBuffer.SetData(countBuffer);
+			int[] mask = new int[intByteMaskCount];
+			maskBuffer.SetData(mask);
 
 			Vector3 dir = visibilityViews[i];
 
@@ -2051,27 +2101,20 @@ public class core : MonoBehaviour {
 			SurfelVisCompute.SetMatrix("projVP", projVP);
 			SurfelVisCompute.SetVector("projWorldPos", camPos);
 			SurfelVisCompute.Dispatch(kernelIdx, _surfelVisJobCount, 1, 1);
+
+			maskBuffer.GetData(mask);
+
+			ViewCache vc = new ViewCache();
+			vc.visibleSurfelMask = new byte[byteMaskCount];
+			Buffer.BlockCopy(mask, 0, vc.visibleSurfelMask, 0, byteMaskCount);
+
+			result.views[i] = vc;
 		}
-
-		_candidateCountBuffer.GetData(countBuffer);
-
-		int highestCount = 0;
-		int highestId = -1;
-
-		for (int i = 0; i < visibilityViews.Length; ++i) {
-			if (countBuffer[i] > highestCount) {
-				highestCount = countBuffer[i];
-				highestId = i;
-			}
-		}
-
-		Debug.Log("Highest: " + highestId + " " + highestCount);
 
 		cmdBuffer.Release();
+		maskBuffer.Release();
 
-		pt.Stop("Calc surfel vis rough");
-
-		return highestId;
+		pt.Stop("Bake surfel vis rough");
 
 		return result;
 	}

@@ -2,6 +2,7 @@
 #pragma kernel GetCandidates
 #pragma kernel CoverageNoFocalDepth
 #pragma kernel CoverageSetNoFocalDepth
+#pragma kernel CoverageNoFocalDepthBits
 
 struct surfelData {
 	float3 position;
@@ -299,4 +300,46 @@ void CoverageSetNoFocalDepth(uint3 id : SV_DispatchThreadID) {
 	results[surfelId] = float4(1, 0, 0, 1);
 	// results[surfelId] = float4(s.position / 5.5, 1);
 	// results[surfelId] = float4(1, 0, 0, 1);
+}
+
+RWStructuredBuffer<int> maskBuffer;
+
+[numthreads(32,1,1)]
+void CoverageNoFocalDepthBits(uint3 id : SV_DispatchThreadID) {
+	uint surfelId = id.x;
+
+	if (surfelId > surfelCount) {
+		return;
+	}
+
+	surfelData s = surfels[surfelId];
+
+	float maxAngle = 30.0;
+
+	float3 worldPos = mul(modelMat, float4(s.position, 1)).xyz;
+	float3 worldNormal = mul(modelMat, float4(s.normal, 0)).xyz;
+
+	float4 projClipPos = mul(projVP, float4(worldPos, 1));
+	float4 projClipPosPreW = projClipPos;
+	projClipPos /= projClipPos.w;	
+	
+	if (projClipPos.z > 0 && projClipPos.x > -1.0 && projClipPos.x < 1.0 && projClipPos.y > -1.0 && projClipPos.y < 1.0) {
+		float2 projUv = projClipPos.xy * 0.5 + 0.5;
+		float2 texUv = float2(projUv.x, 1.0 - projUv.y);
+
+		float depthPre = depthBuffer.SampleLevel(samplerdepthBuffer, texUv, 0).r;
+
+		if (projClipPosPreW.z > depthPre - 0.001) {
+			float projDistance = length(worldPos - projWorldPos);
+			float3 projDir = normalize(projWorldPos - worldPos);
+			float angleCos = saturate(dot(worldNormal, projDir));
+			float angleDegree = acos(angleCos) * 57.2958;
+
+			if (angleDegree < maxAngle) {
+				uint intIdx = surfelId / 32;
+				int intValue = 1 << (surfelId % 32);
+				InterlockedOr(maskBuffer[intIdx], intValue);
+			}
+		}
+	}
 }
