@@ -5,6 +5,8 @@
 //--------------------------------------------------------------------------------
 // NOTES:
 //--------------------------------------------------------------------------------
+// Consider TeensyStep: https://luni64.github.io/TeensyStep/index
+
 // 4000 steps/s = 250us total per step action.
 // Stepper is 1.8 deg per step, at 8 microsteps.
 // Stepper per rev = 1600 steps.
@@ -88,12 +90,18 @@ time per step at full speed (250 mm/s):
 #include <math.h>
 #include "stepper.h"
 
+#include <AccelStepper.h>
+
 #define AXIS_ID_X			0
 #define AXIS_ID_Y			1
 
 abStepper st1 = abStepper(0, 33, 34, 35, 36);
 abStepper st2 = abStepper(0, 37, 38, 39, 9);
 abStepper st3 = abStepper(0, 14, 15, 16, 17);
+
+abStepper st4 = abStepper(0, 20, 19, 18, 10);
+
+AccelStepper stepRotA(1, 19, 18);
 
 //--------------------------------------------------------------------------------
 // Setup.
@@ -224,9 +232,15 @@ void setup() {
 	// while (!Serial);
 	
 	//if (!st1.init(32, 0, 900, 0.00625, 2000.0, true)) sendMessage("Bad driver X");
-	if (!st1.init(32, 0, 600, 0.00625, 16000.0, true)) sendMessage("Bad driver X");
-	if (!st2.init(32, 1, 600, 0.00625, 2000.0, true)) sendMessage("Bad driver Y");
-	if (!st3.init(32, 1, 600, 0.00625, 1400.0, false)) sendMessage("Bad driver Z");
+	// if (!st1.init(32, 0, 600, 0.00625, 16000.0, true)) sendMessage("Bad driver X");
+	// if (!st2.init(32, 1, 600, 0.00625, 2000.0, true)) sendMessage("Bad driver Y");
+	// if (!st3.init(32, 1, 600, 0.00625, 1400.0, false)) sendMessage("Bad driver Z");
+
+	Serial.println("Starting...");
+	// NOTE: Secondary rotary:
+	// if (!st4.init(16, 0, 300, 0.00625, 1000.0, false)) sendMessage("Bad driver A");
+	// NOTE: Primary rotary:
+	if (!st4.init(16, 1, 600, 0.00625, 400.0, false)) sendMessage("Bad driver A");
 
 	// Enable steppers.
 	pinMode(PIN_STP_EN1, OUTPUT);
@@ -876,9 +890,85 @@ void updatePacketInput() {
 }
 
 void loop() {
+
+	stepRotA.setAcceleration(60000);
+	// 15000 good max speed, could be slower for more general use?
+	stepRotA.setMaxSpeed(15000);
+
+	// stepRotA.setAcceleration(6000);
+	// stepRotA.setMaxSpeed(60000);
+	
+	while (1) {
+		// stepRotA.moveTo(stepRotA.currentPosition() + (200 * 16 * 10));
+		// stepRotA.moveTo(stepRotA.currentPosition() + random(-20000, 20000));
+		// stepRotA.moveTo(stepRotA.currentPosition() + 3200);
+		// stepRotA.runToPosition();
+		
+		delay(100);
+
+		// stepRotA.moveTo(stepRotA.currentPosition() - 3200);
+		// stepRotA.runToPosition();
+		
+		// delay(300);
+
+		// stepRotA.moveTo(stepRotA.currentPosition() - 266);
+		// stepRotA.runToPosition();
+
+		// delay(600);
+	}
+
 	// No mode.
-	//while (1) {
-	//}
+	while (1) {
+		// st4.moveDirect(100000, 200);
+		// Serial.println("Hello");
+		
+		// 1:30
+		// 200 * 16 = 3200 * 30 = 96000
+		// 1 degree = 96000 / 360 = 266
+
+		st4.moveRelative(9600, 0, 0, 100);
+		while (st4.updateStepper());
+
+		// int backlashSteps = 10;
+
+		// st4.moveDirectRelative(backlashSteps, 400);
+		// delay(500);
+
+		// for (int i = 0; i < 10; ++i) {
+		// 	st4.moveDirectRelative(6, 400);
+		// 	delay(500);
+		// }
+
+		// st4.moveDirectRelative(-backlashSteps, 400);
+		// delay(500);
+
+		// for (int i = 0; i < 10; ++i) {
+		// 	st4.moveDirectRelative(-6, 400);
+		// 	delay(500);
+		// }
+		
+		// st4.moveRelative(27, 0, 0, 100);
+		// while (st4.updateStepper());
+
+		// delay(500);
+
+		// st4.moveRelative(267, 0, 0, 100);
+		// while (st4.updateStepper());
+
+		// delay(500);
+		
+		// st4.moveRelative(-10000, 0, 0, 100);
+		// while (st4.updateStepper());
+
+		// delay(1000);
+
+		
+		// st4.moveRelative(-1000, 0, 0, 100);
+		// while (st4.updateStepper());
+
+		// st4.moveRelative(1000, 0, 0, 30);
+		// while (st1.updateStepper());
+	}
 
 	// Comms mode.
 	sendMessage("Controller started");

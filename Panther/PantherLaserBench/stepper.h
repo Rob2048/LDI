@@ -41,6 +41,7 @@ public:
 	void setDirection(bool Dir);
 	void moveSimple(float Position, int32_t Speed);
 	void moveDirect(int32_t StepTarget, int32_t Speed);
+	void moveDirectRelative(int32_t Steps, int32_t Delay);
 	void zero();
 	void home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep);
 	//void scan(int RelativeSteps, float MaxSpeed);

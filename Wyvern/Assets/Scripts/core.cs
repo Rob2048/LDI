@@ -68,6 +68,8 @@ public class core : MonoBehaviour {
 
 	public Figure figure;
 
+	public ComputeShader ViewSurfelCount;
+
 	public void uiBtnCapture() {
 		_ScannerViewHit(true);
 	}
@@ -466,6 +468,10 @@ public class core : MonoBehaviour {
 			CountBakedSurfels(viewBake);
 		}
 
+
+		// GPU count baked surfels.
+		_TestGPUCount();		
+
 		// for (int i = 0; i < 1; ++i) {
 		// 	int viewId = CalcSurfelVisRough(visibilityViews);
 		// 	Debug.Log("Found view: " + viewId);
@@ -537,6 +543,62 @@ public class core : MonoBehaviour {
 		// }
 
 		// appContext.figure.GenerateDisplayViews(visibilityViews);
+	}
+
+	private void _TestGPUCount() {
+		int viewCount = 2000;
+		int surfelCount = 1200000;
+		int maskIntCount = Mathf.CeilToInt(surfelCount / 32.0f);
+
+		int[] workingSet = new int[maskIntCount];
+		workingSet[0] = 255;
+		ComputeBuffer workingSetBuffer = new ComputeBuffer(maskIntCount, 4, ComputeBufferType.Structured);		
+		workingSetBuffer.SetData(workingSet);
+		
+		int[] sharedViewMasks = new int[maskIntCount * viewCount];
+		sharedViewMasks[0] = 255;
+		sharedViewMasks[maskIntCount * 3] = 255;
+		ComputeBuffer sharedViewMasksBuffer = new ComputeBuffer(maskIntCount * viewCount, 4, ComputeBufferType.Structured);
+		sharedViewMasksBuffer.SetData(sharedViewMasks);
+
+		ComputeBuffer sharedViewResultsBuffer = new ComputeBuffer(viewCount, 4);
+		int[] sharedViewResults = new int[viewCount];
+		sharedViewResultsBuffer.SetData(sharedViewResults);
+
+		int kernelIdx = ViewSurfelCount.FindKernel("CSMain");
+
+		// int workJobSize = Mathf.CeilToInt(maskIntCount / 8.0f);
+		int workJobSize = maskIntCount / 16;
+		int totalExecutions = workJobSize * viewCount;
+		int dimExecute = Mathf.CeilToInt(Mathf.Sqrt(totalExecutions) / 8.0f);
+
+		Debug.Log("viewCount: " + viewCount);
+		Debug.Log("maskIntCount: " + maskIntCount);
+		Debug.Log("totalExecutions: " + totalExecutions);
+		Debug.Log("dimExecute: " + dimExecute);
+
+		ViewSurfelCount.SetBuffer(kernelIdx, "workingSet", workingSetBuffer);
+		ViewSurfelCount.SetBuffer(kernelIdx, "sharedViewMasks", sharedViewMasksBuffer);
+		ViewSurfelCount.SetBuffer(kernelIdx, "sharedViewResults", sharedViewResultsBuffer);
+		ViewSurfelCount.SetInt("dispatchDim", dimExecute);
+		ViewSurfelCount.SetInt("viewCount", viewCount);
+		ViewSurfelCount.SetInt("workJobSize", workJobSize);
+		ViewSurfelCount.SetInt("maskIntCount", maskIntCount);
+
+		for (int i = 0; i < 10; ++i) {
+			ProfileTimer pt = new ProfileTimer();
+			ViewSurfelCount.Dispatch(kernelIdx, dimExecute, dimExecute, 1);
+			sharedViewResultsBuffer.GetData(sharedViewResults);
+			pt.Stop("GPU surfel view count test");
+		}
+
+		// for (int i = 0; i < viewCount; ++i) {
+		// 	Debug.Log("View " + i + ": " + sharedViewResults[i]);
+		// }
+
+		workingSetBuffer.Release();
+		sharedViewMasksBuffer.Release();
+		sharedViewResultsBuffer.Release();
 	}
 
 	private float[,] _CreateGaussianKernel(int FilterSize, float StdDev) {

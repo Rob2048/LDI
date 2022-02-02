@@ -230,6 +230,28 @@ void abStepper::moveDirect(int32_t StepTarget, int32_t Speed) {
 	}
 }
 
+void abStepper::moveDirectRelative(int32_t Steps, int32_t Delay) {
+	int32_t totalSteps = abs(Steps);
+
+	if (Steps < 0) {
+		setDirection(false);
+	} else {
+		setDirection(true);
+	}
+
+	for (int i = 0; i < totalSteps; ++i) {
+		// pulseStepper();
+		digitalWrite(stepPin, HIGH);
+		delayMicroseconds(5);
+		digitalWrite(stepPin, LOW);
+
+		delayMicroseconds(Delay);
+	}
+
+	currentStep += Steps;
+}
+
+
 void abStepper::zero() {
 	currentStep = 0;
 }

@@ -1,0 +1,37 @@
+#pragma kernel CSMain
+
+int viewCount;
+int maskIntCount;
+int dispatchDim;
+int workJobSize;
+
+StructuredBuffer<int> workingSet;
+StructuredBuffer<int> sharedViewMasks;
+RWStructuredBuffer<int> sharedViewResults;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID) {
+	uint executeId = id.y * (8 * dispatchDim) + id.x;
+
+	uint viewId = executeId / workJobSize;
+	uint maskId = executeId % workJobSize;
+	
+	if (viewId >= viewCount || maskId >= workJobSize) {
+		return;
+	}
+
+	uint count = 0;
+
+	for (int i = 0; i < 16; ++i) {
+		uint intId = maskId * 16 + i;
+		uint bA = workingSet[intId];
+		uint bB = sharedViewMasks[viewId * maskIntCount + intId];
+		uint bC = bA & bB;
+
+		count += countbits(bC);
+	}
+
+	if (count > 0) {
+		InterlockedAdd(sharedViewResults[viewId], count);
+	}
+}
