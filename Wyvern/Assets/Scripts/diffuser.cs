@@ -372,8 +372,6 @@ public class Diffuser {
 			Debug.LogError("Surfel count exceeds ID bytes");
 		}
 
-		bool firstLight = false;
-
 		for (int i = 0; i < surfelCount; ++i) {
 			FastSurfel s = fastSurfels[i];
 			float hscale = s.scale * 0.5f;
@@ -411,17 +409,10 @@ public class Diffuser {
 			byte v = (byte)(Mathf.Clamp01(s.discrete) * 255.0f);
 			// byte v = (byte)(Mathf.Clamp01(s.continuous) * 255.0f);
 
-			if (s.discrete == 0.0f) {
-				if (!firstLight) {
-					firstLight = true;
-					Debug.Log("First light surfel: " + i);
-				}
-			}
+			// intensityBuffer[i] = s.discrete;
 
-			intensityBuffer[i] = s.discrete;
-
-			Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
-			// Color32 c = new Color32(v, v, v, 255);
+			// Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
+			Color32 c = new Color32(v, v, v, 255);
 
 			// byte r = (byte)(i % 255);
 			// byte b = (byte)((i / (255)) % 255);
@@ -524,8 +515,10 @@ public class Diffuser {
 
 			byte v = (byte)(Mathf.Clamp01(s.discrete) * 255.0f);
 			// byte v = (byte)(Mathf.Clamp01(s.continuous) * 255.0f);
+
+			Color32 c = new Color32(v, v, v, 255);
 			
-			Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
+			// Color32 c = new Color32((byte)(i & 0xFF), (byte)((i >> 8) & 0xFF), (byte)((i >> 16) & 0xFF), 255);
 
 			cols[i * 4 + 0] = c;
 			cols[i * 4 + 1] = c;

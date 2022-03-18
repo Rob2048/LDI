@@ -360,7 +360,7 @@ public class core : MonoBehaviour {
 		pt.Start();
 		JobHandle handle = RaycastCommand.ScheduleBatch(commands, results, 1, default(JobHandle));
 		handle.Complete();
-		pt.Stop("Raycasting");
+		pt.Stop("Raycasting (" + jobCount + " rays)");
 
 		pt.Start();
 		for (int i = 0; i < jobCount; ++i) {
@@ -443,34 +443,39 @@ public class core : MonoBehaviour {
 		//----------------------------------------------------------------------------------------------------------------------------
 		// Visualize surfels.
 		//----------------------------------------------------------------------------------------------------------------------------
-		// _diffuser.Process();
+		_diffuser.Process();
 		_surfelDebugMaterial = _diffuser.DrawDebug();
+		// _diffuser.DrawDebugFastSurfels(null);
 
-		_bitCount = new byte[256];
-		for (int i = 0; i < 256; ++i) {
-			int counter = 
-			((i >> 0) & 1) +
-			((i >> 1) & 1) +
-			((i >> 2) & 1) +
-			((i >> 3) & 1) +
-			((i >> 4) & 1) +
-			((i >> 5) & 1) +
-			((i >> 6) & 1) +
-			((i >> 7) & 1);
+		//----------------------------------------------------------------------------------------------------------------------------
+		// Bake surfel views.
+		//----------------------------------------------------------------------------------------------------------------------------
+		// _bitCount = new byte[256];
+		// for (int i = 0; i < 256; ++i) {
+		// 	int counter = 
+		// 	((i >> 0) & 1) +
+		// 	((i >> 1) & 1) +
+		// 	((i >> 2) & 1) +
+		// 	((i >> 3) & 1) +
+		// 	((i >> 4) & 1) +
+		// 	((i >> 5) & 1) +
+		// 	((i >> 6) & 1) +
+		// 	((i >> 7) & 1);
 
-			_bitCount[i] = (byte)counter;
-		}
+		// 	_bitCount[i] = (byte)counter;
+		// }
 
-		Vector3[] visibilityViews = core.PointsOnSphere(2000);
-		SurfelViewsBake viewBake = BakeSurfelVisRough(visibilityViews);
+		// Vector3[] visibilityViews = core.PointsOnSphere(2000);
+		// SurfelViewsBake viewBake = BakeSurfelVisRough(visibilityViews);
 
-		for (int i = 0; i < 40; ++i) {
-			CountBakedSurfels(viewBake);
-		}
-
+		// for (int i = 0; i < 40; ++i) {
+		// 	CountBakedSurfels(viewBake);
+		// }
 
 		// GPU count baked surfels.
-		_TestGPUCount();		
+		// _TestGPUCount();
+
+		//----------------------------------------------------------------------------------------------------------------------------
 
 		// for (int i = 0; i < 1; ++i) {
 		// 	int viewId = CalcSurfelVisRough(visibilityViews);

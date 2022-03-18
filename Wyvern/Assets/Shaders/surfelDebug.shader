@@ -73,7 +73,7 @@ Shader "Unlit/surfelDebug"
 				// 	return float4(1, 0, 1, 1);
 				// }
 
-				// return i.color;
+				return i.color;
 
 				float4 color = surfelData[i.id];
 

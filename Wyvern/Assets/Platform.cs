@@ -17,11 +17,11 @@ public class Platform : MonoBehaviour {
 	private float _targetTimer;
 	
 	void Start() {
-		//_dirTargets = core.PointsOnSphere(2000);
+		_dirTargets = core.PointsOnSphere(2000);
 	}
 
 	void Update() {
-		return;
+		// return;
 
 		_targetTimer += Time.deltaTime;
 
