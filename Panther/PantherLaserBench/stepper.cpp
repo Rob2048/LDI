@@ -48,15 +48,24 @@ bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerSt
 	return success;
 }
 
+void abStepper::setMicrosteps(int Steps) {
+	_tmc->microsteps(Steps);
+}
+
+uint16_t abStepper::getMicrostepCount() {
+	return _tmc->MSCNT();
+}
+
 bool abStepper::updateStepper() {
 	uint32_t currentTime = micros();
 
-	remainingSteps = stepTarget - currentStep;
+	int32_t remainingSteps = stepTarget - currentStep;
+
+	if (remainingSteps == 0)
+		return false;
+
 	if (remainingSteps < 0)
 		remainingSteps = -remainingSteps;
-
-	if (remainingSteps <= 0)
-		return false;
 
 	if (currentTime >= stepperTimeUs) {
 		pulseStepper();
@@ -75,9 +84,12 @@ bool abStepper::updateStepper() {
 		return true;
 	}
 
+	// TODO: Only calc accel during accel phase.
+	// TODO: Keep velocity after accel phase during cruise phase.
+	// TODO: Final step travel is not accounted for?
+	
 	// Calculate next step time.
-	// NOTE: Roughly 15us to calculate
-
+	// NOTE: Roughly 15us to calculate on Teensy 3.5.
 	if (remainingSteps <= decelSteps) {
 		// NOTE: Deacceleration phase.
 		t = (sqrtf(2 * -a * s + u * u) - u) / -a;
@@ -105,9 +117,9 @@ bool abStepper::updateStepper() {
 	return true;
 }
 
-void abStepper::moveRelative(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
+void abStepper::moveRelative(int32_t StepTarget, float MaxVelocity) {
 	StepTarget = currentStep + StepTarget;
-	moveTo(StepTarget, StartVelocity, EndVelocity, MaxVelocity);
+	moveTo(StepTarget, MaxVelocity);
 }
 
 void abStepper::setDirection(bool Dir) {
@@ -138,13 +150,72 @@ void abStepper::setDirection(bool Dir) {
 	}
 }
 
-void abStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
+// void abStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
+// 	uint32_t t0 = micros();
+// 	// char buff[256];
+// 	// sprintf(buff, "Motion block: %ld -> %ld (%.2f, %.2f, %.2f)\r\n", currentStep, StepTarget, StartVelocity, EndVelocity, MaxVelocity);
+// 	// Serial.print(buff);
+	
+// 	int32_t tSteps = StepTarget - currentStep;
+
+// 	if (tSteps == 0) {
+// 		return;
+// 	}
+
+// 	if (tSteps < 0) {
+// 		setDirection(false);
+// 	} else {
+// 		setDirection(true);
+// 	}
+
+// 	moveStartTimeUs = micros();
+// 	stepperTimeUs = moveStartTimeUs;
+// 	maxVelocity = MaxVelocity;
+// 	s = mmPerStep;
+// 	a = globalAcceleration;
+// 	u = StartVelocity;
+// 	t = 0;
+// 	totalSteps = tSteps;
+
+// 	// Time to accelerate from start to max.
+// 	float accelT = (maxVelocity - StartVelocity) / a;
+// 	float accelS = (a * (accelT * accelT)) / 2;
+// 	float moveSteps = accelS * stepsPerMm;
+// 	accelSteps = (int32_t)moveSteps;
+
+// 	// Time to decellerate from max to end.
+// 	accelT = (maxVelocity - EndVelocity) / a;
+// 	accelS = (a * (accelT * accelT)) / 2;
+// 	moveSteps = accelS * stepsPerMm;
+// 	decelSteps = (int32_t)moveSteps;
+
+// 	stepTarget = StepTarget;
+
+// 	// TODO: This does not account for uneven steps.
+// 	// TOOD: This does not account for vastly differeing accel/decell step counts.
+// 	// TODO: Check if it is possible to reach end velocity from start velocity.
+// 	int32_t absTotalSteps = abs(totalSteps);
+
+// 	if (accelSteps + decelSteps > absTotalSteps) {
+// 		accelSteps = absTotalSteps / 2;
+// 		decelSteps = absTotalSteps / 2;
+// 	}
+
+// 	t0 = micros() - t0;
+// 	//Serial.println(t0);
+// }
+
+void abStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	uint32_t t0 = micros();
+
+	float maxTime = mmPerStep * 1000000;
+	maxTime /= MaxVelocity;
+	
 	// char buff[256];
-	// sprintf(buff, "Motion block: %ld -> %ld (%.2f, %.2f, %.2f)\r\n", currentStep, StepTarget, StartVelocity, EndVelocity, MaxVelocity);
+	// sprintf(buff, "\r\nMove to: %ld -> %ld (%.2f mm/s) (%.2f us)\r\n", currentStep, StepTarget, MaxVelocity, maxTime);
 	// Serial.print(buff);
 	
-	int32_t tSteps = StepTarget - currentStep;  
+	int32_t tSteps = StepTarget - currentStep;
 
 	if (tSteps == 0) {
 		return;
@@ -156,37 +227,40 @@ void abStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocit
 		setDirection(true);
 	}
 
-	moveStartTimeUs = micros();
-	stepperTimeUs = moveStartTimeUs;
 	maxVelocity = MaxVelocity;
 	s = mmPerStep;
 	a = globalAcceleration;
-	u = StartVelocity;
+	u = 0;
 	t = 0;
-	remainingSteps = tSteps;
 	totalSteps = tSteps;
 
-	// Time to accelerate from start to max.
-	float accelT = (maxVelocity - StartVelocity) / a;
+	// NOTE: Steps to accell/decell.
+	float accelT = maxVelocity / a;
 	float accelS = (a * (accelT * accelT)) / 2;
 	float moveSteps = accelS * stepsPerMm;
-	accelSteps = (int32_t)moveSteps;
-
-	// Time to decellerate from max to end.
-	accelT = (maxVelocity - EndVelocity) / a;
-	accelS = (a * (accelT * accelT)) / 2;
-	moveSteps = accelS * stepsPerMm;
-	decelSteps = (int32_t)moveSteps;
+	int32_t totalAccelSteps = (int32_t)moveSteps;
+	int32_t origAccelSteps = totalAccelSteps;
 
 	stepTarget = StepTarget;
 
-	if (accelSteps + decelSteps > totalSteps) {
-		accelSteps = totalSteps / 2;
-		decelSteps = totalSteps / 2;
+	// NOTE: If there are not enough steps to accel to max, then accel as far as we can.
+	int32_t absTotalSteps = abs(totalSteps);
+
+	if (totalAccelSteps * 2 > absTotalSteps) {
+		totalAccelSteps = absTotalSteps / 2;
 	}
+
+	accelSteps = totalAccelSteps;
+	decelSteps = totalAccelSteps;
+
+	moveStartTimeUs = micros();
+	stepperTimeUs = moveStartTimeUs;
 
 	t0 = micros() - t0;
 	//Serial.println(t0);
+
+	// sprintf(buff, "Total: %ld Accel: %ld -> %ld (%ld us)\r\n", absTotalSteps, origAccelSteps, totalAccelSteps, t0);
+	// Serial.print(buff);
 }
 
 void abStepper::moveSimple(float Position, int32_t Speed) {
@@ -221,11 +295,7 @@ void abStepper::moveDirect(int32_t StepTarget, int32_t Speed) {
 			++currentStep;
 		}
 
-		// pulseStepper();
-		digitalWrite(stepPin, HIGH);
-		delayMicroseconds(5);
-		digitalWrite(stepPin, LOW);
-
+		pulseStepper();
 		delayMicroseconds(Speed);
 	}
 }
@@ -258,9 +328,9 @@ void abStepper::zero() {
 
 void abStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep) {
 	if (HomeDir) {
-		moveRelative(100000, 0, 0, SlowSpeed);
+		moveRelative(100000, SlowSpeed);
 	} else {
-		moveRelative(-100000, 0, 0, SlowSpeed);
+		moveRelative(-100000, SlowSpeed);
 	}
 
 	while (true) {
@@ -274,9 +344,9 @@ void abStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep
 	}
 
 	if (HomeDir) {
-		moveRelative(-1000, 0, 0, FastSpeed);
+		moveRelative(-1000, FastSpeed);
 	} else {
-		moveRelative(1000, 0, 0, FastSpeed);
+		moveRelative(1000, FastSpeed);
 	}
 
 	while (updateStepper());
@@ -297,123 +367,3 @@ void abStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep
 	minStep = MinStep;
 	maxStep = MaxStep;
 }
-
-// void abStepper::scan(int RelativeSteps, float MaxSpeed) {
-// 	int dir = 1;
-// 	int absSteps = abs(RelativeSteps);
-	
-// 	if (RelativeSteps < 0) {
-// 		dir = 0;
-// 	}
-
-// 	moveRelative(RelativeSteps, 0, 0, MaxSpeed);
-// 	int preSteps = accelSteps;
-
-// 	if (dir == 0) {
-// 		preSteps = -preSteps;
-// 	}
-
-// 	// Accel phase
-// 	moveRelative(preSteps, 0, MaxSpeed, MaxSpeed);
-// 	while (updateStepper());
-
-// 	// TOOD: Drift
-
-// 	//_scanPhase();
-
-// 	// NOTE: Accounts for both drifting phases.
-// 	if (dir) {
-// 		currentStep += 3200;
-// 	} else {
-// 		currentStep -= 3200;
-// 	}
-
-// 	// Deccel phase
-// 	moveRelative(preSteps, MaxSpeed, 0, MaxSpeed);
-// 	while (updateStepper());
-// }
-
-// void abStepper::_scanPhase() {
-// 	// Laser phase
-// 	// for (int i = 0; i < absSteps; ++i) {
-// 	// 	// 1us pulse.
-// 	// 	pulseStepper();
-// 	// 	delayMicroseconds(24);
-// 	// }
-
-// 	float speed = 125.0f;
-// 	float totalDistance = 20.0f;
-// 	// Initial laser pos list. 400 positions over 20 mm (50 um each)
-// 	for (int i = 0; i < 400; ++i) {
-// 		_laserPos[_laserPosCount++] = i * 0.050;
-// 	}
-
-// 	float totalTimeUs = (totalDistance / speed) * 1000000.0f;
-
-// 	// Build laser timing list.
-// 	for (int i = 0; i < _laserPosCount; ++i) {
-// 		_laserTiming[_laserTimingCount++] = _laserPos[i] / totalDistance * totalTimeUs;
-// 	}
-
-// 	int laserState = 0;
-// 	uint32_t laserNextT = 0;
-// 	int laserPulses = 0;
-// 	int laserOnTimeUs = 120;
-
-// 	float stepsToMm = 0.00625f;
-// 	float mmToSteps = 1.0 / stepsToMm;
-// 	int motorSteps = totalDistance * mmToSteps;
-// 	int motorCurrent = 0;
-// 	uint32_t nextMotorT = 0;
-// 	int motorState = 0;
-// 	int stepDelayNs = 1000000000 / (speed * mmToSteps);
-
-// 	if (_laserTimingCount > 0) {
-// 		laserNextT = _laserTiming[laserPulses];
-// 	}
-
-// 	uint32_t t = micros();
-
-// 	while (true) {
-// 		uint32_t nt = micros() - t;
-		
-// 		if (laserPulses < _laserTimingCount) {
-// 			if (nt >= laserNextT) {
-// 				if (laserState == 0) {
-// 					// High
-// 					digitalWrite(3, HIGH);
-// 					laserNextT += laserOnTimeUs;
-// 					laserState = 1;
-// 				} else {
-// 					// Low
-// 					digitalWrite(3, LOW);
-// 					laserState = 0;
-// 					++laserPulses;
-
-// 					if (_laserTimingCount > 0) {
-// 						laserNextT = _laserTiming[laserPulses];
-// 					}
-// 				}
-// 			}
-// 		}
-
-// 		if (nt >= (nextMotorT + 500) / 1000) {
-// 			if (motorState == 0) {
-// 				if (motorCurrent >= motorSteps) {
-// 					break;
-// 				}
-
-// 				// High
-// 				digitalWrite(st1.stepPin, HIGH);
-// 				nextMotorT += 2000;
-// 				motorState = 1;
-// 			} else {
-// 				// Low
-// 				digitalWrite(st1.stepPin, LOW);
-// 				nextMotorT += stepDelayNs - 2000;
-// 				motorState = 0;
-// 				++motorCurrent;
-// 			}
-// 		}
-// 	}
-// }

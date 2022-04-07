@@ -1,27 +1,8 @@
 //--------------------------------------------------------------------------------
-// Teensy stepper motor controller.
+// Laser test bench controller.
 //--------------------------------------------------------------------------------
 
-//--------------------------------------------------------------------------------
-// NOTES:
-//--------------------------------------------------------------------------------
-// Consider TeensyStep: https://luni64.github.io/TeensyStep/index
-
-// 4000 steps/s = 250us total per step action.
-// Stepper is 1.8 deg per step, at 8 microsteps.
-// Stepper per rev = 1600 steps.
-// Diamater of wheel = 12.2mm  (Accuracy?)
-// 279mm over 7 revolutions
-// 39.86mm of belt per revolution (12.688 diameter on motor pulley)
-// 40.1434 steps/mm
-// 0.02491 mm/step
-
-// (8 usteps) 1600 steps per 40mm = 25um per step
-// (32 usteps) 6400 steps per 40mm = 6.25um per step
-
-//--------------------------------------------------------------------------------
-
-// Steppers
+// Steppers:
 // 1 cs 33 stp 34 dir 35
 // 2 cs 37 stp 38 dir 39
 // 3 cs 14 stp 15 dir 16
@@ -31,7 +12,7 @@
 // 7 cs 27 stp 26 dir 25
 // 8 cs 31 stp 30 dir 29
 
-// Endstops
+// Endstops:
 // 1 36
 // 2 9
 // 3 17
@@ -41,46 +22,13 @@
 // 7 4
 // 8 28
 
-// Aux
-// 5 3
+// Aux pins:
+// 5 3 (Why is this 5?)
 // 3 23
 // 2 22
 // 1 21
 
-/*
-Motion planning prep.
-
-100 us per 25 um dot maybe.
-
-250 mm/s
-1 step = 0.00625 mm
-4 steps per dot space?
-
-Current process:
-- stepHigh
-- delay 5 us
-- stepLow
-- delay Speed (100 us)
-- delay offTime (1000 us)
-- laserHigh
-- delay onTime (120 us)
-- laserLow
-
-New process:
-- Accelerate
-- At full speed and over start position, start laser pulses
-- After end position, stop laser pulses
-- Decelerate
-- Move to next line
-
-time per step at full speed (250 mm/s):
-40 000 steps per second
-25 us per step.
-
-// PWM control on steps??
-// Interrupts
-
-*/
+//--------------------------------------------------------------------------------
 
 #define PIN_STP_EN1			32
 #define PIN_LASER_PWM		3
@@ -90,203 +38,35 @@ time per step at full speed (250 mm/s):
 #include <math.h>
 #include "stepper.h"
 
-#include <AccelStepper.h>
-
 #define AXIS_ID_X			0
 #define AXIS_ID_Y			1
+#define AXIS_ID_Z			2
+#define AXIS_ID_A			3
+#define AXIS_ID_B			4
 
 abStepper st1 = abStepper(0, 33, 34, 35, 36);
 abStepper st2 = abStepper(0, 37, 38, 39, 9);
 abStepper st3 = abStepper(0, 14, 15, 16, 17);
 
-abStepper st4 = abStepper(0, 20, 19, 18, 10);
-
-AccelStepper stepRotA(1, 19, 18);
-
 //--------------------------------------------------------------------------------
-// Setup.
+// Packet processing.
 //--------------------------------------------------------------------------------
-unsigned long _log[16000];
-char _log2[16000];
-int32_t _logCounts = 0;
 
-float _laserPos[1024];
-int _laserPosCount = 0;
-
-int32_t _laserTiming[4096];
-int _laserTimingCount = 0;
-
-void timerTest() {
-	Serial.println();
-	Serial.println("Timer testing");
-
-	float speed = 125.0f;
-	float totalDistance = 20.0f;
-	// Initial laser pos list. 400 positions over 20 mm (50 um each)
-	for (int i = 0; i < 400; ++i) {
-		_laserPos[_laserPosCount++] = i * 0.050;
-	}
-
-	float totalTimeUs = (totalDistance / speed) * 1000000.0f;
-
-	// Build laser timing list.
-	for (int i = 0; i < _laserPosCount; ++i) {
-		_laserTiming[_laserTimingCount++] = _laserPos[i] / totalDistance * totalTimeUs;
-	}
-
-	int laserState = 0;
-	uint32_t laserNextT = 0;
-	int laserPulses = 0;
-	int laserOnTimeUs = 120;
-
-	float stepsToMm = 0.00625f;
-	float mmToSteps = 1.0 / stepsToMm;
-	int motorSteps = totalDistance * mmToSteps;
-	int motorCurrent = 0;
-	uint32_t nextMotorT = 0;
-	int motorState = 0;
-	int stepDelayNs = 1000000000 / (speed * mmToSteps);
-
-	//Serial.printf("Step delay: %d (%f)\n", stepDelayNs, (1000000.0 / (speed * mmToSteps)));
-
-	if (_laserTimingCount > 0) {
-		laserNextT = _laserTiming[laserPulses];
-	}
-
-	uint32_t t = micros();
-
-	while (true) {
-		uint32_t nt = micros() - t;
+// Requests:
+// 1: depreacted move with accel
+// 3: move relative (no accel)
+// 4: move (no accel)
+// 5: burst laser
+// 6: pulse laser
+// 7: stop laser
+// 8: raster move/laser (no accel)
+// 10: home all axes
+// 11: move to center
+// 13: modulate laser
 		
-		if (laserPulses < _laserTimingCount) {
-			if (nt >= laserNextT) {
-				if (laserState == 0) {
-					// High
-					digitalWrite(st1.stepPin, HIGH);
-					_log[_logCounts] = nt;
-					_log2[_logCounts++] = 'L';
-					laserNextT += laserOnTimeUs;
-					laserState = 1;
-				} else {
-					// Low
-					digitalWrite(st1.stepPin, LOW);
-					_log[_logCounts] = nt;
-					_log2[_logCounts++] = 'l';
-					laserState = 0;
-					++laserPulses;
-
-					if (_laserTimingCount > 0) {
-						laserNextT = _laserTiming[laserPulses];
-					}
-				}
-			}
-		}
-
-		if (nt >= (nextMotorT + 500) / 1000) {
-		//if (ns >= nextMotorT) {
-			if (motorState == 0) {
-				if (motorCurrent >= motorSteps) {
-					_log[_logCounts] = nt;
-					_log2[_logCounts++] = 'D';
-					break;
-				}
-
-				// High
-				_log[_logCounts] = nt;
-				_log2[_logCounts++] = 'M';
-				nextMotorT += 2000;
-				motorState = 1;
-			} else {
-				// Low
-				_log[_logCounts] = nt;
-				_log2[_logCounts++] = 'm';
-				nextMotorT += stepDelayNs - 2000;
-				motorState = 0;
-				++motorCurrent;
-			}
-		}
-	}
-
-	t = micros() - t;
-
-	for (int i = 0; i < _logCounts; ++i) {
-		Serial.print(_log[i]);
-		Serial.print("\t");
-		Serial.println(_log2[i]);
-	}
-
-	Serial.printf("Motor steps: %d\n", motorCurrent);
-	Serial.printf("Laser pulses: %d\n", laserPulses);
-	Serial.printf("Log size: %d\n", _logCounts);
-	Serial.printf("Step delay: %d\n", stepDelayNs);
-
-	// for (int i = 0; i < _laserPosCount; ++i) {
-	// 	Serial.print(_laserPos[i]);
-	// 	Serial.print("\t");
-	// 	Serial.println(_laserTiming[i]);
-	// }
-}
-
-void setup() {
-	Serial.begin(921600);
-	// while (!Serial);
-	
-	//if (!st1.init(32, 0, 900, 0.00625, 2000.0, true)) sendMessage("Bad driver X");
-	// if (!st1.init(32, 0, 600, 0.00625, 16000.0, true)) sendMessage("Bad driver X");
-	// if (!st2.init(32, 1, 600, 0.00625, 2000.0, true)) sendMessage("Bad driver Y");
-	// if (!st3.init(32, 1, 600, 0.00625, 1400.0, false)) sendMessage("Bad driver Z");
-
-	Serial.println("Starting...");
-	// NOTE: Secondary rotary:
-	// if (!st4.init(16, 0, 300, 0.00625, 1000.0, false)) sendMessage("Bad driver A");
-	// NOTE: Primary rotary:
-	if (!st4.init(16, 1, 600, 0.00625, 400.0, false)) sendMessage("Bad driver A");
-
-	// Enable steppers.
-	pinMode(PIN_STP_EN1, OUTPUT);
-	digitalWrite(PIN_STP_EN1, LOW);
-
-	// Enable laser.
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	digitalWrite(PIN_LASER_PWM, LOW);
-
-	//timerTest();
-}
-
-/*
-	Command:
-		AxisId:
-			0 - X
-			1 - Y
-			2 - Z
-			3 - A
-			4 - B
-
-		CmdIds:
-			[requests]
-			0 - home
-			1 - move
-			2 - stop (cancel all stepper actions)
-			3 - zero
-			4 - simple move
-			5 - burst laser
-			[responses]
-			10 - cmd recv success.
-			11 - cmd recv failure. (expects command resend)
-			12 - cmd invalid.
-			13 - general failure.
-			14 - utf8 message.
-
-		Zero: [1 start][1 size][1 cmdId][1 end]
-
-		Home: [1 start][1 size][1 cmdId][1 axisId][1 end]
-
-		Move: [1 start][1 size][1 cmdId][1 numAxis][1 axisId][1 moveMode][4 steps][4 startSpeed][4 endSpeed][4 maxSpeed][1 end]
-
-		MoveSimple: [1 start][1 size][1 cmdId][1 axisId][
-
-		Response: [1 start][1 size][1 cmdId][1 end]
-*/
+// Responses:
+// 10: cmd recv success.
+// 13: utf8 message.
 
 enum RecvState {
 	RS_START,
@@ -328,9 +108,6 @@ void sendMessage(const char* Message) {
 }
 
 void sendCmdSuccess() {
-	//uint8_t buffer[4] = { FRAME_START, 1, 10, FRAME_END };
-	//Serial.write(buffer, 4);
-
 	uint8_t buffer[16];
 	buffer[0] = FRAME_START;
 	buffer[1] = 13;
@@ -481,7 +258,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		sendCmdSuccess();
 	} else if (cmdId == 6 && Len == 13) {
-		// Start laser.
+		// Pulse laser.
 		int32_t counts = 0;
 		int32_t onTime = 0;
 		int32_t offTime = 0;
@@ -545,9 +322,9 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sprintf(buff, "Homing");
 		sendMessage(buff);
 
-		st1.moveRelative(-100000, 0, 0, 50);
-		st2.moveRelative(-100000, 0, 0, 50);
-		st3.moveRelative(100000, 0, 0, 50);
+		st1.moveRelative(-100000, 50);
+		st2.moveRelative(-100000, 50);
+		st3.moveRelative(100000, 50);
 
 		bool s1 = true;
 		bool s2 = true;
@@ -563,9 +340,9 @@ void processCmd(uint8_t* Buffer, int Len) {
 		st2.home(50, 100, false, 0, 0, 15000);
 		st3.home(50, 30, true, 24000, 0, 24000);
 
-		st1.moveTo(st1.stepsPerMm * 30, 0, 0, 200);
-		st2.moveTo(st2.stepsPerMm * 3, 0, 0, 100);
-		st3.moveTo(1000, 0, 0, 50);
+		st1.moveTo(st1.stepsPerMm * 30, 200);
+		st2.moveTo(st2.stepsPerMm * 3, 100);
+		st3.moveTo(1000, 50);
 
 		s1 = true;
 		s2 = true;
@@ -580,9 +357,9 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendCmdSuccess();
 	} else if (cmdId == 11) {
 		// Move to center?
-		st1.moveTo(st1.stepsPerMm * 30, 0, 0, 200);
-		st2.moveTo(st2.stepsPerMm * 3, 0, 0, 100);
-		st3.moveTo(1000, 0, 0, 50);
+		st1.moveTo(st1.stepsPerMm * 30, 200);
+		st2.moveTo(st2.stepsPerMm * 3, 100);
+		st3.moveTo(1000, 50);
 		
 		bool s1 = true;
 		bool s2 = true;
@@ -593,199 +370,6 @@ void processCmd(uint8_t* Buffer, int Len) {
 			s2 = st2.updateStepper();
 			s3 = st3.updateStepper();
 		}
-
-		sendCmdSuccess();
-	} else if (cmdId == 12) {
-		// Scan with continuous movement.
-
-		// X axis raster line.
-		// 20 mm test
-		
-		// TODO: Move back to start position which accounts for accel phase.
-
-		float speed = 125.0f;
-		float totalDistance = 20.0f;
-		int laserOnTimeUs = 120;
-		int pulseCounts = 0;
-		
-		memcpy(&speed, Buffer + 1, 4);
-		memcpy(&totalDistance, Buffer + 5, 4);
-		memcpy(&laserOnTimeUs, Buffer + 9, 4);
-		memcpy(&pulseCounts, Buffer + 13, 4);
-
-		// sprintf(buff, "Len: %d\n", Len);
-		// sendMessage(buff);
-
-		// sprintf(buff, "Speed: %f\n", speed);
-		// sendMessage(buff);
-		// sprintf(buff, "totalDistance: %f\n", totalDistance);
-		// sendMessage(buff);
-		// sprintf(buff, "laserOnTimeUs: %d\n", laserOnTimeUs);
-		// sendMessage(buff);
-		// sprintf(buff, "pulseCounts: %d\n", pulseCounts);
-		// sendMessage(buff);
-
-		for (int i = 0; i < pulseCounts; ++i) {
-			int time = 0;
-			memcpy(&time, Buffer + 17 + i * 4, 4);
-			_laserTiming[i] = time;
-
-			//sprintf(buff, "%d: %d\n", i, time);
-			//sendMessage(buff);
-		}
-		_laserTimingCount = pulseCounts;
-
-		//sprintf(buff, "Speed: %f\n", speed);
-		//sendMessage(buff);
-
-		//--------------------------------------------------------------------------------
-		// Calcs.
-		//--------------------------------------------------------------------------------
-		int motorSteps = totalDistance * st1.stepsPerMm;
-		int absSteps = abs(motorSteps);
-		float totalTimeUs = (totalDistance / speed) * 1000000.0f;
-
-		int laserState = 0;
-		uint32_t laserNextT = 0;
-		int laserPulseCount = 0;
-		
-		int motorCurrent = 0;
-		uint32_t nextMotorT = 0;
-		int motorState = 0;
-		int stepDelayNs = 1000000000 / (speed * st1.stepsPerMm);
-
-		if (_laserTimingCount > 0) {
-			laserNextT = _laserTiming[laserPulseCount];
-		}
-
-		//--------------------------------------------------------------------------------
-		// Accel phase.
-		//--------------------------------------------------------------------------------
-		int dir = 1;
-
-		if (motorSteps < 0) {
-			dir = 0;
-		}
-
-		st1.moveRelative(motorSteps, 0, 0, speed);
-		int preSteps = st1.accelSteps;
-
-		if (dir == 0) {
-			preSteps = -preSteps;
-		}
-
-		//sprintf(buff, "Pulse count: %d PreSteps: %d Speed: %d\n", _laserTimingCount, preSteps, speed);
-		//sendMessage(buff);
-
-		// Accel phase
-		st1.moveRelative(preSteps, 0, speed, speed);
-		while (st1.updateStepper());
-
-		// TOOD: Drift.
-
-		//sprintf(buff, "Accel done\n");
-		//sendMessage(buff);
-
-		//--------------------------------------------------------------------------------
-		// Scan phase.
-		//--------------------------------------------------------------------------------
-		uint32_t t = micros();
-
-		while (true) {
-			uint32_t nt = micros() - t;
-			
-			// Control laser.
-			if (laserPulseCount < _laserTimingCount) {
-				if (nt >= laserNextT) {
-					if (laserState == 0) {
-						// High
-						digitalWrite(PIN_LASER_PWM, HIGH);
-						//_log[_logCounts] = nt;
-						//_log2[_logCounts++] = 'L';
-						laserNextT += laserOnTimeUs;
-						laserState = 1;
-					} else {
-						// Low
-						digitalWrite(PIN_LASER_PWM, LOW);
-						//_log[_logCounts] = nt;
-						//_log2[_logCounts++] = 'l';
-						laserState = 0;
-						++laserPulseCount;
-
-						if (_laserTimingCount > 0) {
-							laserNextT = _laserTiming[laserPulseCount];
-						}
-					}
-				}
-			}
-
-			// Step motor.
-			if (nt >= (nextMotorT + 500) / 1000) {
-				if (motorState == 0) {
-					if (motorCurrent >= absSteps) {
-						//_log[_logCounts] = nt;
-						//_log2[_logCounts++] = 'D';
-						break;
-					}
-
-					// High
-					digitalWrite(st1.stepPin, HIGH);
-					//_log[_logCounts] = nt;
-					//_log2[_logCounts++] = 'M';
-					nextMotorT += 2000;
-					motorState = 1;
-				} else {
-					// Low
-					digitalWrite(st1.stepPin, LOW);
-					//_log[_logCounts] = nt;
-					//_log2[_logCounts++] = 'm';
-					nextMotorT += stepDelayNs - 2000;
-					motorState = 0;
-					++motorCurrent;
-				}
-			}
-		}
-
-		t = micros() - t;
-
-		// for (int i = 0; i < _logCounts; ++i) {
-		// 	Serial.print(_log[i]);
-		// 	Serial.print("\t");
-		// 	Serial.println(_log2[i]);
-		// }
-
-		// sprintf(buff, "Motor steps: %d (%d)\n", motorCurrent, motorSteps);
-		// sendMessage(buff);
-
-		// sprintf(buff, "Laser pulses: %d\n", laserPulseCount);
-		// sendMessage(buff);
-
-		// sprintf(buff, "Log size: %ld\n", _logCounts);
-		// sendMessage(buff);
-
-		//sprintf(buff, "Step delay: %d\n", stepDelayNs);
-		//sendMessage(buff);
-
-		// for (int i = 0; i < _laserPosCount; ++i) {
-		// 	Serial.print(_laserPos[i]);
-		// 	Serial.print("\t");
-		// 	Serial.println(_laserTiming[i]);
-		// }
-
-		// NOTE: Accounts for both drifting phases.
-		if (dir) {
-			st1.currentStep += motorCurrent;
-		} else {
-			st1.currentStep -= motorCurrent;
-		}
-
-		//--------------------------------------------------------------------------------
-		// Deccel phase.
-		//--------------------------------------------------------------------------------
-		// TODO: Drift.
-
-		st1.moveRelative(preSteps, speed, 0, speed);
-		while (st1.updateStepper());
 
 		sendCmdSuccess();
 	} else if (cmdId == 13 && Len == 9) {
@@ -806,46 +390,6 @@ void processCmd(uint8_t* Buffer, int Len) {
 		// sprintf(buff, "Laser: %ld %ld %ld", onTime, offTime, counts);
 		// sendMessage(buff);
 
-		sendCmdSuccess();
-	} else if (cmdId == 14 && Len >= 8) {
-		// Continuous incrementing scan line.
-		int32_t iterations = 0;
-		int32_t steps = 0;
-		int32_t startTime = 0;
-		int32_t incTime = 0;
-		int32_t speed = 0;
-		int32_t delay = 0;
-		float spacing = 0.0f;
-
-		memcpy(&iterations, Buffer + 1, 4);
-		memcpy(&steps, Buffer + 5, 4);
-		memcpy(&startTime, Buffer + 9, 4);
-		memcpy(&incTime, Buffer + 13, 4);
-		memcpy(&speed, Buffer + 17, 4);
-		memcpy(&delay, Buffer + 21, 4);
-		memcpy(&spacing, Buffer + 25, 4);
-
-		unsigned long t = micros();
-
-		unsigned long laserTime = startTime;
-
-		float position = st1.currentStep * st1.mmPerStep;
-
-		for (int i = 0; i < iterations; ++i) {
-			for (int j = 0; j < steps; ++j) {
-				st1.moveDirect((int32_t)round(position * st1.stepsPerMm), speed);
-				position += spacing;
-
-				delayMicroseconds(delay);
-
-				digitalWrite(PIN_LASER_PWM, HIGH);
-				delayMicroseconds(laserTime);
-				digitalWrite(PIN_LASER_PWM, LOW);
-			}
-
-			laserTime += incTime;
-		}
-		
 		sendCmdSuccess();
 	} else {
 		sprintf(buff, "Unknown cmd %d %d", cmdId, Len);
@@ -889,140 +433,174 @@ void updatePacketInput() {
 	}
 }
 
-void loop() {
+void homing() {
+	st1.moveRelative(-100000, 50);
+	st2.moveRelative(-100000, 50);
+	st3.moveRelative(100000, 50);
 
-	stepRotA.setAcceleration(60000);
-	// 15000 good max speed, could be slower for more general use?
-	stepRotA.setMaxSpeed(15000);
+	bool s1 = true;
+	bool s2 = true;
+	bool s3 = true;
 
-	// stepRotA.setAcceleration(6000);
-	// stepRotA.setMaxSpeed(60000);
+	while (s1 || s2 || s3) {
+		if (s1) { s1 = moveStepperUntilLimit(&st1); }
+		if (s2) { s2 = moveStepperUntilLimit(&st2); }
+		if (s3) { s3 = moveStepperUntilLimit(&st3); }
+	}
+
+	st1.home(50, 100, false, 0, 0, 20000);
+	st2.home(50, 100, false, 0, 0, 15000);
+	st3.home(50, 30, true, 17000, 0, 17000);
+
+	// Move to home position.
+	st1.moveTo(15000, 200);
+	st2.moveTo(5000, 100);
+	st3.moveTo(0, 50);
+
+	s1 = true;
+	s2 = true;
+	s3 = true;
+
+	while (s1 || s2 || s3) {
+		s1 = st1.updateStepper();
+		s2 = st2.updateStepper();
+		s3 = st3.updateStepper();
+	}
+
+	// Zero home position.
+	st1.currentStep = 0;
+	st2.currentStep = 0;
+	st3.currentStep = 0;
+}
+
+void homingTest() {
+	st1.moveRelative(-100000, 10);
 	
-	while (1) {
-		// stepRotA.moveTo(stepRotA.currentPosition() + (200 * 16 * 10));
-		// stepRotA.moveTo(stepRotA.currentPosition() + random(-20000, 20000));
-		// stepRotA.moveTo(stepRotA.currentPosition() + 3200);
-		// stepRotA.runToPosition();
-		
-		delay(100);
+	while (moveStepperUntilLimit(&st1));
 
-		// stepRotA.moveTo(stepRotA.currentPosition() - 3200);
-		// stepRotA.runToPosition();
-		
-		// delay(300);
+	float dist = st1.currentStep * st1.mmPerStep;
+	dist *= 1000.0f;
 
-		// stepRotA.moveTo(stepRotA.currentPosition() - 266);
-		// stepRotA.runToPosition();
+	// Target count for X axis: 420 TMC steps.
+	int tmcSteps = st1.getMicrostepCount();
+	int tmcDiffSteps = 420 - tmcSteps;
+	int actualSteps = tmcDiffSteps / 8;
 
-		// delay(600);
-	}
+	char buff[256];
+	sprintf(buff, "Current step: %ld Dist: %.0f um (%d) Actual: %d\r\n", st1.currentStep, dist, st1.getMicrostepCount(), actualSteps);
+	Serial.print(buff);
 
-	// No mode.
-	while (1) {
-		// st4.moveDirect(100000, 200);
-		// Serial.println("Hello");
-		
-		// 1:30
-		// 200 * 16 = 3200 * 30 = 96000
-		// 1 degree = 96000 / 360 = 266
+	st1.home(50, 100, false, 0, 0, 20000);
 
-		st4.moveRelative(9600, 0, 0, 100);
-		while (st4.updateStepper());
+	st1.moveTo(st1.stepsPerMm * 30, 200);
+	while (st1.updateStepper());
+}
 
-		// int backlashSteps = 10;
+void testLimitSwitches() {
+	int lim1 = digitalRead(st1.limitPin);
+	int lim2 = digitalRead(st2.limitPin);
+	int lim3 = digitalRead(st3.limitPin);
 
-		// st4.moveDirectRelative(backlashSteps, 400);
-		// delay(500);
+	Serial.print(lim1);
+	Serial.print(" ");
+	Serial.print(lim2);
+	Serial.print(" ");
+	Serial.println(lim3);
+	Serial.print(" ");
+}
 
-		// for (int i = 0; i < 10; ++i) {
-		// 	st4.moveDirectRelative(6, 400);
-		// 	delay(500);
-		// }
+//--------------------------------------------------------------------------------
+// Setup.
+//--------------------------------------------------------------------------------
+void setup() {
+	Serial.begin(921600);
+	
+	if (!st1.init(32, 0, 900, 0.00625, 10000.0, true)) sendMessage("Bad driver X");
+	if (!st2.init(32, 1, 600, 0.00625, 400.0, true)) sendMessage("Bad driver Y");
+	if (!st3.init(32, 1, 600, 0.00625, 400.0, false)) sendMessage("Bad driver Z");
 
-		// st4.moveDirectRelative(-backlashSteps, 400);
-		// delay(500);
+	// Enable steppers.
+	pinMode(PIN_STP_EN1, OUTPUT);
+	digitalWrite(PIN_STP_EN1, LOW);
 
-		// for (int i = 0; i < 10; ++i) {
-		// 	st4.moveDirectRelative(-6, 400);
-		// 	delay(500);
-		// }
-		
-		// st4.moveRelative(27, 0, 0, 100);
-		// while (st4.updateStepper());
+	// Enable laser.
+	pinMode(PIN_LASER_PWM, OUTPUT);
+	digitalWrite(PIN_LASER_PWM, LOW);
+}
 
-		// delay(500);
-
-		// st4.moveRelative(267, 0, 0, 100);
-		// while (st4.updateStepper());
-
-		// delay(500);
-		
-		// st4.moveRelative(-10000, 0, 0, 100);
-		// while (st4.updateStepper());
-
-		// delay(1000);
-
-		
-		// st4.moveRelative(-1000, 0, 0, 100);
-		// while (st4.updateStepper());
-
-		// st4.moveRelative(1000, 0, 0, 30);
-		// while (st1.updateStepper());
-	}
-
+//--------------------------------------------------------------------------------
+// Loop.
+//--------------------------------------------------------------------------------
+void loop() {
 	// Comms mode.
 	sendMessage("Controller started");
 	while (1) {
 		updatePacketInput();
 	}
 
+	char buff[256];
+
 	// Manual mode.
 	while (1) {
 		int b = Serial.read();
 
+		if (b == 'l') {
+			st1.currentStep = 0;
+			Serial.println("Zeroed step counter");
+		}
+
+		if (b == 'i') {
+			sprintf(buff, "X:%ld  Y:%ld  Z:%ld\r\n", st1.currentStep, st2.currentStep, st3.currentStep);
+			Serial.print(buff);
+		}
+
+		if (b == '0') {
+			st1.setMicrosteps(0);
+			sprintf(buff, "Microsteps: 0 (%d)\r\n", st1.getMicrostepCount());
+			Serial.print(buff);
+		} else if (b == '9') {
+			st1.setMicrosteps(32);
+			sprintf(buff, "Microsteps: 32 (%d)\r\n", st1.getMicrostepCount());
+			Serial.print(buff);
+		}
+
+		if (b == '1') {
+			st1.moveDirectRelative(-1, 400);
+			sprintf(buff, "Current step: %ld (%d) %d\r\n", st1.currentStep, st1.getMicrostepCount(), digitalRead(st1.limitPin));
+			Serial.print(buff);
+		} else if (b == '2') {
+			st1.moveDirectRelative(1, 400);
+			sprintf(buff, "Current step: %ld (%d) %d\r\n", st1.currentStep, st1.getMicrostepCount(), digitalRead(st1.limitPin));
+			Serial.print(buff);
+		}
+
 		if (b == 'q') {
-			st1.moveRelative(10000, 0, 0, 480);
+			st1.moveRelative(1000, 100);
 			while (st1.updateStepper());
 		} else if (b == 'w') {
-			st1.moveRelative(-10000, 0, 0, 480);
+			st1.moveRelative(-1000, 100);
 			while (st1.updateStepper());
 		}
 
 		if (b == 'a') {
-			st2.moveRelative(3000, 0, 0, 100);
+			st2.moveRelative(1000, 100);
 			while (st2.updateStepper());
 		} else if (b == 's') {
-			st2.moveRelative(-3000, 0, 0, 100);
+			st2.moveRelative(-1000, 100);
 			while (st2.updateStepper());
 		}
 
 		if (b == 'z') {
-			st3.moveRelative(1000, 0, 0, 30);
+			st3.moveRelative(1000, 30);
 			while (st3.updateStepper());
 		} else if (b == 'x') {
-			st3.moveRelative(-1000, 0, 0, 30);
+			st3.moveRelative(-1000, 30);
 			while (st3.updateStepper());
 		}
 
 		if (b == 'h') {
-			st1.home(50, 100, false, 0, 0, 20000);
-			st2.home(50, 100, true, 15000, 0, 15000);
-			st3.home(50, 30, true, 24000, 0, 24000);
-
-			st1.moveTo(10000, 0, 0, 200);
-			st2.moveTo(7500, 0, 0, 100);
-			st3.moveTo(1000, 0, 0, 50);
-
-			bool s1 = true;
-			bool s2 = true;
-			bool s3 = true;
-
-			while (s1 || s2 || s3) {
-				s1 = st1.updateStepper();
-				s2 = st2.updateStepper();
-				s3 = st3.updateStepper();
-			}
-
+			Serial.println("Homing...");
+			homing();
 			Serial.println("Done all homing");
 		}
 	}
