@@ -214,6 +214,8 @@ void abStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	// char buff[256];
 	// sprintf(buff, "\r\nMove to: %ld -> %ld (%.2f mm/s) (%.2f us)\r\n", currentStep, StepTarget, MaxVelocity, maxTime);
 	// Serial.print(buff);
+
+	stepTarget = StepTarget;
 	
 	int32_t tSteps = StepTarget - currentStep;
 
@@ -240,8 +242,6 @@ void abStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	float moveSteps = accelS * stepsPerMm;
 	int32_t totalAccelSteps = (int32_t)moveSteps;
 	int32_t origAccelSteps = totalAccelSteps;
-
-	stepTarget = StepTarget;
 
 	// NOTE: If there are not enough steps to accel to max, then accel as far as we can.
 	int32_t absTotalSteps = abs(totalSteps);

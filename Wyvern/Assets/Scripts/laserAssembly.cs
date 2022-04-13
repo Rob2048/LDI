@@ -69,7 +69,6 @@ public class laserAssembly : MonoBehaviour
 		_Project(ls.position, ls.forward, true, out centerRay, Color.green);
 
 		Debug.DrawLine(centerRay.origin, centerRay.origin - centerRay.direction * laserVirtualProjLength, Color.yellow);
-
 		
 		DrawViewpointFrustum();
 	}

@@ -97,6 +97,8 @@ public class uiImageViewer : VisualElement {
 		img = new Image();
 		img.image = _img;
 		img.style.position = Position.Absolute;
+		img.scaleMode = ScaleMode.StretchToFill;
+		img.uv = new Rect(0, 0.0f, 1, -1.0f);
 		this.Add(img);
 
 		modelTest = new uiModelTest();
@@ -199,7 +201,6 @@ public class uiPanel : VisualElement {
 		this.style.backgroundColor = new StyleColor(new Color(0.2196078f, 0.2196078f, 0.2196078f));
 
 		uiCore.SetPadding(this, 0);
-		
 
 		_titleContainer = new VisualElement();
 		_titleContainer.AddToClassList("panel-title-container");

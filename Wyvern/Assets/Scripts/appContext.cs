@@ -6,6 +6,8 @@ using Debug = UnityEngine.Debug;
 public class AppContext {
 
 	public Figure figure;
+	public JobManager jobManager;
+	public ImageData testBenchImage;
 
 	public AppContext() {
 		figure = new Figure();

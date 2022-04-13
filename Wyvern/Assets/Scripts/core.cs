@@ -54,8 +54,6 @@ public class core : MonoBehaviour {
 
 	private TextRenderer _textRenderer;
 
-	private ImageData _diffusedImg;
-
 	public Material BasicMaterial;
 	public Material BasicWireMaterial;
 	public Material BasicUnlitMaterial;
@@ -96,41 +94,95 @@ public class core : MonoBehaviour {
 		float z = _jobManager.controller._lastAxisPos[2];
 		float scaleMm = 0.5f;
 
-		// Best focus: 14.25
-		// Slightly out of focus to get bigger spot. 19.25mm
+		// Z at 0mm is 170mm above target.
+		// Focus at 165.
+
+		// 250us at 165mm
 
 		List<JobTask> taskList = new List<JobTask>();
 
-		// Test pattern: 400 X 100 @ 50um = 20mm X 5mm
+		// taskList.Add(new JobTaskSimpleMove(0, -25, 200));
+		// taskList.Add(new JobTaskSimpleMove(1, 25, 200));
 
-		// Test ZDepth and burn time.
-		// Burn time: 150 - 350
-		// ZDepth: 10mm to 20mm
-		// 10, 15, 20,
+		// taskList.Add(new JobTaskGalvoMove(40, 40));
+
+		// for (int iY = 0; iY < 40; ++iY) {
+		// 	for (int iX = 0; iX < 40; ++iX) {
+		// 		taskList.Add(new JobTaskGalvoMove(iX, iY));
+		// 		taskList.Add(new JobTaskDelay(100));
+		// 	}
+		// }
+
+		float imgX = -25;
+		float imgY = 25;
+		float imgZ = 0;
+		
+		taskList.Add(new JobTaskSimpleMove(0, imgX, 200));
+		taskList.Add(new JobTaskSimpleMove(1, imgY, 200));
+		taskList.Add(new JobTaskSimpleMove(2, imgZ, 400));
+		// _jobManager.AppendTaskImageHalftoneGalvo(taskList, appContext.testBenchImage.data, appContext.testBenchImage.width, appContext.testBenchImage.height, 0.1f);
+		_jobManager.AppendTaskImageGalvo(taskList, appContext.testBenchImage.data, appContext.testBenchImage.width, appContext.testBenchImage.height, 0.05f, 150);
 
 		//-----------------------------------------------------------------
 		// Test grid.
 		//-----------------------------------------------------------------
-		// float pointSpacing = 0.200f;
-		// float blockSpacing = 2.0f;
+		// float pointSpacing = 0.2f;
+		// float blockSpacing = 1.0f;
+
+		// // Initial position for 2cm target.
+		// float blockOffsetX = -21; // 21
+		// float blockOffsetY = 2;
+
+		// int laserOnTimeUs;
+
+		// taskList.Add(new JobTaskGalvoMove(20, 20));
+
+		// for (int iZ = 0; iZ < 20; ++iZ) {
+		// 	taskList.Add(new JobTaskSimpleMove(2, 70 + iZ, 400)); // 240 to 260
+		// 	float oX = blockOffsetX + iZ * blockSpacing;
+
+		// 	for (int iB = 0; iB < 20; ++iB) {
+		// 		laserOnTimeUs = 150 + iB * 10; // 150 to 350
+		// 		float oY = blockOffsetY + iB * blockSpacing;
+
+		// 		for (int iY = 0; iY < 4; ++iY) {
+		// 			taskList.Add(new JobTaskSimpleMove(1, oY + iY * pointSpacing, 400));
+
+		// 			for (int iX = 0; iX < 4; ++iX) {
+		// 				taskList.Add(new JobTaskSimpleMove(0, oX + iX * pointSpacing, 400));
+		// 				taskList.Add(new JobTaskStartLaser(1, laserOnTimeUs, 10000));
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		//-----------------------------------------------------------------
+		// Test grid.
+		//-----------------------------------------------------------------
+		// Test ZDepth and burn time.
+		// Burn time: 150 - 350
+		// ZDepth: -10mm to +10mm
+
+		// float pointSpacing = 0.2f;
+		// float blockSpacing = 1.0f;
 
 		// float blockOffsetX = x;
 		// float blockOffsetY = y;
 
-		// int laserOnTimeUs = 200;
+		// int laserOnTimeUs;
 
-		// for (int iZ = 0; iZ < 10; ++iZ) {
-		// 	taskList.Add(new JobTaskSimpleMove(2, 10 + iZ, 400));
+		// for (int iZ = 0; iZ < 20; ++iZ) {
+		// 	taskList.Add(new JobTaskSimpleMove(2, -20 + iZ, 400));
 		// 	blockOffsetX = x + iZ * blockSpacing;
 
 		// 	for (int iB = 0; iB < 20; ++iB) {
 		// 		laserOnTimeUs = 150 + iB * 10;
 		// 		blockOffsetY = y + iB * blockSpacing;
 
-		// 		for (int iY = 0; iY < 5; ++iY) {
+		// 		for (int iY = 0; iY < 4; ++iY) {
 		// 			taskList.Add(new JobTaskSimpleMove(1, blockOffsetY + iY * pointSpacing, 400));
 
-		// 			for (int iX = 0; iX < 5; ++iX) {
+		// 			for (int iX = 0; iX < 4; ++iX) {
 		// 				taskList.Add(new JobTaskSimpleMove(0, blockOffsetX + iX * pointSpacing, 400));
 		// 				taskList.Add(new JobTaskStartLaser(1, laserOnTimeUs, 10000));
 		// 			}
@@ -166,34 +218,26 @@ public class core : MonoBehaviour {
 		// }
 
 		//-----------------------------------------------------------------
-		// Burn time test bar.
+		// Burn image diffuse raster.
 		//-----------------------------------------------------------------
-		// 100 to 350
-		// int barPosY = 240; // 80 per bar
-		// for (int i = 0; i < 80; ++i) {
-		// 	taskList.Add(new JobTaskSimpleMove(0, x, 100));
-		// 	taskList.Add(new JobTaskSimpleMove(1, y + (barPosY + i) * scaleMm, 200));
-		// 	taskList.Add(new JobTaskIncrementalLine(50, 40, 100, 5, 200, 2000, 0.025f));
-		// }
+		// float imgX = x;
+		// float imgY = y;
+		// float imgZ = -5; // 165mm.
+		// _jobManager.AppendTaskImageRaster(taskList, appContext.testBenchImage.data, imgX, imgY, imgZ, appContext.testBenchImage.width, appContext.testBenchImage.height, 0.050f, 200, 4000, 400, 0);
 
 		//-----------------------------------------------------------------
-		// Burn image.
+		// Burn image halftone raster.
 		//-----------------------------------------------------------------
-		float imgX = 56;
-		float imgY = 35;
-		_jobManager.AppendTaskImageRaster(taskList, _diffusedImg.data, imgX, imgY, 12, _diffusedImg.width, _diffusedImg.height, 0.050f, 150, 4000, 400, 0);
-
-		// Texture sheet small test.
-		// Y at 12 180
-		// M at 12 160
-		// C at 12 160
-		// B at 12 150
+		// float imgX = x;
+		// float imgY = y;
+		// float imgZ = -5; // 165mm.
+		// _jobManager.AppendTaskImageHalftoneRaster(taskList, appContext.testBenchImage.data, imgX, imgY, imgZ, appContext.testBenchImage.width, appContext.testBenchImage.height, 0.05f, 4000, 400, 0);
 
 		//-----------------------------------------------------------------
 		// Reset position to starting.
 		//-----------------------------------------------------------------
-		taskList.Add(new JobTaskSimpleMove(0, x, 200));
-		taskList.Add(new JobTaskSimpleMove(1, y, 200));
+		// taskList.Add(new JobTaskSimpleMove(0, x, 200));
+		// taskList.Add(new JobTaskSimpleMove(1, y, 200));
 
 		_jobManager.SetTaskList(taskList);
 	}
@@ -242,9 +286,6 @@ public class core : MonoBehaviour {
 	private ComputeBuffer candidateMetaBuffer;
 	private float[] candidateMetaRaw = new float[7 * 1024 * 1024];
 
-	private Texture2D gSourceImg;
-	private Texture2D gPdDiffusionTex;
-
 	void Awake() {
 		core.singleton = this;
 		appContext = new AppContext();
@@ -266,35 +307,28 @@ public class core : MonoBehaviour {
 		// gSourceImg = LoadImage("content/gradient.png");
 		// gSourceImg = LoadImage("content/cmyk_test/c.png");
 		//gSourceImg = LoadImage("content/test_pattern.png");
-		gSourceImg = LoadImage("content/drag_rawr/k.png");
+		// gSourceImg = LoadImage("content/drag_rawr/k.png");
 		// gSourceImg = LoadImage("content/drag_2cm/b.png");
 		//gSourceImg = LoadImage("content/drag/b.png");
 		//  gSourceImg = LoadImage("content/chars/toon.png");
 		//gSourceImg = LoadImage("content/chars/disc.png");
-
-		gPdDiffusionTex = new Texture2D(gSourceImg.width, gSourceImg.height, TextureFormat.RGB24, false, false);
-		gPdDiffusionTex.filterMode = FilterMode.Point;
+		// gSourceImg = LoadImage("content/char_render_sat_smaller.png");
+		// _diffusedImg = _Dither(gSourceImg, gSourceImg.width, gSourceImg.height);
 
 		_diffuser = new Diffuser(this);
+		
 		_ClearCoverageMap();
-
-		// _DiffusionPerceptualTest();
-		// _Diffuse2dImage();
 		// _PrimeMesh();
 
 		_jobManager = new JobManager();
+		appContext.jobManager = _jobManager;
 		_jobManager.Init();
-		
-		// for (int i = 0; i < 6; ++i) {
-		// 	float y = i * 35;
-		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/c.png"), new Vector3(0, y, 0));
-		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/m.png"), new Vector3(0, y, 15));
-		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/y.png"), new Vector3(0, y, 30));
-		// 	_diffuser.AddTexture(LoadImage("content/drag_rawr/k.png"), new Vector3(0, y, 45));
-		// }
-		// _diffuser.Process();
-		// _diffuser.DrawDebug();
 
+
+	}
+
+	private void _LoadModel() {
+		
 		//----------------------------------------------------------------------------------------------------------------------------
 		// Load mesh resources.
 		//----------------------------------------------------------------------------------------------------------------------------
@@ -798,9 +832,45 @@ public class core : MonoBehaviour {
 		return channels;
 	}
 
-	public Texture2D Diffuse2dImage(string FilePath) {
-		Debug.Log("Load 2D image for diffusion");
+	public Texture2D ImageDataToTexture(ImageData Data) {
+		Texture2D result = new Texture2D(Data.width, Data.height, TextureFormat.RGB24, false, false);
+		result.filterMode = FilterMode.Point;
+		Color32[] tempCols = new Color32[Data.data.Length];
 
+		for (int i = 0; i < Data.data.Length; ++i) {
+			byte val = (byte)(Data.data[i] * 255.0f);
+			tempCols[i].r = val;
+			tempCols[i].g = val;
+			tempCols[i].b = val;
+		}
+
+		result.SetPixels32(tempCols);
+		result.Apply(false);
+
+		return result;
+	}
+
+	public ImageData Load2dImageCMYK(string FilePath, int CmykId) {
+		int cmykWidth = 0;
+		int cmykHeight = 0;
+		byte[][] cmykChannels = _SRGBFileToCMYKChannels(FilePath, out cmykWidth, out cmykHeight);
+		ImageData[] channels = new ImageData[4];
+		
+		for (int i = 0; i < 4; ++i) {
+			channels[i] = new ImageData();
+			channels[i].width = cmykWidth;
+			channels[i].height = cmykHeight;
+			channels[i].data = new float[cmykWidth * cmykHeight];
+
+			for (int j = 0; j < cmykWidth * cmykHeight; ++j) {
+				channels[i].data[j] = cmykChannels[i][j] / 255.0f;
+			}
+		}
+
+		return channels[CmykId];
+	}
+
+	public ImageData Diffuse2dImageCMYK(string FilePath, int CmykId) {
 		int cmykWidth = 0;
 		int cmykHeight = 0;
 		// byte[][] cmykChannels = _SRGBFileToCMYKChannels("content/galvoViewTest.png", out cmykWidth, out cmykHeight);
@@ -829,60 +899,13 @@ public class core : MonoBehaviour {
 
 		Debug.Log("Total dots: " + totalBurnDots + "/" + ((cmykWidth * cmykHeight) * 4));
 
-		Texture2D sourceImage = LoadImage(FilePath);
+		// _diffusedImg = channels[3];
 
-		return sourceImage;
-
-		// Texture2D sourceImage = LoadImage("content/char_render_sat.png");
-		// Texture2D sourceImage = LoadImage("content/gradient.png");
-		// Texture2D sourceImage = LoadImage("content/colorchart_disc_grid_1_channel.png");
-		// Texture2D sourceImage = LoadImage("content/cmyk_test/m.png");
-		// Texture2D sourceImage = LoadImage("content/drag_rawr/k.png");
-		// Texture2D sourceImage = LoadImage("content/drag_rawr/lorg_k.png");
-		// Texture2D sourceImage = LoadImage("content/drag_rawr/smol_c.png");
-		// Texture2D sourceImage = LoadImage("content/drag_2cm/b.png");
-		// Texture2D sourceImage = LoadImage("content/drag/b.png");
-		// Texture2D sourceImage = LoadImage("content/chars/toon.png");
-		// Texture2D sourceImage = LoadImage("content/chars/disc.png");
-
-		// _diffusedImg = _Dither(sourceImage, sourceImage.width, sourceImage.height);
-		// _diffusedImg = _Dither(imgCmyk);
-		
-		_diffusedImg = channels[3];
-
-		// Apply image to preview canvas.
-		int pWidth = _diffusedImg.width;
-		int pHeight = _diffusedImg.height;
-		Color32[] tempCols = new Color32[pWidth * pHeight];
-		Texture2D canvas = new Texture2D(pWidth, pHeight, TextureFormat.RGB24, false, false);
-		canvas.filterMode = FilterMode.Point;
-		// uiCanvas.texture = _canvas;
-		// uiCanvas.rectTransform.sizeDelta = new Vector2(pWidth, pHeight);
-		
-		int maxX = Mathf.Min(pWidth, _diffusedImg.width);
-		int maxY = Mathf.Min(pHeight, _diffusedImg.height);
-
-		for (int iY = 0; iY < maxY; ++iY) {
-			for (int iX = 0; iX < maxX; ++iX) {
-				int sIdx = iY * _diffusedImg.width + iX;
-				int idx = iY * pWidth + iX;
-
-				byte lumByte = (byte)(Mathf.Clamp01(_diffusedImg.data[sIdx]) * 255.0f);
-
-				tempCols[idx].r = lumByte;
-				tempCols[idx].g = lumByte;
-				tempCols[idx].b = lumByte;
-			}
-		}
-		
-		canvas.SetPixels32(tempCols);
-		canvas.Apply(false);
-
-		return canvas;
+		return channels[CmykId];
 	}
 
 	private void _DiffusionPerceptualTest() {
-		Texture2D sourceImg = gSourceImg;
+		Texture2D sourceImg = null;// core.appContext.testBenchImage;
 
 		Debug.Log("Img: " + sourceImg.width + " " + sourceImg.height);
 
@@ -2200,110 +2223,92 @@ public class core : MonoBehaviour {
 
 		// NOTE: Only if we have primed mesh.
 		// _ScannerViewHit(false);
+		// _SurfelTestUpdate();
+		// _ProjectionTestUpdate();
+	}
 
-		// if (_actualFactor != TargetFactor || _actualSpread != TargetSpread | _actualContrast != TargetContrast || _actualBrightness != TargetBrightness) {
-		// 	_actualFactor = TargetFactor;
-		// 	_actualSpread = TargetSpread;
-		// 	_actualContrast = TargetContrast;
-		// 	_actualBrightness = TargetBrightness;
+	private void _SurfelTestUpdate() {
+		// Projector view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+		Matrix4x4 projVP = realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix);
 
-		// 	//_DiffusePD(gSourceImg, gPdDiffusionTex, _actualFactor, _actualSpread);
-		// 	_DiffuseDBS(gSourceImg, gPdDiffusionTex, _actualFactor, _actualSpread);
-		// 	DiffuserView3.GetComponent<MeshRenderer>().material.SetTexture("_MainTex", gPdDiffusionTex);
-		// 	DiffuserView3.transform.localScale = new Vector3(gPdDiffusionTex.width / 200.0f, 1.0f, gPdDiffusionTex.height / 200.0f);
-		// }
+		GameObject previewModel = _sampledMeshGob;
 
-		//----------------------------------------------------------------------------------------------------------------------------
-		// Surfel updating.
-		//----------------------------------------------------------------------------------------------------------------------------
-		{
-			// Projector view.
-			Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
-			Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
-			Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
-			Matrix4x4 projVP = realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix);
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
 
-			GameObject previewModel = _sampledMeshGob;
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
 
-			CommandBuffer cmdBuffer = new CommandBuffer();
-			cmdBuffer.name = "Render scanner view";
+		// Draw depth.
+		cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+		cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+		cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+		BasicShaderMat.SetMatrix("vpMat", projVP);
+		cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
 
-			Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
-			Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
+		Graphics.ExecuteCommandBuffer(cmdBuffer);
+		cmdBuffer.Release();
 
-			// Draw depth.
-			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
-			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
-			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
-			BasicShaderMat.SetMatrix("vpMat", projVP);
-			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
+		// NOTE: Force updates to all shader params to support hot reloading.
+		_surfelKernelIndex = SurfelVisCompute.FindKernel("CSMain");
+		SurfelVisCompute.SetInt("surfelCount", _surfelCount);
+		SurfelVisCompute.SetTexture(_surfelKernelIndex, "depthBuffer", ScannerViewDepthRt);
+		SurfelVisCompute.SetBuffer(_surfelKernelIndex, "consumed", _consumedSurfels);
+		SurfelVisCompute.SetBuffer(_surfelKernelIndex, "surfels", _surfelDataBuffer);
+		SurfelVisCompute.SetBuffer(_surfelKernelIndex, "results", _resultsBuffer);
+		SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
+		SurfelVisCompute.SetMatrix("projVP", projVP);
+		SurfelVisCompute.SetVector("projWorldPos", RayTester.transform.position);
+		SurfelVisCompute.Dispatch(_surfelKernelIndex, _surfelVisJobCount, 1, 1);
+		
+		_surfelDebugMaterial.SetBuffer("surfelData", _resultsBuffer);
+	}
 
-			Graphics.ExecuteCommandBuffer(cmdBuffer);
-			cmdBuffer.Release();
+	private void _ProjectionTestUpdate() {
+		// GameObject previewModel = appContext.figure.previewGob;
+		GameObject previewModel = _sampledMeshGob;
 
-			// NOTE: Force updates to all shader params to support hot reloading.
-			_surfelKernelIndex = SurfelVisCompute.FindKernel("CSMain");
-			SurfelVisCompute.SetInt("surfelCount", _surfelCount);
-			SurfelVisCompute.SetTexture(_surfelKernelIndex, "depthBuffer", ScannerViewDepthRt);
-			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "consumed", _consumedSurfels);
-			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "surfels", _surfelDataBuffer);
-			SurfelVisCompute.SetBuffer(_surfelKernelIndex, "results", _resultsBuffer);
-			SurfelVisCompute.SetMatrix("modelMat", figureMatrix);
-			SurfelVisCompute.SetMatrix("projVP", projVP);
-			SurfelVisCompute.SetVector("projWorldPos", RayTester.transform.position);
-			SurfelVisCompute.Dispatch(_surfelKernelIndex, _surfelVisJobCount, 1, 1);
-			
-			_surfelDebugMaterial.SetBuffer("surfelData", _resultsBuffer);
-		}
+		CommandBuffer cmdBuffer = new CommandBuffer();
+		cmdBuffer.name = "Render scanner view";
 
-		return;
+		// Get galvo view.
+		Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
+		Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
+		Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
 
-		//----------------------------------------------------------------------------------------------------------------------------
-		// Projection test updating.
-		//----------------------------------------------------------------------------------------------------------------------------
-		{
-			// GameObject previewModel = appContext.figure.previewGob;
-			GameObject previewModel = _sampledMeshGob;
+		Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
+		Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
 
-			CommandBuffer cmdBuffer = new CommandBuffer();
-			cmdBuffer.name = "Render scanner view";
+		// Draw depth.
+		cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
+		cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+		cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+		BasicShaderMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+		cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
 
-			// Get galvo view.
-			Matrix4x4 scaleMatrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, 1, -1));
-			Matrix4x4 projMat = Matrix4x4.Perspective(14.25f, 1.0f, 1.0f, 40.0f);
-			Matrix4x4 realProj = GL.GetGPUProjectionMatrix(projMat, true);
+		// Draw pixel candidate buffer.
+		cmdBuffer.SetRenderTarget(ScannerViewRt);
+		cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
+		cmdBuffer.ClearRenderTarget(true, true, new Color(1.0f, 0.0f, 1.0f, 1.0f), 1.0f);
+		CandidatesSoftMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+		CandidatesSoftMat.SetVector("camWorldPos", RayTester.transform.position);
+		CandidatesSoftMat.SetTexture("depthPreTex", ScannerViewDepthRt);
+		cmdBuffer.DrawMesh(figureMesh, figureMatrix, CandidatesSoftMat);
 
-			Mesh figureMesh = previewModel.GetComponent<MeshFilter>().mesh;
-			Matrix4x4 figureMatrix = previewModel.transform.localToWorldMatrix;
-
-			// Draw depth.
-			cmdBuffer.SetRenderTarget(ScannerViewDepthRt);
-			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
-			cmdBuffer.ClearRenderTarget(true, true, new Color(0.0f, 0.0f, 1.0f, 1.0f), 1.0f);
-			BasicShaderMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
-			cmdBuffer.DrawMesh(figureMesh, figureMatrix, BasicShaderMat);
-
-			// Draw pixel candidate buffer.
-			cmdBuffer.SetRenderTarget(ScannerViewRt);
-			cmdBuffer.SetViewport(new Rect(0, 0, 1024, 1024));
-			cmdBuffer.ClearRenderTarget(true, true, new Color(1.0f, 0.0f, 1.0f, 1.0f), 1.0f);
-			CandidatesSoftMat.SetMatrix("vpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
-			CandidatesSoftMat.SetVector("camWorldPos", RayTester.transform.position);
-			CandidatesSoftMat.SetTexture("depthPreTex", ScannerViewDepthRt);
-			cmdBuffer.DrawMesh(figureMesh, figureMatrix, CandidatesSoftMat);
-
-			// Execute commands.
-			Graphics.ExecuteCommandBuffer(cmdBuffer);
-			cmdBuffer.Release();
-			
-			// Update figure projection test material.
-			Material ptMaterial = previewModel.GetComponent<MeshRenderer>().material;
-			ptMaterial.SetTexture("depthPreTex", ScannerViewDepthRt);
-			ptMaterial.SetTexture("candidateTex", ScannerViewRt);
-			ptMaterial.SetMatrix("projVpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
-			ptMaterial.SetMatrix("projPInvMat", realProj.inverse);
-			ptMaterial.SetVector("camWorldPos", RayTester.transform.position);
-		}
+		// Execute commands.
+		Graphics.ExecuteCommandBuffer(cmdBuffer);
+		cmdBuffer.Release();
+		
+		// Update figure projection test material.
+		Material ptMaterial = previewModel.GetComponent<MeshRenderer>().material;
+		ptMaterial.SetTexture("depthPreTex", ScannerViewDepthRt);
+		ptMaterial.SetTexture("candidateTex", ScannerViewRt);
+		ptMaterial.SetMatrix("projVpMat", realProj * (scaleMatrix * RayTester.transform.worldToLocalMatrix));
+		ptMaterial.SetMatrix("projPInvMat", realProj.inverse);
+		ptMaterial.SetVector("camWorldPos", RayTester.transform.position);
 	}
 
 	public void RenderFromScannerView(bool Capture) {

@@ -1518,6 +1518,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: uh11cm (1)
       objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 11dacfcebf2520b4ca052f524972485b,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 11dacfcebf2520b4ca052f524972485b, type: 3}
 --- !u!1 &270361999
@@ -2918,7 +2923,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &596601287
 Transform:
   m_ObjectHideFlags: 0

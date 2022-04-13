@@ -58,6 +58,10 @@ public class uiCore : MonoBehaviour {
 	private VisualElement _scanPanel;
 	private VisualElement _platformPanel;
 
+	private Label _axisXposition;
+	private Label _axisYposition;
+	private Label _axisZposition;
+
 	private int _mouseCapButton = -1;
 	private Vector2 _mouseCapStart;
 	private Vector3 _camData = new Vector3(0, 0, 10);
@@ -120,9 +124,7 @@ public class uiCore : MonoBehaviour {
 		wsBtnPlatform.clicked += () => {
 			wsBtnModel.RemoveFromClassList("selected");
 			wsBtnTestBench.RemoveFromClassList("selected");
-
 			wsBtnPlatform.AddToClassList("selected");
-
 			_modelPanel.style.display = DisplayStyle.None;
 			_testBenchPanel.style.display = DisplayStyle.None;
 			_platformPanel.style.display = DisplayStyle.Flex;
@@ -178,110 +180,156 @@ public class uiCore : MonoBehaviour {
 
 		//------------------------------------------------------------------------------------------------------------------------
 		// Platform panel.
-		//------------------------------------------------------------------------------------------------------------------------
-		uiPanel motionPanel = new uiPanel("Platform");
-		_platformPanel = motionPanel;
-		motionPanel.style.display = DisplayStyle.None;
-		motionPanel.style.width = 300;
-		motionPanel.style.minWidth = 300;
-		container.Add(motionPanel);
+		//-----------------------------------------------------------------------------------------------------------------------
+		{
+			uiPanel motionPanel = new uiPanel("Platform");
+			_platformPanel = motionPanel;
+			motionPanel.style.display = DisplayStyle.None;
+			motionPanel.style.width = 300;
+			motionPanel.style.minWidth = 300;
+			container.Add(motionPanel);
 
-		uiPanelCategory connectionCat = new uiPanelCategory("Connection");
-		motionPanel.Add(connectionCat);
+			// uiPanelCategory connectionCat = new uiPanelCategory("Connection");
+			// motionPanel.Add(connectionCat);
 
-		uiCore.createButton(connectionCat.Content, "Connect", () => {
-		});
+			// uiCore.createButton(connectionCat.Content, "Connect", () => {
+			// });
 
-		uiPanelCategory positionCat = new uiPanelCategory("Position");
-		motionPanel.Add(positionCat);
+			uiPanelCategory positionCat = new uiPanelCategory("Position");
+			motionPanel.Add(positionCat);
 
-		VisualElement axisContainer = new VisualElement();
-		axisContainer.style.flexDirection = FlexDirection.Row;
-		axisContainer.style.justifyContent = Justify.SpaceBetween;
-		positionCat.Add(axisContainer);
+			VisualElement axisContainer = new VisualElement();
+			axisContainer.style.flexDirection = FlexDirection.Row;
+			axisContainer.style.justifyContent = Justify.SpaceBetween;
+			positionCat.Add(axisContainer);
 
-		Label axisPositionX = new Label("X: 0.00");
-		axisPositionX.AddToClassList("motion-label-x");
-		axisContainer.Add(axisPositionX);
+			_axisXposition = new Label("X: 0.00");
+			_axisXposition.AddToClassList("motion-label-x");
+			axisContainer.Add(_axisXposition);
 
-		Label axisPositionY = new Label("Y: 0.00");
-		axisPositionY.AddToClassList("motion-label-y");
-		axisContainer.Add(axisPositionY);
+			_axisYposition = new Label("Y: 0.00");
+			_axisYposition.AddToClassList("motion-label-y");
+			axisContainer.Add(_axisYposition);
 
-		Label axisPositionZ = new Label("Z: 0.00");
-		axisPositionZ.AddToClassList("motion-label-z");
-		axisContainer.Add(axisPositionZ);
+			_axisZposition = new Label("Z: 0.00");
+			_axisZposition.AddToClassList("motion-label-z");
+			axisContainer.Add(_axisZposition);
 
-		Button findHomeBtn = new Button();
-		findHomeBtn.text = "Find home";
-		positionCat.Add(findHomeBtn);
+			Button findHomeBtn = new Button();
+			findHomeBtn.text = "Find home";
+			positionCat.Add(findHomeBtn);
+			findHomeBtn.clicked += () => {
+				core.appContext.jobManager.StartTaskZero();
+			};
 
-		Button goHomeBtn = new Button();
-		goHomeBtn.text = "Go home";
-		positionCat.Add(goHomeBtn);
+			Button goHomeBtn = new Button();
+			goHomeBtn.text = "Go home";
+			positionCat.Add(goHomeBtn);
+			goHomeBtn.clicked += () => {
+				core.appContext.jobManager.StartTaskGotoZero();
+			};
 
-		TextField distText = new TextField("Distance");
-		distText.value = "1";
-		positionCat.Add(distText);
 
-		VisualElement axisNegContainer = new VisualElement();
-		axisNegContainer.style.flexDirection = FlexDirection.Row;
-		axisNegContainer.style.justifyContent = Justify.SpaceBetween;
-		positionCat.Add(axisNegContainer);
+			TextField distText = new TextField("Distance");
+			distText.value = "1";
+			positionCat.Add(distText);
 
-		Button moveNegX = new Button();
-		moveNegX.AddToClassList("axis-button");
-		moveNegX.text = "-X";
-		axisNegContainer.Add(moveNegX);
+			VisualElement axisNegContainer = new VisualElement();
+			axisNegContainer.style.flexDirection = FlexDirection.Row;
+			axisNegContainer.style.justifyContent = Justify.SpaceBetween;
+			positionCat.Add(axisNegContainer);
 
-		Button moveNegY = new Button();
-		moveNegY.AddToClassList("axis-button");
-		moveNegY.text = "-Y";
-		axisNegContainer.Add(moveNegY);
+			Button moveNegX = new Button();
+			moveNegX.AddToClassList("axis-button");
+			moveNegX.text = "-X";
+			axisNegContainer.Add(moveNegX);
+			moveNegX.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(0, -dist, 300);
+			};
 
-		Button moveNegZ = new Button();
-		moveNegZ.AddToClassList("axis-button");
-		moveNegZ.text = "-Z";
-		axisNegContainer.Add(moveNegZ);
+			Button moveNegY = new Button();
+			moveNegY.AddToClassList("axis-button");
+			moveNegY.text = "-Y";
+			axisNegContainer.Add(moveNegY);
+			moveNegY.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(1, -dist, 300);
+			};
 
-		VisualElement axisPosContainer = new VisualElement();
-		axisPosContainer.style.flexDirection = FlexDirection.Row;
-		axisPosContainer.style.justifyContent = Justify.SpaceBetween;
-		positionCat.Add(axisPosContainer);
+			Button moveNegZ = new Button();
+			moveNegZ.AddToClassList("axis-button");
+			moveNegZ.text = "-Z";
+			axisNegContainer.Add(moveNegZ);
+			moveNegZ.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(2, -dist, 300);
+			};
 
-		Button movePosX = new Button();
-		movePosX.AddToClassList("axis-button");
-		movePosX.text = "+X";
-		axisPosContainer.Add(movePosX);
+			VisualElement axisPosContainer = new VisualElement();
+			axisPosContainer.style.flexDirection = FlexDirection.Row;
+			axisPosContainer.style.justifyContent = Justify.SpaceBetween;
+			positionCat.Add(axisPosContainer);
 
-		Button movePosY = new Button();
-		movePosY.AddToClassList("axis-button");
-		movePosY.text = "+Y";
-		axisPosContainer.Add(movePosY);
+			Button movePosX = new Button();
+			movePosX.AddToClassList("axis-button");
+			movePosX.text = "+X";
+			axisPosContainer.Add(movePosX);
+			movePosX.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(0, dist, 300);
+			};
 
-		Button movePosZ = new Button();
-		movePosZ.AddToClassList("axis-button");
-		movePosZ.text = "+Z";
-		axisPosContainer.Add(movePosZ);
+			Button movePosY = new Button();
+			movePosY.AddToClassList("axis-button");
+			movePosY.text = "+Y";
+			axisPosContainer.Add(movePosY);
+			movePosY.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(1, dist, 300);
+			};
 
-		uiPanelCategory laserCat = new uiPanelCategory("Laser");
-		motionPanel.Add(laserCat);
-		
-		Button showLaserBtn = new Button();
-		showLaserBtn.text = "Start laser preview";
-		showLaserBtn.clicked += () => {
-			_showLaser = !_showLaser;
+			Button movePosZ = new Button();
+			movePosZ.AddToClassList("axis-button");
+			movePosZ.text = "+Z";
+			axisPosContainer.Add(movePosZ);
+			movePosZ.clicked += () => {
+				float dist = 0.0f;
+				float.TryParse(distText.text, out dist);
+				core.appContext.jobManager.StartTaskSimpleMoveRelative(2, dist, 300);
+			};
 
-			if (_showLaser) {
-				showLaserBtn.text = "Stop laser preview";
-				showLaserBtn.AddToClassList("warning-bkg");
-			} else {
-				showLaserBtn.text = "Start laser preview";
-				showLaserBtn.RemoveFromClassList("warning-bkg");
-			}
-		};
+			uiPanelCategory laserCat = new uiPanelCategory("Laser");
+			motionPanel.Add(laserCat);
+			
+			createButton(laserCat.Content, "Start laser preview", () => {
+				core.appContext.jobManager.StartTaskModulateLaser(1000, 3);
+			});
 
-		laserCat.Add(showLaserBtn);
+			createButton(laserCat.Content, "Stop laser preview", () => {
+				core.appContext.jobManager.StartTaskStopLaser();
+			});
+
+			createButton(laserCat.Content, "Start galvo preview", () => {
+				core.appContext.jobManager.StartTaskGalvoPreview();
+			});
+			
+			uiPanelCategory jobCat = new uiPanelCategory("Job");
+			motionPanel.Add(jobCat);
+			
+			createButton(jobCat.Content, "Start job", () => {
+				core.singleton.uiBtnStart();
+			});
+
+			createButton(jobCat.Content, "Stop job", () => {
+				core.appContext.jobManager.CancelTask();
+			});
+		}
 		
 		//------------------------------------------------------------------------------------------------------------------------
 		// Model inspect panel.
@@ -460,7 +508,9 @@ public class uiCore : MonoBehaviour {
 				string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", "", "png", false);
 				
 				if (paths.Length == 1) {
-					Texture2D diffImg = core.singleton.Diffuse2dImage(paths[0]);
+					core.appContext.testBenchImage = core.singleton.Diffuse2dImageCMYK(paths[0], 3);
+					// core.appContext.testBenchImage = core.singleton.Load2dImageCMYK(paths[0], 3);
+					Texture2D diffImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImage);
 					viewerPanel.SetImage(diffImg);
 				}
 			});
@@ -484,6 +534,7 @@ public class uiCore : MonoBehaviour {
 			}
 
 			Toggle toggle = new Toggle("Show diffused");
+			
 			imageCat.Content.Add(toggle);
 
 			uiPanelCategory jobCat = new uiPanelCategory("Job");
@@ -505,6 +556,16 @@ public class uiCore : MonoBehaviour {
 			uiCore.createButton(jobCat.Content, "Start job", () => {
 				Debug.Log("Start 2D job");
 			});
+		}
+
+		// Force startup panel
+		{
+			wsBtnModel.RemoveFromClassList("selected");
+			wsBtnPlatform.RemoveFromClassList("selected");
+			wsBtnTestBench.AddToClassList("selected");
+			_modelPanel.style.display = DisplayStyle.None;
+			_testBenchPanel.style.display = DisplayStyle.Flex;
+			_platformPanel.style.display = DisplayStyle.Flex;
 		}
 	}
 
@@ -535,6 +596,10 @@ public class uiCore : MonoBehaviour {
 		}
 
 		PrimaryCamera.transform.localPosition = new Vector3(0, 0, result);
+
+		_axisXposition.text = "X: " + core.appContext.jobManager.controller._lastAxisPos[0];
+		_axisYposition.text = "Y: " + core.appContext.jobManager.controller._lastAxisPos[1];
+		_axisZposition.text = "Z: " + core.appContext.jobManager.controller._lastAxisPos[2];
 	}
 
 	private void OnWheelEvent(WheelEvent evt) {

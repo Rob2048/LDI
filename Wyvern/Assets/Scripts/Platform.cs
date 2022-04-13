@@ -21,7 +21,7 @@ public class Platform : MonoBehaviour {
 	}
 
 	void Update() {
-		// return;
+		return;
 
 		_targetTimer += Time.deltaTime;
 
@@ -44,6 +44,5 @@ public class Platform : MonoBehaviour {
 
 		Vector3 figNormWorld = workEnvelope.TransformDirection(tNormal);
 		Debug.DrawLine(workEnvelope.position, workEnvelope.position + figNormWorld, Color.magenta);
-		
 	}
 }

@@ -15,6 +15,18 @@ public class PBCommand {
 	}
 }
 
+public struct GalvoBatchCmd {
+	public float x;
+	public float y;
+	public int time;
+
+	public GalvoBatchCmd(float X, float Y, int Time) {
+		x = X;
+		y = Y;
+		time = Time;
+	}
+}
+
 public class Controller {
 	
 	public enum PBAxis {
@@ -367,7 +379,7 @@ public class Controller {
 
 	public void Connect() {
 		Debug.Log("Controller connecting.");
-		_serial = new SerialPort("\\\\.\\COM7", 921600);
+		_serial = new SerialPort("\\\\.\\COM3", 921600);
 
 		try {
 			_serial.Open();
@@ -597,6 +609,55 @@ public class Controller {
 		return _SendCommand(pkt);
 	}
 
+	public bool GalvoPreview() {
+		byte[] pkt = new byte[17];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)1); // Payload size
+		w.Write((byte)16); // Cmd ID
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
+	public bool GalvoMove(float X, float Y) {
+		byte[] pkt = new byte[17];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)9); // Payload size
+		w.Write((byte)17); // Cmd ID
+		w.Write(X);
+		w.Write(Y);
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
+	public bool GalvoBatchBurn(GalvoBatchCmd[] Cmds) {
+		byte[] pkt = new byte[4 + 1 + 4 + Cmds.Length * 10];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)(1 + 4 + Cmds.Length * 10)); // Payload size
+		w.Write((byte)18); // Cmd ID
+		w.Write((Int32)Cmds.Length);
+
+		for (int i = 0; i < Cmds.Length; ++i) {
+			w.Write(Cmds[i].x);
+			w.Write(Cmds[i].y);
+			w.Write((Int16)Cmds[i].time);
+		}
+
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
 	public bool StopLaser() {
 		byte[] pkt = new byte[17];
 
@@ -622,6 +683,29 @@ public class Controller {
 		w.Write((Int32)OnTime);
 		w.Write((Int32)OffTime);
 		w.Write((Int32)StepTime);
+
+		for (int i = 0; i < Stops.Length; ++i) {
+			w.Write(Stops[i]);
+		}
+
+		w.Write(FRAME_END);
+
+		return _SendCommand(pkt);
+	}
+
+	public bool RasterHalftoneLine(float StartX, float StopSize, int OffTime, int StepTime, UInt16[] Stops) {
+		byte[] pkt = new byte[4 + 1 + 20 + Stops.Length * 2];
+
+		BinaryWriter w = new BinaryWriter(new MemoryStream(pkt));
+
+		w.Write(FRAME_START);
+		w.Write((Int16)(1 + 20 + Stops.Length * 2)); // Payload size
+		w.Write((byte)15); // Cmd ID
+		w.Write((Int32)Stops.Length);
+		w.Write((Int32)OffTime);
+		w.Write((Int32)StepTime);
+		w.Write(StartX);
+		w.Write(StopSize);
 
 		for (int i = 0; i < Stops.Length; ++i) {
 			w.Write(Stops[i]);
