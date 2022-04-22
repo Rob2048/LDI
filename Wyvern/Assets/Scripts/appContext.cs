@@ -9,6 +9,10 @@ public class AppContext {
 	public JobManager jobManager;
 	public ImageData testBenchImage;
 
+	public Texture2D testBenchImageSrgb;
+	public ImageData[] testBenchImageCmyk;
+	public ImageData[] testBenchImageCmykDiffused;
+
 	public AppContext() {
 		figure = new Figure();
 	}

@@ -527,9 +527,11 @@ public class JobManager {
 		for (int iY = 0; iY < Height; ++iY) {
 			for (int iX = 0; iX < Width; ++iX) {
 				float value = 1.0f - Data[iY * Width + iX];
-				
+
 				if (value > 0) {
-					UInt16 onTime = (UInt16)(150.0f + (value * (300.0f - 150.0f))); // 0, 120 to 250
+					float start = 200;
+					float end = 2500;
+					UInt16 onTime = (UInt16)(start + (value * (end - start))); // 0, 120 to 250
 					
 					data.Add(new GalvoBatchCmd(offX + iX * ScaleMm, offY + iY * ScaleMm, onTime));
 

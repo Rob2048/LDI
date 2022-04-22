@@ -74,6 +74,34 @@ public class uiCore : MonoBehaviour {
 		singleton = this;
 	}
 
+	private void _UpdateTestBenchImage(uiImageViewer ImageViewer, int Index, bool Diffuse) {
+		if (Index == 0) {
+			if (core.appContext.testBenchImageSrgb != null) {
+				ImageViewer.SetImage(core.appContext.testBenchImageSrgb);
+			}
+		} else if (Index > 0 && Index <= 5) {
+			if (core.appContext.testBenchImageCmyk != null) {
+				Texture2D viewImg;
+
+				if (Diffuse) {
+					viewImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImageCmykDiffused[Index - 1]);
+				} else {
+					viewImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImageCmyk[Index - 1]);
+				}
+
+				ImageViewer.SetImage(viewImg, true);
+			}	
+		}
+
+		// if (core.appContext.testBenchImageCmyk != null) {
+		// 	Texture2D diffImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImageCmyk[combo.index]);
+		// 	viewerPanel.SetImage(diffImg);
+		// }
+
+		// Texture2D diffImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImageCmyk[0]);
+		// viewerPanel.SetImage(diffImg);
+	}
+
 	void Start() {
 		VisualElement root = GetComponent<UIDocument>().rootVisualElement;
 		root.AddToClassList("app-root");
@@ -504,19 +532,34 @@ public class uiCore : MonoBehaviour {
 			uiPanelCategory imageCat = new uiPanelCategory("Image");
 			controlsPanel.Add(imageCat);
 
+			Toggle diffuseToggle = new Toggle("Show diffused");
+			DropdownField _showDisplayChannel = new DropdownField("Display channel");
+
+			diffuseToggle.RegisterCallback<ChangeEvent<bool>>((evt) => {
+					_UpdateTestBenchImage(viewerPanel, _showDisplayChannel.index, diffuseToggle.value);
+				});
+
+
 			uiCore.createButton(imageCat.Content, "Load image", () => {
 				string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", "", "png", false);
 				
 				if (paths.Length == 1) {
-					core.appContext.testBenchImage = core.singleton.Diffuse2dImageCMYK(paths[0], 3);
-					// core.appContext.testBenchImage = core.singleton.Load2dImageCMYK(paths[0], 3);
-					Texture2D diffImg = core.singleton.ImageDataToTexture(core.appContext.testBenchImage);
-					viewerPanel.SetImage(diffImg);
+					core.appContext.testBenchImageSrgb = core.LoadImage(paths[0]);
+					core.appContext.testBenchImageCmyk = core.singleton.Load2dImageCmykMulti(paths[0]);
+
+					ImageData[] channels = new ImageData[4];
+					for (int i = 0; i < 4; ++i) {
+						channels[i] = core.singleton._Dither(core.appContext.testBenchImageCmyk[i]);
+					}
+
+					core.appContext.testBenchImageCmykDiffused = channels;
+
+					_UpdateTestBenchImage(viewerPanel, _showDisplayChannel.index, diffuseToggle.value);
 				}
 			});
 
 			{
-				DropdownField combo = new DropdownField("Display channel");
+				DropdownField combo = _showDisplayChannel;
 				List<string> choices = new List<string>();
 				choices.Add("sRGB");
 				choices.Add("C - Cyan");
@@ -527,34 +570,32 @@ public class uiCore : MonoBehaviour {
 				combo.index = 0;
 				// combo.RegisterValueChangedCallback<string>(
 				combo.RegisterCallback<ChangeEvent<string>>((evt) => {
-					Debug.Log("Combo change: " + combo.index);
+					_UpdateTestBenchImage(viewerPanel, combo.index, diffuseToggle.value);
 				});
 
 				imageCat.Content.Add(combo);
 			}
-
-			Toggle toggle = new Toggle("Show diffused");
 			
-			imageCat.Content.Add(toggle);
+			imageCat.Content.Add(diffuseToggle);
 
 			uiPanelCategory jobCat = new uiPanelCategory("Job");
 			controlsPanel.Add(jobCat);
 			
-			{
-				DropdownField combo = new DropdownField("Channel");
-				List<string> choices = new List<string>();
-				choices.Add("C - Cyan");
-				choices.Add("M - Magenta");
-				choices.Add("Y - Yellow");
-				choices.Add("K - Black");
-				combo.choices = choices;
-				combo.index = 0;
+			// {
+			// 	DropdownField combo = new DropdownField("Channel");
+			// 	List<string> choices = new List<string>();
+			// 	choices.Add("C - Cyan");
+			// 	choices.Add("M - Magenta");
+			// 	choices.Add("Y - Yellow");
+			// 	choices.Add("K - Black");
+			// 	combo.choices = choices;
+			// 	combo.index = 0;
 				
-				jobCat.Content.Add(combo);
-			}
+			// 	jobCat.Content.Add(combo);
+			// }
 
 			uiCore.createButton(jobCat.Content, "Start job", () => {
-				Debug.Log("Start 2D job");
+				core.singleton.startJob(_showDisplayChannel.index, diffuseToggle.value);
 			});
 		}
 

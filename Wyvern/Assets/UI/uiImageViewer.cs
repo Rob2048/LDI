@@ -128,9 +128,16 @@ public class uiImageViewer : VisualElement {
 		RegisterCallback<WheelEvent>(OnWheelEvent);
 	}
 
-	public void SetImage(Texture Image) {
+	public void SetImage(Texture Image, bool FlipY = false) {
 		_img = Image;
 		img.image = _img;
+		
+		if (FlipY) {
+			img.uv = new Rect(0, 0.0f, 1, -1.0f);
+		} else {
+			img.uv = new Rect(0, 0.0f, 1, 1.0f);
+		}
+
 		_UpdateImageLayout();
 	}
 

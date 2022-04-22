@@ -133,9 +133,11 @@ void galvoMoveSteps(int StepX, int StepY) {
 	}
 
 	if (maxSteps >= 1024) {
-		wait = 600;
+		wait = 50000;
+	} else if (maxSteps >= 512) {
+		wait = 3000;
 	} else if (maxSteps > 0) {
-		wait = 500;
+		wait = 800;
 	}
 
 	delayMicroseconds(wait);
@@ -152,7 +154,7 @@ int galvoGetStep(float Value) {
 // Movement value in mm from 0 to 40.
 void galvoMove(float X, float Y) {
 	int targetStepX = galvoGetStep(X);
-	int targetStepY = galvoGetStep(Y);
+	int targetStepY = galvoGetStep(40.0f - Y);
 	galvoMoveSteps(targetStepX, targetStepY);
 }
 

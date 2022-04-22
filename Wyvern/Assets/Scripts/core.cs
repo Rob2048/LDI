@@ -242,6 +242,29 @@ public class core : MonoBehaviour {
 		_jobManager.SetTaskList(taskList);
 	}
 
+	public void startJob(int Index, bool Diffuse) {
+		if (Index == 0) {
+			Debug.LogError("Can't burn SRGB image");
+			return;
+		}
+
+		if (Index > 0 && Index <= 5) {
+			if (core.appContext.testBenchImageCmyk != null) {
+				List<JobTask> taskList = new List<JobTask>();
+
+				if (Diffuse) {
+					ImageData imgData = core.appContext.testBenchImageCmykDiffused[Index - 1];
+					_jobManager.AppendTaskImageGalvo(taskList, imgData.data, imgData.width, imgData.height, 0.05f, 180);
+				} else {
+					ImageData imgData = core.appContext.testBenchImageCmyk[Index - 1];
+					_jobManager.AppendTaskImageHalftoneGalvo(taskList, imgData.data, imgData.width, imgData.height, 0.085f);
+				}
+
+				_jobManager.SetTaskList(taskList);
+			}
+		}
+	}
+
 	private float _GetMoveAmount() {
 		return float.Parse(uiTextMoveAmount.text);
 	}
@@ -848,6 +871,26 @@ public class core : MonoBehaviour {
 		result.Apply(false);
 
 		return result;
+	}
+
+	public ImageData[] Load2dImageCmykMulti(string FilePath) {
+		int cmykWidth = 0;
+		int cmykHeight = 0;
+		byte[][] cmykChannels = _SRGBFileToCMYKChannels(FilePath, out cmykWidth, out cmykHeight);
+		ImageData[] channels = new ImageData[4];
+		
+		for (int i = 0; i < 4; ++i) {
+			channels[i] = new ImageData();
+			channels[i].width = cmykWidth;
+			channels[i].height = cmykHeight;
+			channels[i].data = new float[cmykWidth * cmykHeight];
+
+			for (int j = 0; j < cmykWidth * cmykHeight; ++j) {
+				channels[i].data[j] = cmykChannels[i][j] / 255.0f;
+			}
+		}
+
+		return channels;
 	}
 
 	public ImageData Load2dImageCMYK(string FilePath, int CmykId) {
@@ -1647,7 +1690,7 @@ public class core : MonoBehaviour {
 		return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
 	}
 
-	private ImageData _Dither(ImageData Data) {
+	public ImageData _Dither(ImageData Data) {
 		ImageData result = new ImageData();
 		result.width = Data.width;
 		result.height = Data.height;
