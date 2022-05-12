@@ -429,11 +429,15 @@ public class uiCore : MonoBehaviour {
 					modelSourcePath.text = EscapeString(fileName);
 
 					MeshInfo meshInfo = ObjImporter.Load(paths[0]);
+					meshInfo.Scale(5.0f / 11.0f);
 
-					core.appContext.figure.SetMesh(meshInfo);
-					core.appContext.figure.ShowImportedMesh();
+					ModelPipeline modelPipeline = new ModelPipeline();
+					modelPipeline.Start(meshInfo);
 
-					statsLabel.text = "Vert count: " + meshInfo.vertUvs.Length;
+
+					// core.appContext.figure.SetMesh(meshInfo);
+					// core.appContext.figure.ShowImportedMesh();
+					// statsLabel.text = "Vert count: " + meshInfo.vertUvs.Length;
 				}
 			});
 			
@@ -599,14 +603,23 @@ public class uiCore : MonoBehaviour {
 			});
 		}
 
-		// Force startup panel
+		// Force startup panel: Test bench
+		// {
+		// 	wsBtnModel.RemoveFromClassList("selected");
+		// 	wsBtnPlatform.RemoveFromClassList("selected");
+		// 	wsBtnTestBench.AddToClassList("selected");
+		// 	_modelPanel.style.display = DisplayStyle.None;
+		// 	_testBenchPanel.style.display = DisplayStyle.Flex;
+		// 	_platformPanel.style.display = DisplayStyle.Flex;
+		// }
+		// Force startup panel: Model
 		{
-			wsBtnModel.RemoveFromClassList("selected");
+			wsBtnModel.AddToClassList("selected");
+			wsBtnTestBench.RemoveFromClassList("selected");
 			wsBtnPlatform.RemoveFromClassList("selected");
-			wsBtnTestBench.AddToClassList("selected");
-			_modelPanel.style.display = DisplayStyle.None;
-			_testBenchPanel.style.display = DisplayStyle.Flex;
-			_platformPanel.style.display = DisplayStyle.Flex;
+			_testBenchPanel.style.display = DisplayStyle.None;
+			_platformPanel.style.display = DisplayStyle.None;
+			_modelPanel.style.display = DisplayStyle.Flex;
 		}
 	}
 

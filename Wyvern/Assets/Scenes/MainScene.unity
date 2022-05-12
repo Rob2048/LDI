@@ -4325,6 +4325,8 @@ MonoBehaviour:
   BasicMaterial: {fileID: 2100000, guid: 921d2a916fd36f242818d12d7c63d203, type: 2}
   BasicWireMaterial: {fileID: 2100000, guid: 9804f36482d24e7498780485ad482093, type: 2}
   BasicUnlitMaterial: {fileID: 2100000, guid: 9530b2cbb571ea0408b4718af8f86dcb, type: 2}
+  BasicTextureUnlitMaterial: {fileID: 2100000, guid: a53320d85717cc148baaa1ba0051119b,
+    type: 2}
   SampledMeshMaterial: {fileID: 2100000, guid: be390b51dcb7dfa41b84903761f5a838, type: 2}
   UiLinesMateral: {fileID: 2100000, guid: 53a41febf56b13b4a96ac0248af0399e, type: 2}
   CoveragetMeshViewMat: {fileID: 2100000, guid: f63dfaba778e2474793666983ea62be7,

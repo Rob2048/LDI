@@ -57,6 +57,7 @@ public class core : MonoBehaviour {
 	public Material BasicMaterial;
 	public Material BasicWireMaterial;
 	public Material BasicUnlitMaterial;
+	public Material BasicTextureUnlitMaterial;
 	public Material SampledMeshMaterial;
 	public Material UiLinesMateral;
 	public Material CoveragetMeshViewMat;
@@ -327,17 +328,6 @@ public class core : MonoBehaviour {
 
 		_surfelCandidateBuffer = new ComputeBuffer(1024 * 1024 * 2, 4);
 
-		// gSourceImg = LoadImage("content/gradient.png");
-		// gSourceImg = LoadImage("content/cmyk_test/c.png");
-		//gSourceImg = LoadImage("content/test_pattern.png");
-		// gSourceImg = LoadImage("content/drag_rawr/k.png");
-		// gSourceImg = LoadImage("content/drag_2cm/b.png");
-		//gSourceImg = LoadImage("content/drag/b.png");
-		//  gSourceImg = LoadImage("content/chars/toon.png");
-		//gSourceImg = LoadImage("content/chars/disc.png");
-		// gSourceImg = LoadImage("content/char_render_sat_smaller.png");
-		// _diffusedImg = _Dither(gSourceImg, gSourceImg.width, gSourceImg.height);
-
 		_diffuser = new Diffuser(this);
 		
 		_ClearCoverageMap();
@@ -347,11 +337,25 @@ public class core : MonoBehaviour {
 		appContext.jobManager = _jobManager;
 		_jobManager.Init();
 
+		// SamplingTest st = new SamplingTest("content/test_pattern.png");
+		// SamplingTest st = new SamplingTest("content/render_char/k.png");
+		// SamplingTest st = new SamplingTest("content/colorchart_disc_grid_1_channel.png");
+		// SamplingTest st = new SamplingTest("content/drag_2cm/b.png");
+		SamplingTest st = new SamplingTest("content/drag_rawr/k.png");
+		// SamplingTest st = new SamplingTest("content/cmyk_test/m.png");
+		// SamplingTest st = new SamplingTest("content/chars/toon.png");
+		// SamplingTest st = new SamplingTest("content/galvoViewTest.png");
+	}
 
+	private void _TempModelLoading() {
+		MeshInfo meshInfo = ObjImporter.Load("content/fixed.obj");
+		meshInfo.Scale(5.0f / 11.0f);
+
+		ModelPipeline modelPipeline = new ModelPipeline();
+		modelPipeline.Start(meshInfo);
 	}
 
 	private void _LoadModel() {
-		
 		//----------------------------------------------------------------------------------------------------------------------------
 		// Load mesh resources.
 		//----------------------------------------------------------------------------------------------------------------------------
@@ -1677,14 +1681,14 @@ public class core : MonoBehaviour {
 	// 	Out = float3(In <= 0.0031308) ? sRGBLo : sRGBHi;
 	// }
 
-	float GammaToLinear(float In) {
+	public static float GammaToLinear(float In) {
 		float linearRGBLo = In / 12.92f;
 		float linearRGBHi = Mathf.Pow(Mathf.Max(Mathf.Abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
 
 		return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
 	}
 
-	float LinearToGamma(float In) {
+	public static float LinearToGamma(float In) {
 		float sRGBLo = In * 12.92f;
 		float sRGBHi = (Mathf.Pow(Mathf.Max(Mathf.Abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
 		return (In <= 0.0031308f) ? sRGBLo : sRGBHi;

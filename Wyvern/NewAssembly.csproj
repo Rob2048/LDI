@@ -36,12 +36,14 @@
     <ImplicitlyExpandDesignTimeFacades>false</ImplicitlyExpandDesignTimeFacades>
   </PropertyGroup>
   <ItemGroup>
+     <Compile Include="Assets\Scripts\modelPipeline.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserWindows.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\IStandaloneFileBrowser.cs" />
      <Compile Include="Assets\Scripts\textRenderer.cs" />
      <Compile Include="Assets\Scripts\core.cs" />
      <Compile Include="Assets\Scripts\jobmanager.cs" />
      <Compile Include="Assets\Scripts\objImporter.cs" />
+     <Compile Include="Assets\Scripts\stlImporter.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserEditor.cs" />
      <Compile Include="Assets\Scripts\diffuser.cs" />
      <Compile Include="Assets\Scripts\plyImporter.cs" />
@@ -49,6 +51,7 @@
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowser.cs" />
      <Compile Include="Assets\StandaloneFileBrowser\StandaloneFileBrowserLinux.cs" />
      <Compile Include="Assets\UI\uiVector3.cs" />
+     <Compile Include="Assets\Scripts\samplingTest.cs" />
      <Compile Include="Assets\Scripts\figure.cs" />
      <Compile Include="Assets\UI\uiImageViewer.cs" />
      <Compile Include="Assets\Scripts\appContext.cs" />
