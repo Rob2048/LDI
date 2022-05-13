@@ -154,6 +154,14 @@
     <ClCompile Include="source\imgui\imgui_tables.cpp" />
     <ClCompile Include="source\imgui\imgui_widgets.cpp" />
     <ClCompile Include="source\main.cpp" />
+    <ClCompile Include="source\objLoader.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="source\debugPrims.h" />
+    <ClInclude Include="source\glm.h" />
+    <ClInclude Include="source\graphics.h" />
+    <ClInclude Include="source\model.h" />
+    <ClInclude Include="source\objLoader.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

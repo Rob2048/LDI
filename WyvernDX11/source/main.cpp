@@ -1,31 +1,22 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <iostream>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-#include <glm/vec3.hpp>
-#include <glm/vec4.hpp>
-#include <glm/mat4x4.hpp>
-#include <glm/ext/matrix_transform.hpp>
-#include <glm/ext/matrix_clip_space.hpp>
-
-using namespace glm;
+#include "glm.h"
+#include "model.h"
+#include "objLoader.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tchar.h>
-
-// NOTE: Using openGL default co-ords.
-const vec3 vec3Forward(0, 0, -1);
-const vec3 vec3Right(1, 0, 0);
-const vec3 vec3Up(0, 1, 0);
-const vec3 vec3Zero(0, 0, 0);
-const vec3 vec3One(1, 1, 1);
 
 enum ldiTool {
 	LDITOOL_NONE = 0,
@@ -36,8 +27,13 @@ struct ldiToolContext {
 	ldiTool selectedTool = LDITOOL_NONE;
 };
 
-struct ldiBasicVertexConstantBuffer {
+struct ldiMvpConstantBuffer {
 	mat4 mvp;
+};
+
+struct ldiSimpleVertex {
+	vec3 position;
+	vec3 color;
 };
 
 struct ldiBasicVertex {
@@ -46,8 +42,28 @@ struct ldiBasicVertex {
 	vec2 uv;
 };
 
+struct ldiCamera {
+	vec3 position;
+	vec3 rotation;
+	mat4 viewMat;
+};
+
+struct ldiInput {
+	bool	keyForward = false;
+	bool	keyBackward = false;
+	bool	keyLeft = false;
+	bool	keyRight = false;
+	bool	mouseRight = false;
+	bool	mouseLeft = false;
+	bool	lockedMouse = false;
+
+	int		indirectionUIMipLevel = 0;
+	bool	purgeCache = false;
+	bool	vtDebug = false;
+};
+
 // Application and platform context.
-struct ldiAppWin32 {
+struct ldiApp {
 	HWND						hWnd;
 	WNDCLASSEX					wc;
 	uint32_t					windowWidth;
@@ -64,105 +80,65 @@ struct ldiAppWin32 {
 	ldiToolContext				tool;
 
 	bool						showPlatformWindow = false;
+	bool						showDemoWindow = false;
 
 	ID3D11VertexShader*			basicVertexShader;
 	ID3D11PixelShader*			basicPixelShader;
-	ID3D11InputLayout*			basicInputLayout;
-	ID3D11Buffer*				basicVertexConstantBuffer;
+	ID3D11InputLayout*			basicInputLayout;	
 
-	ID3D11Buffer*				testShapeVertexBuffer;
+	ID3D11VertexShader*			simpleVertexShader;
+	ID3D11PixelShader*			simplePixelShader;
+	ID3D11InputLayout*			simpleInputLayout;
+
+	ID3D11VertexShader*			meshVertexShader;
+	ID3D11PixelShader*			meshPixelShader;
+	ID3D11InputLayout*			meshInputLayout;
+
+	ID3D11Buffer*				mvpConstantBuffer;
+
+	ID3D11BlendState*			defaultBlendState;
+	ID3D11BlendState*			alphaBlendState;
+	ID3D11RasterizerState*		defaultRasterizerState;
+	ID3D11DepthStencilState*	defaultDepthStencilState;
+	
+	std::vector<ldiSimpleVertex>	lineGeometryVertData;
+	int								lineGeometryVertMax;
+	int								lineGeometryVertCount;
+	ID3D11Buffer*					lineGeometryVertexBuffer;
+
+	std::vector<ldiSimpleVertex>	triGeometryVertData;
+	int								triGeometryVertMax;
+	int								triGeometryVertCount;
+	ID3D11Buffer*					triGeometryVertexBuffer;
+
+	ldiInput					input;
+	ldiCamera					camera;
 };
 
-ldiAppWin32 _appContext;
+ldiApp _appContext;
+
+#include "graphics.h"
+#include "debugPrims.h"
 
 //----------------------------------------------------------------------------------------------------
-// DX11.
+// Windowing helpers.
 //----------------------------------------------------------------------------------------------------
-void _createPrimaryBackbuffer(ldiAppWin32* AppContext) {
-	ID3D11Texture2D* pBackBuffer;
-	AppContext->SwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-	AppContext->d3dDevice->CreateRenderTargetView(pBackBuffer, NULL, &AppContext->mainRenderTargetView);
-	pBackBuffer->Release();
-
-
-	D3D11_TEXTURE2D_DESC depthStencilDesc;
-	depthStencilDesc.Width = AppContext->windowWidth;
-	depthStencilDesc.Height = AppContext->windowHeight;
-	depthStencilDesc.MipLevels = 1;
-	depthStencilDesc.ArraySize = 1;
-	depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	depthStencilDesc.SampleDesc.Count = 1;
-	depthStencilDesc.SampleDesc.Quality = 0;
-	depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
-	depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-	depthStencilDesc.CPUAccessFlags = 0;
-	depthStencilDesc.MiscFlags = 0;
-
-	AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &AppContext->depthStencilBuffer);
-	AppContext->d3dDevice->CreateDepthStencilView(AppContext->depthStencilBuffer, NULL, &AppContext->depthStencilView);
+vec2 getMousePosition(ldiApp* AppContext) {
+	POINT p;
+	GetCursorPos(&p);
+	ScreenToClient(AppContext->hWnd, &p);
+	return vec2((float)p.x, (float)p.y);
 }
 
-void _cleanupPrimaryBackbuffer(ldiAppWin32* AppContext) {
-	if (AppContext->mainRenderTargetView) {
-		AppContext->mainRenderTargetView->Release();
-		AppContext->mainRenderTargetView = NULL;
-	}
-
-	if (AppContext->depthStencilView) {
-		AppContext->depthStencilView->Release();
-		AppContext->depthStencilView = NULL;
-	}
-
-	if (AppContext->depthStencilBuffer) {
-		AppContext->depthStencilBuffer->Release();
-		AppContext->depthStencilBuffer = NULL;
-	}
+void setMousePosition(ldiApp* AppContext, vec2 Position) {
+	POINT p;
+	p.x = (LONG)Position.x;
+	p.y = (LONG)Position.y;
+	ClientToScreen(AppContext->hWnd, &p);
+	SetCursorPos(p.x, p.y);
 }
 
-bool _createDeviceD3D(ldiAppWin32* AppContext) {
-	// Setup swap chain
-	DXGI_SWAP_CHAIN_DESC sd;
-	ZeroMemory(&sd, sizeof(sd));
-	sd.BufferCount = 2;
-	sd.BufferDesc.Width = 0;
-	sd.BufferDesc.Height = 0;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = AppContext->hWnd;
-	sd.SampleDesc.Count = 1;
-	sd.SampleDesc.Quality = 0;
-	sd.Windowed = TRUE;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-	UINT createDeviceFlags = 0;
-	//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
-	D3D_FEATURE_LEVEL featureLevel;
-	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
-	
-	if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &AppContext->SwapChain, &AppContext->d3dDevice, &featureLevel, &AppContext->d3dDeviceContext) != S_OK)
-		return false;
-
-	_createPrimaryBackbuffer(AppContext);
-
-	return true;
-}
-
-void _cleanupDeviceD3D(ldiAppWin32* AppContext) {
-	_cleanupPrimaryBackbuffer(AppContext);
-	if (AppContext->SwapChain) { AppContext->SwapChain->Release(); AppContext->SwapChain = NULL; }
-	if (AppContext->d3dDeviceContext) { AppContext->d3dDeviceContext->Release(); AppContext->d3dDeviceContext = NULL; }
-	if (AppContext->d3dDevice) { AppContext->d3dDevice->Release(); AppContext->d3dDevice = NULL; }
-}
-
-//----------------------------------------------------------------------------------------------------
-// ImGUI helpers.
-//----------------------------------------------------------------------------------------------------
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-void _initImgui(ldiAppWin32* AppContext) {
+void _initImgui(ldiApp* AppContext) {
 	// Setup Dear ImGui context.
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -177,19 +153,13 @@ void _initImgui(ldiAppWin32* AppContext) {
 	IM_ASSERT(font != NULL);
 }
 
-void _renderImgui(ldiAppWin32* AppContext) {
+void _renderImgui(ldiApp* AppContext) {
 	ImGui::Render();
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
 
-//----------------------------------------------------------------------------------------------------
-// Win32 window handling.
-//----------------------------------------------------------------------------------------------------
-// Win32 message handler
-// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
-// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
-// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
 		return true;
@@ -204,9 +174,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			_appContext.windowHeight = height;
 
 			if (_appContext.d3dDevice != NULL && wParam != SIZE_MINIMIZED) {
-				_cleanupPrimaryBackbuffer(&_appContext);
+				gfxCleanupPrimaryBackbuffer(&_appContext);
 				_appContext.SwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
-				_createPrimaryBackbuffer(&_appContext);
+				gfxCreatePrimaryBackbuffer(&_appContext);
 			}
 			return 0;
 		}
@@ -219,6 +189,42 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			break;
 		}
 
+		case WM_KEYDOWN: {
+			int32_t key = (int32_t)wParam;
+			std::cout << "Key down: " << key << "\n";
+
+			if (key == 87) _appContext.input.keyForward = true;
+			if (key == 83) _appContext.input.keyBackward = true;
+			if (key == 65) _appContext.input.keyLeft = true;
+			if (key == 68) _appContext.input.keyRight = true;
+
+			break;
+		}
+
+		case WM_KEYUP: {
+			int32_t key = (int32_t)wParam;
+			std::cout << "Key up: " << key << "\n";
+
+			if (key == 87) _appContext.input.keyForward = false;
+			if (key == 83) _appContext.input.keyBackward = false;
+			if (key == 65) _appContext.input.keyLeft = false;
+			if (key == 68) _appContext.input.keyRight = false;
+
+			break;
+		}
+
+		case WM_RBUTTONDOWN: {
+			_appContext.input.mouseRight = true;
+			std::cout << "Mouse down\n";
+			break;
+		}
+
+		case WM_RBUTTONUP: {
+			_appContext.input.mouseRight = false;
+			std::cout << "Mouse up\n";
+			break;
+		}
+
 		case WM_DESTROY: {
 			PostQuitMessage(0);
 			return 0;
@@ -228,7 +234,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-void _createWindow(ldiAppWin32* AppContext) {
+void _createWindow(ldiApp* AppContext) {
 	//ImGui_ImplWin32_EnableDpiAwareness();
 	AppContext->wc = {
 		sizeof(WNDCLASSEX),
@@ -249,133 +255,191 @@ void _createWindow(ldiAppWin32* AppContext) {
 	AppContext->hWnd = CreateWindow(AppContext->wc.lpszClassName, _T("Wyvern DX11"), WS_OVERLAPPEDWINDOW, 100, 100, 1600, 900, NULL, NULL, AppContext->wc.hInstance, NULL);
 }
 
-void _unregisterWindow(ldiAppWin32* AppContext) {
+void _unregisterWindow(ldiApp* AppContext) {
 	UnregisterClass(AppContext->wc.lpszClassName, AppContext->wc.hInstance);
 }
 
 //----------------------------------------------------------------------------------------------------
-// Graphics.
+// Application.
 //----------------------------------------------------------------------------------------------------
-bool initRendering(ldiAppWin32* AppContext) {
+bool _initResources(ldiApp* AppContext) {
 	std::cout << "Compiling shaders\n";
 
-	ID3DBlob* errorBlob;
-	ID3DBlob* shaderBlob;
-
-	if (FAILED(D3DCompileFromFile(L"../assets/shaders/basic.vs", NULL, NULL, "main", "vs_5_0", 0, 0, &shaderBlob, &errorBlob))) {
-		std::cout << "Failed to compile shader\n";
-		if (errorBlob != NULL) {
-			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
-			errorBlob->Release();
-		}
-		return false;
-	}
-
-	if (AppContext->d3dDevice->CreateVertexShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, &AppContext->basicVertexShader) != S_OK) {
-		shaderBlob->Release();
-		return false;
-	}
-
+	//----------------------------------------------------------------------------------------------------
+	// Basic shader.
+	//----------------------------------------------------------------------------------------------------
 	D3D11_INPUT_ELEMENT_DESC basicLayout[] = {
 		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
 		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	if (AppContext->d3dDevice->CreateInputLayout(basicLayout, 3, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &AppContext->basicInputLayout) != S_OK) {
-		shaderBlob->Release();
+	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/basic.hlsl", "mainVs", &AppContext->basicVertexShader, basicLayout, 3, &AppContext->basicInputLayout)) {
 		return false;
 	}
 
-	shaderBlob->Release();
-
-	// TODO: Failure at this point means many resources to cleanup.
-
-	if (FAILED(D3DCompileFromFile(L"../assets/shaders/basic.ps", NULL, NULL, "main", "ps_5_0", 0, 0, &shaderBlob, &errorBlob))) {
-		std::cout << "Failed to compile shader\n";
-		if (errorBlob != NULL) {
-			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
-			errorBlob->Release();
-		}
+	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/basic.hlsl", "mainPs", &AppContext->basicPixelShader)) {
 		return false;
 	}
 
-	if (AppContext->d3dDevice->CreatePixelShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, &AppContext->basicPixelShader) != S_OK) {
-		shaderBlob->Release();
-		return false;
-	}
-
-	shaderBlob->Release();
-
-	// Create basic constant buffer.
-	D3D11_BUFFER_DESC desc;
-	desc.ByteWidth = sizeof(ldiBasicVertexConstantBuffer);
-	desc.Usage = D3D11_USAGE_DYNAMIC;
-	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	desc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
-	desc.MiscFlags = 0;
-	AppContext->d3dDevice->CreateBuffer(&desc, NULL, &AppContext->basicVertexConstantBuffer);
-
-	// Create vertex buffer for test shape.
-	ldiBasicVertex testShapeVerts[] = {
-		{ vec3(0.0f, 0.2f, -10.0f),		vec3(1.0f, 0.0f, 0.0f),		vec2(0.0f, 0.0f) },
-		{ vec3(0.5f, 1.0f, -10.0f),		vec3(0.0f, 1.0f, 0.0f),		vec2(0.0f, 0.0f) },
-		{ vec3(1.0f, 0.0f, -10.0f),		vec3(0.0f, 0.0f, 1.0f),		vec2(0.0f, 0.0f) },
-
-		{ vec3(0.0f, 0.0f, -10.1f),		vec3(0.0f, 1.0f, 1.0f),		vec2(0.0f, 0.0f) },
-		{ vec3(0.25f, 0.5f, -10.1f),		vec3(1.0f, 1.0f, 0.0f),		vec2(0.0f, 0.0f) },
-		{ vec3(1.0f, 0.0f, -10.1f),		vec3(1.0f, 0.0f, 1.0f),		vec2(0.0f, 0.0f) },
+	//----------------------------------------------------------------------------------------------------
+	// Simple shader.
+	//----------------------------------------------------------------------------------------------------
+	D3D11_INPUT_ELEMENT_DESC simpleLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	D3D11_BUFFER_DESC vbDesc;
-	ZeroMemory(&vbDesc, sizeof(vbDesc));
-	vbDesc.Usage = D3D11_USAGE_DYNAMIC;
-	vbDesc.ByteWidth = sizeof(testShapeVerts);
-	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	vbDesc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
-	AppContext->d3dDevice->CreateBuffer(&vbDesc, NULL, &AppContext->testShapeVertexBuffer);
+	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/simple.hlsl", "mainVs", &AppContext->simpleVertexShader, simpleLayout, 2, &AppContext->simpleInputLayout)) {
+		return false;
+	}
 
-	D3D11_MAPPED_SUBRESOURCE ms;
-	AppContext->d3dDeviceContext->Map(AppContext->testShapeVertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-	memcpy(ms.pData, testShapeVerts, sizeof(testShapeVerts));
-	AppContext->d3dDeviceContext->Unmap(AppContext->testShapeVertexBuffer, 0);
+	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/simple.hlsl", "mainPs", &AppContext->simplePixelShader)) {
+		return false;
+	}
 
+	//----------------------------------------------------------------------------------------------------
+	// Mesh shader.
+	//----------------------------------------------------------------------------------------------------
+	D3D11_INPUT_ELEMENT_DESC meshLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
+	};
+
+	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/mesh.hlsl", "mainVs", &AppContext->meshVertexShader, meshLayout, 3, &AppContext->meshInputLayout)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/mesh.hlsl", "mainPs", &AppContext->meshPixelShader)) {
+		return false;
+	}
+	
+	//----------------------------------------------------------------------------------------------------
+	// MVP constant buffer.
+	//----------------------------------------------------------------------------------------------------
+	D3D11_BUFFER_DESC desc;
+	desc.ByteWidth = sizeof(ldiMvpConstantBuffer);
+	desc.Usage = D3D11_USAGE_DYNAMIC;
+	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	desc.MiscFlags = 0;
+	AppContext->d3dDevice->CreateBuffer(&desc, NULL, &AppContext->mvpConstantBuffer);
+
+	//----------------------------------------------------------------------------------------------------
+	// Model render state.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_BLEND_DESC desc = {};
+		desc.AlphaToCoverageEnable = false;
+		desc.RenderTarget[0].BlendEnable = true;
+		desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+		desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+		desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+		desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		AppContext->d3dDevice->CreateBlendState(&desc, &AppContext->alphaBlendState);
+	}
+
+	{
+		D3D11_BLEND_DESC desc = {};
+		desc.AlphaToCoverageEnable = false;
+		desc.RenderTarget[0].BlendEnable = false;
+		desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		desc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+		desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+		desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		AppContext->d3dDevice->CreateBlendState(&desc, &AppContext->defaultBlendState);
+	}
+
+	{
+		D3D11_RASTERIZER_DESC desc = {};
+		desc.FillMode = D3D11_FILL_SOLID;
+		desc.CullMode = D3D11_CULL_BACK;
+		desc.ScissorEnable = false;
+		desc.DepthClipEnable = true;
+		AppContext->d3dDevice->CreateRasterizerState(&desc, &AppContext->defaultRasterizerState);
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = true;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.StencilEnable = false;
+		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;*/
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->defaultDepthStencilState);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Tri geo vertex buffer.
+	//----------------------------------------------------------------------------------------------------
+	{
+		AppContext->triGeometryVertMax = 64000;
+		
+		D3D11_BUFFER_DESC vbDesc;
+		ZeroMemory(&vbDesc, sizeof(vbDesc));
+		vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+		vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * AppContext->triGeometryVertMax;
+		vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		AppContext->d3dDevice->CreateBuffer(&vbDesc, NULL, &AppContext->triGeometryVertexBuffer);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Line geo vertex buffer.
+	//----------------------------------------------------------------------------------------------------
+	{
+		AppContext->lineGeometryVertMax = 16000;
+		
+		D3D11_BUFFER_DESC vbDesc;
+		ZeroMemory(&vbDesc, sizeof(vbDesc));
+		vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+		vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * AppContext->lineGeometryVertMax;
+		vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		AppContext->d3dDevice->CreateBuffer(&vbDesc, NULL, &AppContext->lineGeometryVertexBuffer);
+	}
+	
 	return true;
 }
 
-void render(ldiAppWin32* AppContext) {
-	// Camera.
-	vec3 camRot(20, 0, 0);
-	vec3 camPos(0, 0, 0);
+void _render(ldiApp* AppContext) {
+	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(AppContext->camera.rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(AppContext->camera.rotation.x), vec3Up);
+	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -AppContext->camera.position);
 
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camRot.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(camRot.x), vec3Up);
-	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -camPos);
-
-	mat4 projMat = perspectiveFovRH_ZO(radians(50.0f), (float)AppContext->windowWidth, (float)AppContext->windowHeight, 0.01f, 100.0f);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)AppContext->windowWidth, (float)AppContext->windowHeight, 0.01f, 100.0f);
 	mat4 invProjMat = inverse(projMat);
 	mat4 modelMat = mat4(1.0f);
 
 	mat4 projViewModelMat = projMat * camViewMat * modelMat;
 
+	//----------------------------------------------------------------------------------------------------
+	// Update MVP constant buffer.
+	//----------------------------------------------------------------------------------------------------
 	D3D11_MAPPED_SUBRESOURCE ms;
-	if (AppContext->d3dDeviceContext->Map(AppContext->basicVertexConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms) != S_OK)
+	if (AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms) != S_OK)
 		return;
 
-	ldiBasicVertexConstantBuffer* constantBuffer = (ldiBasicVertexConstantBuffer*)ms.pData;
+	ldiMvpConstantBuffer* constantBuffer = (ldiMvpConstantBuffer*)ms.pData;
 	memcpy(&constantBuffer->mvp, &projViewModelMat, sizeof(projViewModelMat));
-	AppContext->d3dDeviceContext->Unmap(AppContext->basicVertexConstantBuffer, 0);
-
-	AppContext->d3dDeviceContext->VSSetShader(AppContext->basicVertexShader, 0, 0);
-	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->basicVertexConstantBuffer);
-	AppContext->d3dDeviceContext->PSSetShader(AppContext->basicPixelShader, 0, 0);
-	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->basicInputLayout);
-
-	UINT stride = sizeof(ldiBasicVertex);
-	UINT offset = 0;
-	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &AppContext->testShapeVertexBuffer, &stride, &offset);
-	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	AppContext->d3dDeviceContext->Draw(6, 0);
+	AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+	
+	//----------------------------------------------------------------------------------------------------
+	// Other.
+	//----------------------------------------------------------------------------------------------------
+	renderDebugPrimitives(AppContext);
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -388,28 +452,31 @@ int main() {
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
 	std::cout << "Working directory: " << dirBuff << "\n";
 
-	_createWindow(&_appContext);
+	ldiApp* appContext = &_appContext;
 
-	// Initialize Direct3D
-	if (!_createDeviceD3D(&_appContext)) {
-		_cleanupDeviceD3D(&_appContext);
-		_unregisterWindow(&_appContext);
+	_createWindow(appContext);
+
+	// Initialize Direct3D.
+	if (!gfxCreateDeviceD3D(appContext)) {
+		gfxCleanupDeviceD3D(appContext);
+		_unregisterWindow(appContext);
 		return 1;
 	}
 
-	ShowWindow(_appContext.hWnd, SW_SHOWDEFAULT);
-	UpdateWindow(_appContext.hWnd);
+	ShowWindow(appContext->hWnd, SW_SHOWDEFAULT);
+	UpdateWindow(appContext->hWnd);
 
 	_initImgui(&_appContext);
 
-	// Application state.
-	ldiAppWin32* appContext = &_appContext;
-	bool showDemoWindow = false;
+	appContext->camera.position = vec3(0, 0, 10);
+	appContext->camera.rotation = vec3(0, 0, 0);
 
-	// D3D setup.
-	if (!initRendering(&_appContext)) {
+	if (!_initResources(&_appContext)) {
 		return 1;
 	}
+
+	ldiModel dergnModel = objLoadModel("../assets/models/dergn.obj");
+	ldiRenderModel dergnRenderModel = gfxCreateRenderModel(appContext, &dergnModel);
 
 	// Main loop
 	bool done = false;
@@ -430,7 +497,75 @@ int main() {
 			break;
 		}
 
-		// Render 3d viewport.
+		initDebugPrimitives(appContext);
+		pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+
+		pushDebugBox(appContext, vec3(0, 0, 0), vec3(2, 2, 2), vec3(1, 0, 1));
+		pushDebugBoxSolid(appContext, vec3(2, 0, 0), vec3(0.1, 0.1, 0.1), vec3(0.5f, 0, 0.5f));
+
+		// Grid.
+		int gridCount = 10;
+		float gridCellWidth = 1.0f;
+		vec3 gridColor = vec3(0.3, 0.33, 0.36);
+		vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
+		for (int i = 0; i < gridCount + 1; ++i) {
+			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
+			pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
+		}
+
+		// Update camera position.
+		if (!ImGui::GetIO().WantCaptureKeyboard) {
+			ldiCamera* camera = &appContext->camera;
+			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+			
+			vec3 camMove(0, 0, 0);
+			if (appContext->input.keyForward) camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			if (appContext->input.keyBackward) camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			if (appContext->input.keyRight) camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+			if (appContext->input.keyLeft) camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+
+			if (glm::length(camMove) > 0.0f) {
+				camMove = glm::normalize(camMove);
+				float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
+				camera->position += camMove * cameraSpeed;
+			}
+		}
+
+		if (!ImGui::GetIO().WantCaptureMouse) {
+			if (appContext->input.mouseRight) {
+				// NOTE: Force no ImGui focus when right clicking in the void.
+				ImGui::SetWindowFocus(NULL);
+
+				vec2 mouseCenter = vec2(appContext->windowWidth / 2, appContext->windowHeight / 2);
+
+				if (!appContext->input.lockedMouse)
+				{
+					appContext->input.lockedMouse = true;
+					ShowCursor(false);
+					setMousePosition(appContext, mouseCenter);
+				}
+				else
+				{
+					vec2 mouseDelta = getMousePosition(appContext) - mouseCenter;
+					mouseDelta *= 0.15f;
+					appContext->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+					setMousePosition(appContext, mouseCenter);
+				}
+			}
+			else
+			{
+				if (appContext->input.lockedMouse)
+				{
+					appContext->input.lockedMouse = false;
+					ShowCursor(true);
+				}
+			}
+		}
+
+		// Render 3D viewport.
 		_appContext.d3dDeviceContext->OMSetRenderTargets(1, &_appContext.mainRenderTargetView, _appContext.depthStencilView);
 
 		D3D11_VIEWPORT viewport;
@@ -448,7 +583,9 @@ int main() {
 		_appContext.d3dDeviceContext->ClearRenderTargetView(_appContext.mainRenderTargetView, clearColor);
 		_appContext.d3dDeviceContext->ClearDepthStencilView(_appContext.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-		render(&_appContext);
+		_render(&_appContext);
+
+		gfxRenderModel(appContext, &dergnRenderModel);
 
 		// Build IMGUI UI.
 		ImGui_ImplDX11_NewFrame();
@@ -457,6 +594,25 @@ int main() {
 
 		// Viewport overlay.
 		{
+			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
+			mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
+
+			mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)appContext->windowWidth, (float)appContext->windowHeight, 0.01f, 100.0f);
+			mat4 invProjMat = inverse(projMat);
+			mat4 modelMat = mat4(1.0f);
+
+			mat4 projViewModelMat = projMat * camViewMat * modelMat;
+
+			vec4 worldPos = vec4(1, 0, 0, 1);
+			vec4 clipPos = projViewModelMat * worldPos;
+			clipPos.x /= clipPos.w;
+			clipPos.y /= clipPos.w;
+
+			vec2 screenPos;			
+			screenPos.x = (clipPos.x * 0.5 + 0.5) * appContext->windowWidth;
+			screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * appContext->windowHeight;
+
 			const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
 			ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
@@ -464,7 +620,10 @@ int main() {
 			ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
 
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
-			drawList->AddText(ImVec2(100 + 50 * sin(ImGui::GetTime()), 100 + 50 * cos(ImGui::GetTime())), IM_COL32(255, 255, 255, 255), "This is some long text for testing purposes");
+
+			if (clipPos.z > 0) {
+				drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
+			}
 
 			ImGui::End();
 		}
@@ -476,6 +635,8 @@ int main() {
 				if (ImGui::MenuItem("Open project")) {}
 				if (ImGui::MenuItem("Save project")) {}
 				if (ImGui::MenuItem("Save project as...")) {}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Import model")) {}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Quit", "Alt+F4")) {
 					done = true;
@@ -510,8 +671,8 @@ int main() {
 			}
 
 			if (ImGui::BeginMenu("View")) {
-				if (ImGui::MenuItem("ImGUI demo window", NULL, showDemoWindow)) {
-					showDemoWindow = !showDemoWindow;
+				if (ImGui::MenuItem("ImGUI demo window", NULL, appContext->showDemoWindow)) {
+					appContext->showDemoWindow = !appContext->showDemoWindow;
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Platform controls", NULL, appContext->showPlatformWindow)) {
@@ -547,8 +708,8 @@ int main() {
 			ImGui::End();
 		}
 
-		if (showDemoWindow) {
-			ImGui::ShowDemoWindow(&showDemoWindow);
+		if (appContext->showDemoWindow) {
+			ImGui::ShowDemoWindow(&appContext->showDemoWindow);
 		}
 
 		if (appContext->showPlatformWindow) {
@@ -581,7 +742,7 @@ int main() {
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	_cleanupDeviceD3D(&_appContext);
+	gfxCleanupDeviceD3D(&_appContext);
 	DestroyWindow(_appContext.hWnd);
 	_unregisterWindow(&_appContext);
 
