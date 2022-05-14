@@ -2,6 +2,32 @@
 // Debug primitives.
 //----------------------------------------------------------------------------------------------------
 void initDebugPrimitives(ldiApp* AppContext) {
+	{
+		AppContext->triGeometryVertMax = 64000;
+
+		D3D11_BUFFER_DESC vbDesc;
+		ZeroMemory(&vbDesc, sizeof(vbDesc));
+		vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+		vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * AppContext->triGeometryVertMax;
+		vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		AppContext->d3dDevice->CreateBuffer(&vbDesc, NULL, &AppContext->triGeometryVertexBuffer);
+	}
+
+	{
+		AppContext->lineGeometryVertMax = 16000;
+
+		D3D11_BUFFER_DESC vbDesc;
+		ZeroMemory(&vbDesc, sizeof(vbDesc));
+		vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+		vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * AppContext->lineGeometryVertMax;
+		vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		AppContext->d3dDevice->CreateBuffer(&vbDesc, NULL, &AppContext->lineGeometryVertexBuffer);
+	}
+}
+
+void beginDebugPrimitives(ldiApp* AppContext) {
 	AppContext->lineGeometryVertCount = 0;
 	AppContext->lineGeometryVertData.clear();
 
@@ -84,6 +110,7 @@ inline void pushDebugBoxSolid(ldiApp* AppContext, vec3 Origin, vec3 Size, vec3 C
 void renderDebugPrimitives(ldiApp* AppContext) {
 	const float blendFactor[4] = { 0.f, 0.f, 0.f, 0.f };
 	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->alphaBlendState, blendFactor, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 
 	//----------------------------------------------------------------------------------------------------
 	// Render line geometry.

@@ -1,18 +1,13 @@
-cbuffer vertexBuffer : register(b0) {
-	float4x4 ProjectionMatrix;
-};
+#define BASIC_CONSTANT_BUFFER
 
-struct VS_INPUT {
-	float3 pos : POSITION;
-	float3 col : COLOR0;
-};
+#include "common.hlsl"
 
 struct PS_INPUT {
 	float4 pos : SV_POSITION;
 	float4 col : COLOR0;
 };
 
-PS_INPUT mainVs(VS_INPUT input) {
+PS_INPUT mainVs(vertexInputSimple input) {
 	PS_INPUT output;
 	output.pos = mul(ProjectionMatrix, float4(input.pos, 1.f));
 	output.col = float4(input.col, 1);

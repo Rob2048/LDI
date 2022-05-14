@@ -8,6 +8,103 @@ struct ldiRenderModel {
 	int indexCount;
 };
 
+struct ldiRenderPointCloud {
+	ID3D11Buffer* vertexBuffer;
+	ID3D11Buffer* indexBuffer;
+	int vertCount;
+	int indexCount;
+};
+
+ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, std::vector<ldiSimpleVertex>* Points) {
+	ldiRenderPointCloud result = {};
+
+	// Pack point data into verts.
+	int vertCount = Points->size() * 4;
+	std::vector<ldiBasicVertex> packedVerts;
+	packedVerts.resize(vertCount);
+
+	for (int i = 0; i < Points->size(); ++i) {
+		ldiSimpleVertex s = (*Points)[i];
+
+		packedVerts[i * 4 + 0].position = s.position;
+		packedVerts[i * 4 + 0].uv = vec2(-0.5f, -0.5f);
+		packedVerts[i * 4 + 0].color = s.color;
+		
+		packedVerts[i * 4 + 1].position = s.position;
+		packedVerts[i * 4 + 1].uv = vec2(0.5f, -0.5f);
+		packedVerts[i * 4 + 1].color = s.color;
+
+		packedVerts[i * 4 + 2].position = s.position;
+		packedVerts[i * 4 + 2].uv = vec2(0.5f, 0.5f);
+		packedVerts[i * 4 + 2].color = s.color;
+
+		packedVerts[i * 4 + 3].position = s.position;
+		packedVerts[i * 4 + 3].uv = vec2(-0.5f, 0.5f);
+		packedVerts[i * 4 + 3].color = s.color;
+	}
+
+	std::vector<uint32_t> indices;
+	indices.resize(Points->size() * 6);
+
+	for (int i = 0; i < Points->size(); ++i) {
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = packedVerts.data();
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * Points->size() * 6;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices.data();
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = Points->size() * 6;
+
+	return result;
+}
+
+void gfxRenderPointCloud(ldiApp* AppContext, ldiRenderPointCloud* PointCloud) {
+	UINT lgStride = sizeof(ldiMeshVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->pointCloudInputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &PointCloud->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(PointCloud->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(AppContext->pointCloudVertexShader, 0, 0);
+	ID3D11Buffer* constantBuffers[] = { AppContext->mvpConstantBuffer, AppContext->pointcloudConstantBuffer };
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 2, constantBuffers);
+	AppContext->d3dDeviceContext->PSSetShader(AppContext->pointCloudPixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	AppContext->d3dDeviceContext->DrawIndexed(PointCloud->indexCount, 0, 0);
+}
+
 ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	ldiRenderModel result = {};
 
@@ -39,7 +136,7 @@ ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	return result;
 }
 
-void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model) {
+void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = false, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
 	UINT lgStride = sizeof(ldiMeshVertex);
 	UINT lgOffset = 0;
 
@@ -50,11 +147,23 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model) {
 	AppContext->d3dDeviceContext->VSSetShader(AppContext->meshVertexShader, 0, 0);
 	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
 	AppContext->d3dDeviceContext->PSSetShader(AppContext->meshPixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
 	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
 	
 	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
-	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+	if (Wireframe) {
+		AppContext->d3dDeviceContext->RSSetState(AppContext->wireframeRasterizerState);
+	} else {
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+	}
+
 	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
 
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }
@@ -137,11 +246,34 @@ void gfxCleanupDeviceD3D(ldiApp* AppContext) {
 	if (AppContext->d3dDevice) { AppContext->d3dDevice->Release(); AppContext->d3dDevice = NULL; }
 }
 
+void gfxBeginPrimaryViewport(ldiApp* AppContext) {
+	AppContext->d3dDeviceContext->OMSetRenderTargets(1, &AppContext->mainRenderTargetView, AppContext->depthStencilView);
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = AppContext->windowWidth;
+	viewport.Height = AppContext->windowHeight;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+
+	//const float clearColor[4] = { 0.2f, 0.23f, 0.26f, 1.00f };
+	AppContext->d3dDeviceContext->ClearRenderTargetView(AppContext->mainRenderTargetView, (float*)&AppContext->viewBackgroundColor);
+	AppContext->d3dDeviceContext->ClearDepthStencilView(AppContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+}
+
+void gfxEndPrimaryViewport(ldiApp* AppContext) {
+	AppContext->SwapChain->Present(1, 0);
+}
+
 bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11VertexShader** Shader, D3D11_INPUT_ELEMENT_DESC* LayoutDesc, int LayoutElements, ID3D11InputLayout** InputLayout) {
 	ID3DBlob* errorBlob;
 	ID3DBlob* shaderBlob;
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, NULL, EntryPoint, "vs_5_0", 0, 0, &shaderBlob, &errorBlob))) {
+	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "vs_5_0", 0, 0, &shaderBlob, &errorBlob))) {
 		std::cout << "Failed to compile shader\n";
 		if (errorBlob != NULL) {
 			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
@@ -169,7 +301,7 @@ bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* Entr
 	ID3DBlob* errorBlob;
 	ID3DBlob* shaderBlob;
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, NULL, EntryPoint, "ps_5_0", 0, 0, &shaderBlob, &errorBlob))) {
+	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "ps_5_0", 0, 0, &shaderBlob, &errorBlob))) {
 		std::cout << "Failed to compile shader\n";
 		if (errorBlob != NULL) {
 			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";

@@ -62,5 +62,11 @@
     <ClInclude Include="source\objLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\stb_image_write.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
