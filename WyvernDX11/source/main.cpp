@@ -82,6 +82,8 @@ struct ldiApp {
 	uint32_t					windowWidth;
 	uint32_t					windowHeight;
 
+	ImFont*						fontBig;
+
 	ID3D11Device*				d3dDevice;
 	ID3D11DeviceContext*		d3dDeviceContext;
 	IDXGISwapChain*				SwapChain;
@@ -180,6 +182,9 @@ void _initImgui(ldiApp* AppContext) {
 
 	ImFont* font = io.Fonts->AddFontFromFileTTF("../assets/fonts/roboto/Roboto-Medium.ttf", 15.0f);
 	IM_ASSERT(font != NULL);
+
+	AppContext->fontBig = io.Fonts->AddFontFromFileTTF("../assets/fonts/roboto/Roboto-Bold.ttf", 24.0f);
+	IM_ASSERT(AppContext->fontBig != NULL);
 }
 
 void _renderImgui(ldiApp* AppContext) {
@@ -898,35 +903,93 @@ int main() {
 			static float f = 0.0f;
 			static int counter = 0;
 
+			ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
 			ImGui::Begin("Platform controls", &appContext->showPlatformWindow);
 
-			ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-			ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-			//ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+			ImGui::Text("Connection");
+			char ipBuff[] = "192.168.0.50";
+			int port = 5000;
+			ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
+			ImGui::InputInt("Port", &port);
+			ImGui::Button("Connect", ImVec2(-1, 0));
+			ImGui::Text("Status: Disconnected");
 
-			if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-				counter++;
+			ImGui::Separator();
 
+			ImGui::BeginDisabled();
+			ImGui::Text("Position");
+			ImGui::PushFont(appContext->fontBig);
+			
+			float startX = ImGui::GetCursorPosX();
+			float availX = ImGui::GetContentRegionAvail().x;
+			ImGui::SetCursorPosX(startX);
+			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: 0.00");
 			ImGui::SameLine();
-			ImGui::Text("counter = %d", counter);
+			ImGui::SetCursorPosX(startX + availX / 3);
+			ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: 0.00");
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(startX + availX / 3 * 2);
+			ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: 0.00");
+			ImGui::PopFont();
 
-			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			ImGui::Button("Find home", ImVec2(-1, 0));
+			ImGui::Button("Go home", ImVec2(-1, 0));
+
+			float distance = 1;
+			ImGui::InputFloat("Distance", &distance);
+			
+			ImGui::Button("-X", ImVec2(32, 32));
+			ImGui::SameLine();
+			ImGui::Button("-Y", ImVec2(32, 32));
+			ImGui::SameLine();
+			ImGui::Button("-Z", ImVec2(32, 32));
+
+			ImGui::Button("+X", ImVec2(32, 32));
+			ImGui::SameLine();
+			ImGui::Button("+Y", ImVec2(32, 32));
+			ImGui::SameLine();
+			ImGui::Button("+Z", ImVec2(32, 32));
+			
+			ImGui::Separator();
+			ImGui::Text("Laser");
+			ImGui::Button("Start laser preview", ImVec2(-1, 0));
+			ImGui::EndDisabled();
+
 			ImGui::End();
 		}
 
-		ImGui::Begin("Image inspector");
-		ImGui::Text("Image");
-		//ID3D11ShaderResourceView*
-		//ImTextureID my_tex_id = io.Fonts->TexID;
-		ImVec2 pos = ImGui::GetCursorScreenPos();
-		ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
-		ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
-		ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
-		ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
-		ImVec2 size = ImGui::GetContentRegionAvail();
+		{
+			//ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(700, 600));
+			ImGui::Begin("Image inspector", 0, ImGuiWindowFlags_NoCollapse);
 
-		ImGui::Image(shaderResourceViewTest, size, uv_min, uv_max, tint_col, border_col);
-		ImGui::End();
+				ImGui::BeginChild("ImageChild", ImVec2(530, 0));
+					ImGui::Text("Image");
+					//ID3D11ShaderResourceView*
+					//ImTextureID my_tex_id = io.Fonts->TexID;
+					ImVec2 pos = ImGui::GetCursorScreenPos();
+					ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
+					ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
+					ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
+					ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
+		
+					ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
+				ImGui::EndChild();
+
+				ImGui::SameLine();
+				ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x, 0), false);
+					
+					ImGui::Text("Display channel");
+					ImGui::SameLine();
+					ImGui::Button("C");
+					ImGui::SameLine();
+					ImGui::Button("M");
+
+				ImGui::EndChild();
+
+			ImGui::End();
+			ImGui::PopStyleVar();
+		}
 
 		_renderImgui(&_appContext);
 

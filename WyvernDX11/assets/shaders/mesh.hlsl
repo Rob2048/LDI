@@ -20,7 +20,10 @@ PS_INPUT mainVs(vertexInputMesh input) {
 sampler sampler0;
 Texture2D texture0;
 
-float4 mainPs(PS_INPUT input) : SV_Target {	
+float4 mainPs(PS_INPUT input) : SV_Target {
+	float3 lightPos = float3(0, 1, 0);
+	float i = dot(lightPos, input.normal.xyz);
+
 	return texture0.Sample(sampler0, float2(input.uv.x, 1.0 - input.uv.y)) * ObjectColor;
 
 	return float4(input.uv.x, input.uv.y, 0, 1);
