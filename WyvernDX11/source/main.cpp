@@ -13,9 +13,8 @@
 #include "glm.h"
 #include "model.h"
 #include "objLoader.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "plyLoader.h"
+#include "image.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -41,17 +40,6 @@ struct ldiBasicConstantBuffer {
 
 struct ldiPointCloudConstantBuffer {
 	vec4 size;
-};
-
-struct ldiSimpleVertex {
-	vec3 position;
-	vec3 color;
-};
-
-struct ldiBasicVertex {
-	vec3 position;
-	vec3 color;
-	vec2 uv;
 };
 
 struct ldiCamera {
@@ -82,6 +70,9 @@ struct ldiApp {
 	uint32_t					windowWidth;
 	uint32_t					windowHeight;
 
+	int64_t						timeFrequency;
+	int64_t						timeCounterStart;
+
 	ImFont*						fontBig;
 
 	ID3D11Device*				d3dDevice;
@@ -96,6 +87,10 @@ struct ldiApp {
 
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = true;
+
+	ID3D11Texture2D*			mainViewTexture;
+	ID3D11RenderTargetView*		mainViewRtView;
+	ID3D11ShaderResourceView*	mainViewResourceView;
 
 	ID3D11VertexShader*			basicVertexShader;
 	ID3D11PixelShader*			basicPixelShader;
@@ -144,6 +139,8 @@ struct ldiApp {
 
 	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
+
+	bool						platformConnected = false;
 };
 
 ldiApp _appContext;
@@ -154,6 +151,24 @@ ldiApp _appContext;
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
 //----------------------------------------------------------------------------------------------------
+void _initTiming(ldiApp* AppContext) {
+	LARGE_INTEGER freq;
+	LARGE_INTEGER counter;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&counter);
+	AppContext->timeCounterStart = counter.QuadPart;
+	AppContext->timeFrequency = freq.QuadPart;
+}
+
+inline double _getTime(ldiApp* AppContext) {
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	int64_t time = counter.QuadPart - AppContext->timeCounterStart;
+	double result = (double)time / ((double)AppContext->timeFrequency);
+
+	return result;
+}
+
 vec2 getMousePosition(ldiApp* AppContext) {
 	POINT p;
 	GetCursorPos(&p);
@@ -176,7 +191,24 @@ void _initImgui(ldiApp* AppContext) {
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.IniFilename = NULL;
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+	//io.ConfigViewportsNoAutoMerge = true;
+	//io.ConfigViewportsNoTaskBarIcon = true;
+	//io.ConfigViewportsNoDefaultParent = true;
+	//io.ConfigDockingAlwaysTabBar = true;
+	//io.ConfigDockingTransparentPayload = true;
+
 	ImGui::StyleColorsDark();
+
+	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+	ImGuiStyle& style = ImGui::GetStyle();
+	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+	{
+		style.WindowRounding = 0.0f;
+		style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+	}	
+
 	ImGui_ImplWin32_Init(AppContext->hWnd);
 	ImGui_ImplDX11_Init(AppContext->d3dDevice, AppContext->d3dDeviceContext);
 
@@ -190,6 +222,13 @@ void _initImgui(ldiApp* AppContext) {
 void _renderImgui(ldiApp* AppContext) {
 	ImGui::Render();
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+	// Update and Render additional Platform Windows
+	if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+	{
+		ImGui::UpdatePlatformWindows();
+		ImGui::RenderPlatformWindowsDefault();
+	}
 }
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -494,6 +533,8 @@ int main() {
 
 	ldiApp* appContext = &_appContext;
 
+	_initTiming(appContext);
+
 	_createWindow(appContext);
 
 	// Initialize Direct3D.
@@ -508,6 +549,10 @@ int main() {
 
 	_initImgui(appContext);
 
+	int mainViewWidth = 512;
+	int mainViewHeight = 512;
+	gfxCreateMainView(appContext, mainViewWidth, mainViewHeight);
+
 	appContext->camera.position = vec3(0, 0, 10);
 	appContext->camera.rotation = vec3(0, 0, 0);
 
@@ -520,35 +565,23 @@ int main() {
 	ldiModel dergnModel = objLoadModel("../assets/models/dergn.obj");
 	ldiRenderModel dergnRenderModel = gfxCreateRenderModel(appContext, &dergnModel);
 
-	std::vector<ldiSimpleVertex> pointCloudPoints;
-	float pointSpacing = 0.1f;
-
-	for (int iZ = 0; iZ < 1; ++iZ) {
-		for (int iY = 0; iY < 1; ++iY) {
-			for (int iX = 0; iX < 1; ++iX) {
-				pointCloudPoints.push_back({ vec3(iX * pointSpacing, iY * pointSpacing, iZ * pointSpacing), vec3(iX / 100.0f, iY / 100.0f, iZ / 100.0f) });
-			}
-		}
+	ldiPointCloud pointCloud;
+	if (!plyLoadPoints("../assets/models/dergnScan.ply", &pointCloud)) {
+		return 1;
 	}
 
-	ldiRenderPointCloud pointCloud = gfxCreateRenderPointCloud(appContext, &pointCloudPoints);
+	ldiRenderPointCloud pointCloudRenderModel = gfxCreateRenderPointCloud(appContext, &pointCloud);
 
+	double t0 = _getTime(appContext);
 	int x, y, n;
-	uint8_t *imageRawPixels = stbi_load("../assets/models/dergnTexture.png", &x, &y, &n, 0);
-	std::cout << "Load texture: " << x << ", " << y << " (" << n << ")\n";
+	uint8_t* imageRawPixels = imageLoadRgba("../assets/models/dergnTexture.png", &x, &y, &n);
+	double t1 = _getTime(appContext);
 
-	uint8_t* packedTexData = new uint8_t[x * y * 4];
-	for (int i = 0; i < x * y; ++i) {
-		packedTexData[i * 4 + 0] = imageRawPixels[i * n + 0];
-		packedTexData[i * 4 + 1] = imageRawPixels[i * n + 1];
-		packedTexData[i * 4 + 2] = imageRawPixels[i * n + 2];
-		packedTexData[i * 4 + 3] = 255;
-	}
-
-	stbi_image_free(imageRawPixels);
+	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << (t1 - t0) * 1000.0f << " ms\n";
+	
 
 	D3D11_SUBRESOURCE_DATA texData = {};
-	texData.pSysMem = packedTexData;
+	texData.pSysMem = imageRawPixels;
 	texData.SysMemPitch = x * 4;
 
 	D3D11_TEXTURE2D_DESC tex2dDesc = {};
@@ -569,7 +602,7 @@ int main() {
 		std::cout << "Texture failed to create\n";
 	}
 
-	delete[] packedTexData;
+	imageFree(imageRawPixels);
 
 	ID3D11ShaderResourceView* shaderResourceViewTest;
 	appContext->d3dDevice->CreateShaderResourceView(texResource, NULL, &shaderResourceViewTest);
@@ -601,7 +634,6 @@ int main() {
 		pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
 		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
 		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-
 		//pushDebugBox(appContext, vec3(0, 0, 0), vec3(2, 2, 2), vec3(1, 0, 1));
 		//pushDebugBoxSolid(appContext, vec3(2, 0, 0), vec3(0.1, 0.1, 0.1), vec3(0.5f, 0, 0.5f));
 
@@ -690,7 +722,7 @@ int main() {
 		viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
 		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
 
-		mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)appContext->windowWidth, (float)appContext->windowHeight, 0.01f, 100.0f);
+		mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)mainViewWidth, (float)mainViewHeight, 0.01f, 100.0f);
 		mat4 invProjMat = inverse(projMat);
 		mat4 modelMat = mat4(1.0f);
 
@@ -699,7 +731,20 @@ int main() {
 		//----------------------------------------------------------------------------------------------------
 		// Rendering.
 		//----------------------------------------------------------------------------------------------------
-		gfxBeginPrimaryViewport(appContext);
+		appContext->d3dDeviceContext->OMSetRenderTargets(1, &appContext->mainViewRtView, appContext->depthStencilView);
+		
+		D3D11_VIEWPORT viewport;
+		ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+		viewport.TopLeftX = 0;
+		viewport.TopLeftY = 0;
+		viewport.Width = mainViewWidth;
+		viewport.Height = mainViewHeight;
+		viewport.MinDepth = 0.0f;
+		viewport.MaxDepth = 1.0f;
+
+		appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+		appContext->d3dDeviceContext->ClearRenderTargetView(appContext->mainViewRtView, (float*)&appContext->viewBackgroundColor);
+		appContext->d3dDeviceContext->ClearDepthStencilView(appContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 		//----------------------------------------------------------------------------------------------------
 		// Render debug primitives.
@@ -738,7 +783,7 @@ int main() {
 				D3D11_MAPPED_SUBRESOURCE ms;
 				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-				constantBuffer->screenSize = vec4(appContext->windowWidth, appContext->windowHeight, 0, 0);
+				constantBuffer->screenSize = vec4(mainViewWidth, mainViewHeight, 0, 0);
 				constantBuffer->mvp = projViewModelMat;
 				constantBuffer->color = vec4(0, 0, 0, 1);
 				constantBuffer->view = camViewMat;
@@ -755,18 +800,21 @@ int main() {
 				appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
 			}
 
-			gfxRenderPointCloud(appContext, &pointCloud);
+			gfxRenderPointCloud(appContext, &pointCloudRenderModel);
 		}
 
 		//----------------------------------------------------------------------------------------------------
 		// Build interface.
 		//----------------------------------------------------------------------------------------------------
+		gfxBeginPrimaryViewport(appContext);
+
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
 		// Viewport overlay.
-		{
+		// TODO: Move to after 3d view rendering, with text locations/strings pushed to a buffer.
+		/*{
 			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
 			viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
 			mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
@@ -799,7 +847,7 @@ int main() {
 			}
 
 			ImGui::End();
-		}
+		}*/
 
 		if (ImGui::BeginMainMenuBar()) {
 
@@ -857,43 +905,7 @@ int main() {
 			ImGui::EndMainMenuBar();
 		}
 
-		{
-			// Viewport widgets.
-			ImGuiWindowFlags window_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-			const ImGuiViewport* viewport = ImGui::GetMainViewport();
-			ImVec2 work_pos = viewport->WorkPos;
-			ImVec2 work_size = viewport->WorkSize;
-			ImVec2 window_pos, window_pos_pivot;
-			window_pos.x = work_pos.x + 10;
-			window_pos.y = work_pos.y + 10;
-			window_pos_pivot.x = 0.0f;
-			window_pos_pivot.y = 0.0f;
-			ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-			
-			ImGui::SetNextWindowBgAlpha(0.35f);
-			ImGui::Begin("Example: Simple overlay", NULL, window_flags);
-
-			ImGui::Text("Time: (%f)", ImGui::GetTime());
-			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-
-			ImGui::Separator();
-			ImGui::Text("Primary model");
-			ImGui::Checkbox("Shaded", &appContext->primaryModelShowShaded);
-			ImGui::Checkbox("Wireframe", &appContext->primaryModelShowWireframe);
-
-			ImGui::Separator();
-			ImGui::Text("Point cloud");
-			ImGui::SliderFloat("World size", &appContext->pointWorldSize, 0.0f, 1.0f);
-			ImGui::SliderFloat("Screen size", &appContext->pointScreenSize, 0.0f, 32.0f);
-			ImGui::SliderFloat("Screen blend", &appContext->pointScreenSpaceBlend, 0.0f, 1.0f);
-
-			ImGui::Separator();
-			ImGui::Text("Viewport");
-			ImGui::ColorEdit3("Background", (float*)&appContext->viewBackgroundColor);
-			ImGui::ColorEdit3("Grid", (float*)&appContext->gridColor);
-
-			ImGui::End();
-		}
+		ImGui::DockSpaceOverViewport();
 
 		if (appContext->showDemoWindow) {
 			ImGui::ShowDemoWindow(&appContext->showDemoWindow);
@@ -903,20 +915,36 @@ int main() {
 			static float f = 0.0f;
 			static int counter = 0;
 
-			ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
-			ImGui::Begin("Platform controls", &appContext->showPlatformWindow);
+			//ImGui::SetNextWindowSize(ImVec2(400, ImGui::GetMainViewport()->WorkSize.y));
+			//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
+
+			//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
+			ImGui::Begin("Platform controls", &appContext->showPlatformWindow, ImGuiWindowFlags_NoCollapse);
 
 			ImGui::Text("Connection");
+
+			ImGui::BeginDisabled(appContext->platformConnected);
 			char ipBuff[] = "192.168.0.50";
 			int port = 5000;
 			ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
 			ImGui::InputInt("Port", &port);
-			ImGui::Button("Connect", ImVec2(-1, 0));
-			ImGui::Text("Status: Disconnected");
+			ImGui::EndDisabled();
+
+			if (appContext->platformConnected) {
+				if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
+					appContext->platformConnected = false;
+				};
+				ImGui::Text("Status: Connected");
+			} else {
+				if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+					appContext->platformConnected = true;
+				};
+				ImGui::Text("Status: Disconnected");
+			}
 
 			ImGui::Separator();
 
-			ImGui::BeginDisabled();
+			ImGui::BeginDisabled(!appContext->platformConnected);
 			ImGui::Text("Position");
 			ImGui::PushFont(appContext->fontBig);
 			
@@ -986,6 +1014,53 @@ int main() {
 					ImGui::Button("M");
 
 				ImGui::EndChild();
+
+			ImGui::End();
+			ImGui::PopStyleVar();
+		}
+
+		{
+			ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse);
+
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+
+			if (viewSize.x != mainViewWidth || viewSize.y != mainViewHeight) {
+				mainViewWidth = viewSize.x;
+				mainViewHeight = viewSize.y;
+				gfxCreateMainView(appContext, mainViewWidth, mainViewHeight);
+			}
+
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImGui::Image(appContext->mainViewResourceView, ImVec2(mainViewWidth, mainViewHeight));
+
+			{	
+				// Viewport overlay widgets.
+				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+				ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
+				
+				ImGui::Text("Time: (%f)", ImGui::GetTime());
+				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+				ImGui::Separator();
+				ImGui::Text("Primary model");
+				ImGui::Checkbox("Shaded", &appContext->primaryModelShowShaded);
+				ImGui::Checkbox("Wireframe", &appContext->primaryModelShowWireframe);
+
+				ImGui::Separator();
+				ImGui::Text("Point cloud");
+				ImGui::SliderFloat("World size", &appContext->pointWorldSize, 0.0f, 1.0f);
+				ImGui::SliderFloat("Screen size", &appContext->pointScreenSize, 0.0f, 32.0f);
+				ImGui::SliderFloat("Screen blend", &appContext->pointScreenSpaceBlend, 0.0f, 1.0f);
+
+				ImGui::Separator();
+				ImGui::Text("Viewport");
+				ImGui::ColorEdit3("Background", (float*)&appContext->viewBackgroundColor);
+				ImGui::ColorEdit3("Grid", (float*)&appContext->gridColor);
+
+				ImGui::EndChild();
+			}
 
 			ImGui::End();
 			ImGui::PopStyleVar();

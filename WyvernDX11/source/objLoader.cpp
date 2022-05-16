@@ -170,8 +170,7 @@ int _GetUniqueVert(char* Buffer, int* Index, int Length)
 	return vertIndex;
 }
 
-ldiModel objLoadModel(const char* FileName)
-{
+ldiModel objLoadModel(const char* FileName) {
 	ldiModel result = {};
 
 	tempVertCount = 0;

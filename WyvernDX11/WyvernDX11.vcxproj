@@ -146,6 +146,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="source\image.cpp">
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MaxSpeed</Optimization>
+      <IntrinsicFunctions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</IntrinsicFunctions>
+      <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
+      <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</WholeProgramOptimization>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">_CONSOLE</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="source\imgui\backends\imgui_impl_dx11.cpp" />
     <ClCompile Include="source\imgui\backends\imgui_impl_win32.cpp" />
     <ClCompile Include="source\imgui\imgui.cpp" />
@@ -155,13 +162,16 @@
     <ClCompile Include="source\imgui\imgui_widgets.cpp" />
     <ClCompile Include="source\main.cpp" />
     <ClCompile Include="source\objLoader.cpp" />
+    <ClCompile Include="source\plyLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />
     <ClInclude Include="source\graphics.h" />
+    <ClInclude Include="source\image.h" />
     <ClInclude Include="source\model.h" />
     <ClInclude Include="source\objLoader.h" />
+    <ClInclude Include="source\plyLoader.h" />
     <ClInclude Include="source\stb_image.h" />
     <ClInclude Include="source\stb_image_write.h" />
   </ItemGroup>

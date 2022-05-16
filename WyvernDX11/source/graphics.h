@@ -15,16 +15,17 @@ struct ldiRenderPointCloud {
 	int indexCount;
 };
 
-ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, std::vector<ldiSimpleVertex>* Points) {
+ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, ldiPointCloud* PointCloud) {
 	ldiRenderPointCloud result = {};
 
 	// Pack point data into verts.
-	int vertCount = Points->size() * 4;
+	int pointCount = PointCloud->points.size();
+	int vertCount = pointCount * 4;
 	std::vector<ldiBasicVertex> packedVerts;
 	packedVerts.resize(vertCount);
 
-	for (int i = 0; i < Points->size(); ++i) {
-		ldiSimpleVertex s = (*Points)[i];
+	for (int i = 0; i < pointCount; ++i) {
+		ldiPointCloudVertex s = PointCloud->points[i];
 
 		packedVerts[i * 4 + 0].position = s.position;
 		packedVerts[i * 4 + 0].uv = vec2(-0.5f, -0.5f);
@@ -43,10 +44,11 @@ ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, std::vector<ld
 		packedVerts[i * 4 + 3].color = s.color;
 	}
 
+	int indexCount = pointCount * 6;
 	std::vector<uint32_t> indices;
-	indices.resize(Points->size() * 6);
+	indices.resize(indexCount);
 
-	for (int i = 0; i < Points->size(); ++i) {
+	for (int i = 0; i < pointCount; ++i) {
 		indices[i * 6 + 0] = i * 4 + 2;
 		indices[i * 6 + 1] = i * 4 + 1;
 		indices[i * 6 + 2] = i * 4 + 0;
@@ -69,7 +71,7 @@ ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, std::vector<ld
 
 	D3D11_BUFFER_DESC ibDesc = {};
 	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	ibDesc.ByteWidth = sizeof(uint32_t) * Points->size() * 6;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
 	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 	ibDesc.CPUAccessFlags = 0;
 
@@ -79,7 +81,7 @@ ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, std::vector<ld
 	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
 
 	result.vertCount = vertCount;
-	result.indexCount = Points->size() * 6;
+	result.indexCount = indexCount;
 
 	return result;
 }
@@ -173,10 +175,59 @@ void gfxCreatePrimaryBackbuffer(ldiApp* AppContext) {
 	AppContext->SwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
 	AppContext->d3dDevice->CreateRenderTargetView(pBackBuffer, NULL, &AppContext->mainRenderTargetView);
 	pBackBuffer->Release();
+}
+
+void gfxCleanupPrimaryBackbuffer(ldiApp* AppContext) {
+	if (AppContext->mainRenderTargetView) {
+		AppContext->mainRenderTargetView->Release();
+		AppContext->mainRenderTargetView = NULL;
+	}
+}
+
+void gfxCreateMainView(ldiApp* AppContext, int Width, int Height) {
+	if (AppContext->mainViewTexture) {
+		AppContext->mainViewTexture->Release();
+		AppContext->mainViewTexture = NULL;
+	}
+
+	if (AppContext->mainViewResourceView) {
+		AppContext->mainViewResourceView->Release();
+		AppContext->mainViewResourceView = NULL;
+	}
+
+	if (AppContext->depthStencilBuffer) {
+		AppContext->depthStencilBuffer->Release();
+		AppContext->depthStencilBuffer = NULL;
+	}
+
+	if (AppContext->depthStencilView) {
+		AppContext->depthStencilView->Release();
+		AppContext->depthStencilView = NULL;
+	}
+
+	D3D11_TEXTURE2D_DESC texDesc = {};
+	texDesc.Width = Width;
+	texDesc.Height = Height;
+	texDesc.MipLevels = 1;
+	texDesc.ArraySize = 1;
+	texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	texDesc.SampleDesc.Count = 1;
+	texDesc.Usage = D3D11_USAGE_DEFAULT;
+	texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	texDesc.CPUAccessFlags = 0;
+	texDesc.MiscFlags = 0;
+	AppContext->d3dDevice->CreateTexture2D(&texDesc, NULL, &AppContext->mainViewTexture);
+
+	D3D11_RENDER_TARGET_VIEW_DESC rtDesc = {};
+	rtDesc.Format = texDesc.Format;
+	rtDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	AppContext->d3dDevice->CreateRenderTargetView(AppContext->mainViewTexture, &rtDesc, &AppContext->mainViewRtView);
+
+	AppContext->d3dDevice->CreateShaderResourceView(AppContext->mainViewTexture, NULL, &AppContext->mainViewResourceView);
 
 	D3D11_TEXTURE2D_DESC depthStencilDesc;
-	depthStencilDesc.Width = AppContext->windowWidth;
-	depthStencilDesc.Height = AppContext->windowHeight;
+	depthStencilDesc.Width = Width;
+	depthStencilDesc.Height = Height;
 	depthStencilDesc.MipLevels = 1;
 	depthStencilDesc.ArraySize = 1;
 	depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -189,23 +240,7 @@ void gfxCreatePrimaryBackbuffer(ldiApp* AppContext) {
 
 	AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &AppContext->depthStencilBuffer);
 	AppContext->d3dDevice->CreateDepthStencilView(AppContext->depthStencilBuffer, NULL, &AppContext->depthStencilView);
-}
 
-void gfxCleanupPrimaryBackbuffer(ldiApp* AppContext) {
-	if (AppContext->mainRenderTargetView) {
-		AppContext->mainRenderTargetView->Release();
-		AppContext->mainRenderTargetView = NULL;
-	}
-
-	if (AppContext->depthStencilView) {
-		AppContext->depthStencilView->Release();
-		AppContext->depthStencilView = NULL;
-	}
-
-	if (AppContext->depthStencilBuffer) {
-		AppContext->depthStencilBuffer->Release();
-		AppContext->depthStencilBuffer = NULL;
-	}
 }
 
 bool gfxCreateDeviceD3D(ldiApp* AppContext) {
@@ -247,7 +282,7 @@ void gfxCleanupDeviceD3D(ldiApp* AppContext) {
 }
 
 void gfxBeginPrimaryViewport(ldiApp* AppContext) {
-	AppContext->d3dDeviceContext->OMSetRenderTargets(1, &AppContext->mainRenderTargetView, AppContext->depthStencilView);
+	AppContext->d3dDeviceContext->OMSetRenderTargets(1, &AppContext->mainRenderTargetView, NULL);
 
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
@@ -260,9 +295,8 @@ void gfxBeginPrimaryViewport(ldiApp* AppContext) {
 
 	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 
-	//const float clearColor[4] = { 0.2f, 0.23f, 0.26f, 1.00f };
-	AppContext->d3dDeviceContext->ClearRenderTargetView(AppContext->mainRenderTargetView, (float*)&AppContext->viewBackgroundColor);
-	AppContext->d3dDeviceContext->ClearDepthStencilView(AppContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	const float clearColor[4] = { 0.07f, 0.08f, 0.09f, 1.00f };
+	AppContext->d3dDeviceContext->ClearRenderTargetView(AppContext->mainRenderTargetView, clearColor);
 }
 
 void gfxEndPrimaryViewport(ldiApp* AppContext) {
