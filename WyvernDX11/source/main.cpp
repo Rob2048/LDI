@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
@@ -57,7 +58,7 @@ struct ldiInput {
 	bool	mouseLeft = false;
 	bool	mouseMiddle = false;
 	bool	lockedMouse = false;
-
+	
 	int		indirectionUIMipLevel = 0;
 	bool	purgeCache = false;
 	bool	vtDebug = false;
@@ -85,8 +86,8 @@ struct ldiApp {
 
 	ldiToolContext				tool;
 
-	bool						showPlatformWindow = true;
-	bool						showDemoWindow = true;
+	bool						showPlatformWindow = false;
+	bool						showDemoWindow = false;
 
 	ID3D11Texture2D*			mainViewTexture;
 	ID3D11RenderTargetView*		mainViewRtView;
@@ -133,7 +134,7 @@ struct ldiApp {
 	bool						primaryModelShowWireframe = false;
 	bool						primaryModelShowShaded = false;
 
-	float						pointWorldSize = 0.02f;
+	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
 	float						pointScreenSpaceBlend = 0.0f;
 
@@ -220,6 +221,7 @@ void _initImgui(ldiApp* AppContext) {
 }
 
 void _renderImgui(ldiApp* AppContext) {
+	gfxBeginPrimaryViewport(AppContext);
 	ImGui::Render();
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
@@ -229,6 +231,8 @@ void _renderImgui(ldiApp* AppContext) {
 		ImGui::UpdatePlatformWindows();
 		ImGui::RenderPlatformWindowsDefault();
 	}
+
+	gfxEndPrimaryViewport(AppContext);
 }
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -264,43 +268,31 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 		case WM_KEYDOWN: {
 			int32_t key = (int32_t)wParam;
-			
-			if (key == 87) _appContext.input.keyForward = true;
-			if (key == 83) _appContext.input.keyBackward = true;
-			if (key == 65) _appContext.input.keyLeft = true;
-			if (key == 68) _appContext.input.keyRight = true;
-
 			break;
 		}
 
 		case WM_KEYUP: {
 			int32_t key = (int32_t)wParam;
-			
-			if (key == 87) _appContext.input.keyForward = false;
-			if (key == 83) _appContext.input.keyBackward = false;
-			if (key == 65) _appContext.input.keyLeft = false;
-			if (key == 68) _appContext.input.keyRight = false;
-
 			break;
 		}
 
 		case WM_RBUTTONDOWN: {
-			_appContext.input.mouseRight = true;
+			//_appContext.input.mouseRight = true;
 			break;
 		}
 
 		case WM_RBUTTONUP: {
-			_appContext.input.mouseRight = false;
+			//_appContext.input.mouseRight = false;
 			break;
 		}
 
 		case WM_MBUTTONDOWN: {
-			_appContext.input.mouseMiddle = true;
+			//_appContext.input.mouseMiddle = true;
 			break;
 		}
 
 		case WM_MBUTTONUP: {
-			_appContext.input.mouseMiddle = false;
+			//_appContext.input.mouseMiddle = false;
 			break;
 		}
 
@@ -579,7 +571,6 @@ int main() {
 
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << (t1 - t0) * 1000.0f << " ms\n";
 	
-
 	D3D11_SUBRESOURCE_DATA texData = {};
 	texData.pSysMem = imageRawPixels;
 	texData.SysMemPitch = x * 4;
@@ -619,6 +610,10 @@ int main() {
 	ID3D11SamplerState* texSamplerState;
 	appContext->d3dDevice->CreateSamplerState(&samplerDesc, &texSamplerState);
 
+	/*ImGui::GetID
+	ImGui::DockBuilderDockWindow();
+	ImGui::DockBuilderFinish();*/
+
 	// Main loop
 	bool running = true;
 	while (running) {
@@ -646,208 +641,13 @@ int main() {
 			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
 			pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 		}
-
-		//----------------------------------------------------------------------------------------------------
-		// Update input.
-		//----------------------------------------------------------------------------------------------------
-		if (!ImGui::GetIO().WantCaptureKeyboard) {
-			ldiCamera* camera = &appContext->camera;
-			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-			viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
-			
-			vec3 camMove(0, 0, 0);
-			if (appContext->input.keyForward) camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-			if (appContext->input.keyBackward) camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-			if (appContext->input.keyRight) camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-			if (appContext->input.keyLeft) camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-
-			if (glm::length(camMove) > 0.0f) {
-				camMove = glm::normalize(camMove);
-				float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
-				camera->position += camMove * cameraSpeed;
-			}
-		}
-
-		if (!ImGui::GetIO().WantCaptureMouse) {
-			if (appContext->input.mouseRight) {
-				ImGui::SetWindowFocus(NULL);
-
-				vec2 mouseCenter = vec2(appContext->windowWidth / 2, appContext->windowHeight / 2);
-
-				if (!appContext->input.lockedMouse) {
-					appContext->input.lockedMouse = true;
-					ShowCursor(false);
-					setMousePosition(appContext, mouseCenter);
-				} else {
-					vec2 mouseDelta = getMousePosition(appContext) - mouseCenter;
-					mouseDelta *= 0.15f;
-					appContext->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
-					setMousePosition(appContext, mouseCenter);
-				}
-			} else if (appContext->input.mouseMiddle) {
-				ImGui::SetWindowFocus(NULL);
-
-				vec2 mouseCenter = vec2(appContext->windowWidth / 2, appContext->windowHeight / 2);
-
-				if (!appContext->input.lockedMouse) {
-					appContext->input.lockedMouse = true;
-					ShowCursor(false);
-					setMousePosition(appContext, mouseCenter);
-				} else {
-					vec2 mouseDelta = getMousePosition(appContext) - mouseCenter;
-					mouseDelta *= 0.025f;
-
-					ldiCamera* camera = &appContext->camera;
-					mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-					viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
-
-					camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
-					camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
-
-					setMousePosition(appContext, mouseCenter);
-				}
-			} else {
-				if (appContext->input.lockedMouse)
-				{
-					appContext->input.lockedMouse = false;
-					ShowCursor(true);
-				}
-			}
-		}
-
-		//----------------------------------------------------------------------------------------------------
-		// Update camera.
-		//----------------------------------------------------------------------------------------------------
-		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
-		viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
-		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
-
-		mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)mainViewWidth, (float)mainViewHeight, 0.01f, 100.0f);
-		mat4 invProjMat = inverse(projMat);
-		mat4 modelMat = mat4(1.0f);
-
-		mat4 projViewModelMat = projMat * camViewMat * modelMat;
-
-		//----------------------------------------------------------------------------------------------------
-		// Rendering.
-		//----------------------------------------------------------------------------------------------------
-		appContext->d3dDeviceContext->OMSetRenderTargets(1, &appContext->mainViewRtView, appContext->depthStencilView);
 		
-		D3D11_VIEWPORT viewport;
-		ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
-		viewport.TopLeftX = 0;
-		viewport.TopLeftY = 0;
-		viewport.Width = mainViewWidth;
-		viewport.Height = mainViewHeight;
-		viewport.MinDepth = 0.0f;
-		viewport.MaxDepth = 1.0f;
-
-		appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-		appContext->d3dDeviceContext->ClearRenderTargetView(appContext->mainViewRtView, (float*)&appContext->viewBackgroundColor);
-		appContext->d3dDeviceContext->ClearDepthStencilView(appContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-		//----------------------------------------------------------------------------------------------------
-		// Render debug primitives.
-		//----------------------------------------------------------------------------------------------------
-		{
-			D3D11_MAPPED_SUBRESOURCE ms;
-			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-			constantBuffer->mvp = projViewModelMat;
-			constantBuffer->color = vec4(1, 1, 1, 1);
-			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-		}
-
-		renderDebugPrimitives(appContext);
-
-		//----------------------------------------------------------------------------------------------------
-		// Render models.
-		//----------------------------------------------------------------------------------------------------
-		if (appContext->primaryModelShowShaded) {
-			gfxRenderModel(appContext, &dergnRenderModel, false, shaderResourceViewTest, texSamplerState);
-		}
-
-		if (appContext->primaryModelShowWireframe) {
-			D3D11_MAPPED_SUBRESOURCE ms;
-			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-			constantBuffer->mvp = projViewModelMat;
-			constantBuffer->color = vec4(0, 0, 0, 1);
-			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-			
-			gfxRenderModel(appContext, &dergnRenderModel, true);
-		}
-
-		{
-			{
-				D3D11_MAPPED_SUBRESOURCE ms;
-				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-				constantBuffer->screenSize = vec4(mainViewWidth, mainViewHeight, 0, 0);
-				constantBuffer->mvp = projViewModelMat;
-				constantBuffer->color = vec4(0, 0, 0, 1);
-				constantBuffer->view = camViewMat;
-				constantBuffer->proj = projMat;
-				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-			}
-			{
-				D3D11_MAPPED_SUBRESOURCE ms;
-				appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-				ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
-				//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
-				//constantBuffer->size = vec4(16, 16, 1, 0);
-				constantBuffer->size = vec4(appContext->pointWorldSize, appContext->pointScreenSize, appContext->pointScreenSpaceBlend, 0);
-				appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
-			}
-
-			gfxRenderPointCloud(appContext, &pointCloudRenderModel);
-		}
-
 		//----------------------------------------------------------------------------------------------------
 		// Build interface.
 		//----------------------------------------------------------------------------------------------------
-		gfxBeginPrimaryViewport(appContext);
-
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
-
-		// Viewport overlay.
-		// TODO: Move to after 3d view rendering, with text locations/strings pushed to a buffer.
-		/*{
-			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
-			viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
-			mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
-
-			mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)appContext->windowWidth, (float)appContext->windowHeight, 0.01f, 100.0f);
-			mat4 invProjMat = inverse(projMat);
-			mat4 modelMat = mat4(1.0f);
-
-			mat4 projViewModelMat = projMat * camViewMat * modelMat;
-
-			vec4 worldPos = vec4(1, 0, 0, 1);
-			vec4 clipPos = projViewModelMat * worldPos;
-			clipPos.x /= clipPos.w;
-			clipPos.y /= clipPos.w;
-
-			vec2 screenPos;			
-			screenPos.x = (clipPos.x * 0.5 + 0.5) * appContext->windowWidth;
-			screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * appContext->windowHeight;
-
-			const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-			ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
-			ImGui::SetNextWindowSize(viewport->Size);
-			ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
-
-			ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-			if (clipPos.z > 0) {
-				drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
-			}
-
-			ImGui::End();
-		}*/
 
 		if (ImGui::BeginMainMenuBar()) {
 
@@ -1020,7 +820,7 @@ int main() {
 		}
 
 		{
-			ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
+			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 			ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse);
 
@@ -1032,14 +832,206 @@ int main() {
 				gfxCreateMainView(appContext, mainViewWidth, mainViewHeight);
 			}
 
+			{
+				// Viewport overlay.
+				// TODO: Move to after 3d view rendering, with text locations/strings pushed to a buffer.
+				/*{
+					mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
+					viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
+					mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
+
+					mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)appContext->windowWidth, (float)appContext->windowHeight, 0.01f, 100.0f);
+					mat4 invProjMat = inverse(projMat);
+					mat4 modelMat = mat4(1.0f);
+
+					mat4 projViewModelMat = projMat * camViewMat * modelMat;
+
+					vec4 worldPos = vec4(1, 0, 0, 1);
+					vec4 clipPos = projViewModelMat * worldPos;
+					clipPos.x /= clipPos.w;
+					clipPos.y /= clipPos.w;
+
+					vec2 screenPos;
+					screenPos.x = (clipPos.x * 0.5 + 0.5) * appContext->windowWidth;
+					screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * appContext->windowHeight;
+
+					const ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+					ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
+					ImGui::SetNextWindowSize(viewport->Size);
+					ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
+
+					ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+					if (clipPos.z > 0) {
+						drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
+					}
+
+					ImGui::End();
+				}*/
+
+				//----------------------------------------------------------------------------------------------------
+				// Update camera.
+				//----------------------------------------------------------------------------------------------------
+				// TODO: Update inline with input for specific viewport, before rendering.
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
+				mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
+
+				mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)mainViewWidth, (float)mainViewHeight, 0.01f, 100.0f);
+				mat4 invProjMat = inverse(projMat);
+				mat4 modelMat = mat4(1.0f);
+
+				mat4 projViewModelMat = projMat * camViewMat * modelMat;
+
+				//----------------------------------------------------------------------------------------------------
+				// Rendering.
+				//----------------------------------------------------------------------------------------------------
+				appContext->d3dDeviceContext->OMSetRenderTargets(1, &appContext->mainViewRtView, appContext->depthStencilView);
+
+				D3D11_VIEWPORT viewport;
+				ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+				viewport.TopLeftX = 0;
+				viewport.TopLeftY = 0;
+				viewport.Width = mainViewWidth;
+				viewport.Height = mainViewHeight;
+				viewport.MinDepth = 0.0f;
+				viewport.MaxDepth = 1.0f;
+
+				appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+				appContext->d3dDeviceContext->ClearRenderTargetView(appContext->mainViewRtView, (float*)&appContext->viewBackgroundColor);
+				appContext->d3dDeviceContext->ClearDepthStencilView(appContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+				//----------------------------------------------------------------------------------------------------
+				// Render debug primitives.
+				//----------------------------------------------------------------------------------------------------
+				{
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+					constantBuffer->mvp = projViewModelMat;
+					constantBuffer->color = vec4(1, 1, 1, 1);
+					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+				}
+
+				renderDebugPrimitives(appContext);
+
+				//----------------------------------------------------------------------------------------------------
+				// Render models.
+				//----------------------------------------------------------------------------------------------------
+				if (appContext->primaryModelShowShaded) {
+					gfxRenderModel(appContext, &dergnRenderModel, false, shaderResourceViewTest, texSamplerState);
+				}
+
+				if (appContext->primaryModelShowWireframe) {
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+					constantBuffer->mvp = projViewModelMat;
+					constantBuffer->color = vec4(0, 0, 0, 1);
+					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+					gfxRenderModel(appContext, &dergnRenderModel, true);
+				}
+
+				{
+					{
+						D3D11_MAPPED_SUBRESOURCE ms;
+						appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+						ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+						constantBuffer->screenSize = vec4(mainViewWidth, mainViewHeight, 0, 0);
+						constantBuffer->mvp = projViewModelMat;
+						constantBuffer->color = vec4(0, 0, 0, 1);
+						constantBuffer->view = camViewMat;
+						constantBuffer->proj = projMat;
+						appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+					}
+					{
+						D3D11_MAPPED_SUBRESOURCE ms;
+						appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+						ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+						//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
+						//constantBuffer->size = vec4(16, 16, 1, 0);
+						constantBuffer->size = vec4(appContext->pointWorldSize, appContext->pointScreenSize, appContext->pointScreenSpaceBlend, 0);
+						appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+					}
+
+					gfxRenderPointCloud(appContext, &pointCloudRenderModel);
+				}
+			}
+
 			ImVec2 startPos = ImGui::GetCursorPos();
 			ImGui::Image(appContext->mainViewResourceView, ImVec2(mainViewWidth, mainViewHeight));
+			
+			// NOTE: ImDrawList API uses screen coordinates!
+			/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+			draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
+
+			// This will catch our interactions.
+			ImGui::SetCursorPos(startPos);
+			ImGui::InvisibleButton("__mainViewButton", ImVec2(mainViewWidth, mainViewHeight), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+			//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+
+			{
+				vec3 camMove(0, 0, 0);
+				ldiCamera* camera = &appContext->camera;
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+				if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+				
+					if (ImGui::IsKeyDown(ImGuiKey_W)) {
+						camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_S)) {
+						camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_A)) {
+						camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_D)) {
+						camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
+				}
+				
+				if (glm::length(camMove) > 0.0f) {
+					camMove = glm::normalize(camMove);
+					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
+					camera->position += camMove * cameraSpeed;
+				}
+			}
+
+			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= 0.2f;
+				appContext->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+			}
+
+			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= 0.025f;
+
+				ldiCamera* camera = &appContext->camera;
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+				camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
+				camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
+			}
 
 			{	
 				// Viewport overlay widgets.
 				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
 				ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
-				
+
 				ImGui::Text("Time: (%f)", ImGui::GetTime());
 				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
@@ -1067,8 +1059,6 @@ int main() {
 		}
 
 		_renderImgui(&_appContext);
-
-		gfxEndPrimaryViewport(appContext);
 	}
 
 	// TODO: Release all the things.
