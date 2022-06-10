@@ -163,6 +163,7 @@
     <ClCompile Include="source\main.cpp" />
     <ClCompile Include="source\objLoader.cpp" />
     <ClCompile Include="source\plyLoader.cpp" />
+    <ClCompile Include="source\stlLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\debugPrims.h" />
@@ -170,10 +171,13 @@
     <ClInclude Include="source\graphics.h" />
     <ClInclude Include="source\image.h" />
     <ClInclude Include="source\model.h" />
+    <ClInclude Include="source\modelInspector.h" />
     <ClInclude Include="source\objLoader.h" />
     <ClInclude Include="source\plyLoader.h" />
+    <ClInclude Include="source\samplerTester.h" />
     <ClInclude Include="source\stb_image.h" />
     <ClInclude Include="source\stb_image_write.h" />
+    <ClInclude Include="source\stlLoader.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

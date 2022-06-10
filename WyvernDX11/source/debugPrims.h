@@ -109,6 +109,7 @@ inline void pushDebugBoxSolid(ldiApp* AppContext, vec3 Origin, vec3 Size, vec3 C
 
 void renderDebugPrimitives(ldiApp* AppContext) {
 	const float blendFactor[4] = { 0.f, 0.f, 0.f, 0.f };
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
 	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->alphaBlendState, blendFactor, 0xffffffff);
 	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 

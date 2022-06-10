@@ -148,6 +148,8 @@ int main()
 
 	int sourceWidth, sourceHeight, sourceChannels;
 	uint8_t* sourcePixels = stbi_load("images\\dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
+	//uint8_t* sourcePixels = stbi_load("images\\char_render_sat_smaller.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
+	//uint8_t* sourcePixels = stbi_load("images\\imM.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
 
 	auto t1 = Clock::now();
 	std::cout << "Image loaded: " << getProfileTime(t0, t1) << " ms\n";
@@ -172,6 +174,7 @@ int main()
 		//float lum = (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
 
 		sourceIntensity[i] = GammaToLinear(lum);
+		//sourceIntensity[i] = lum;
 	}
 
 	t1 = Clock::now();
@@ -182,9 +185,9 @@ int main()
 	//---------------------------------------------------------------------------------------------------------------
 	t0 = Clock::now();
 
-	float samplesPerPixel = 4.0f;
+	float samplesPerPixel = 8.0f;
 	float sampleScale = ((sourceWidth / 10.0f) / sourceWidth) / samplesPerPixel;
-	float singlePixelScale = sampleScale * 4;
+	float singlePixelScale = sampleScale * 8;
 
 	int samplesWidth = (int)(sourceWidth * samplesPerPixel);
 	int samplesHeight = (int)(sourceHeight * samplesPerPixel);
@@ -205,13 +208,14 @@ int main()
 			float area = 1.0f / (1.0f - value) * 3.14f;
 			float radius = sqrt(area / M_PI);
 			radius = pow(radius, 2.2f);
-			radius *= 1.44f;
+			//radius *= 1.44f;
+			radius *= 2.0f;
 
 			SamplePoint* s = &candidateList[candidateCount++];
 			s->X = iX * sampleScale;
 			s->Y = iY * sampleScale;
 			s->Value = value;
-			s->Scale = singlePixelScale * 0.5f;
+			s->Scale = singlePixelScale * 0.5f * 1.0f;
 			s->Radius = singlePixelScale * 0.5f * radius;
 		}
 	}
@@ -231,13 +235,13 @@ int main()
 	}
 
 	// Randomize pairs
-	for (int j = 0; j < candidateCount; ++j) {
+	/*for (int j = 0; j < candidateCount; ++j) {
 		int targetSlot = rand() % candidateCount;
 
 		int tmp = orderList[targetSlot];
 		orderList[targetSlot] = orderList[j];
 		orderList[j] = tmp;
-	}
+	}*/
 
 	t1 = Clock::now();
 	std::cout << "Generate random sample order: " << getProfileTime(t0, t1) << " ms\n";
@@ -350,6 +354,10 @@ int main()
 	stbi_write_png("images\\output.png", outputImage.PixelWidth, outputImage.PixelHeight, 3, outputImage.Data, 1 * outputImage.PixelWidth * 3);
 	t1 = Clock::now();
 	std::cout << "Write image: " << getProfileTime(t0, t1) << " ms\n";
+
+	//---------------------------------------------------------------------------------------------------------------
+	// Render guassian sampled image.
+	//---------------------------------------------------------------------------------------------------------------
 
 
 	//---------------------------------------------------------------------------------------------------------------

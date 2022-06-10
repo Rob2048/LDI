@@ -1,6 +1,14 @@
 //----------------------------------------------------------------------------------------------------
 // DirectX11 rendering.
 //----------------------------------------------------------------------------------------------------
+struct ldiRenderViewBuffers {
+	ID3D11Texture2D*			mainViewTexture;
+	ID3D11RenderTargetView*		mainViewRtView;
+	ID3D11ShaderResourceView*	mainViewResourceView;
+	ID3D11DepthStencilView*		depthStencilView;
+	ID3D11Texture2D*			depthStencilBuffer;
+};
+
 struct ldiRenderModel {
 	ID3D11Buffer* vertexBuffer;
 	ID3D11Buffer* indexBuffer;
@@ -9,6 +17,13 @@ struct ldiRenderModel {
 };
 
 struct ldiRenderPointCloud {
+	ID3D11Buffer* vertexBuffer;
+	ID3D11Buffer* indexBuffer;
+	int vertCount;
+	int indexCount;
+};
+
+struct ldiRenderLines {
 	ID3D11Buffer* vertexBuffer;
 	ID3D11Buffer* indexBuffer;
 	int vertCount;
@@ -107,6 +122,66 @@ void gfxRenderPointCloud(ldiApp* AppContext, ldiRenderPointCloud* PointCloud) {
 	AppContext->d3dDeviceContext->DrawIndexed(PointCloud->indexCount, 0, 0);
 }
 
+ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* ModelSource) {
+	ldiRenderLines result = {};
+
+	std::vector<ldiSimpleVertex> verts;
+	verts.resize(ModelSource->verts.size());
+	for (int i = 0; i < verts.size(); ++i) {
+		verts[i].position = ModelSource->verts[i];
+		verts[i].color = vec3(0, 0, 0);
+	}
+
+	int quadCount = ModelSource->indices.size() / 4;
+	std::vector<uint32_t> indices;
+	indices.resize(quadCount * 8);
+	for (int i = 0; i < quadCount; ++i) {
+		int v0 = ModelSource->indices[i * 4 + 0];
+		int v1 = ModelSource->indices[i * 4 + 1];
+		int v2 = ModelSource->indices[i * 4 + 2];
+		int v3 = ModelSource->indices[i * 4 + 3];
+
+		indices[i * 8 + 0] = v0;
+		indices[i * 8 + 1] = v1;
+
+		indices[i * 8 + 2] = v1;
+		indices[i * 8 + 3] = v2;
+
+		indices[i * 8 + 4] = v2;
+		indices[i * 8 + 5] = v3;
+
+		indices[i * 8 + 6] = v3;
+		indices[i * 8 + 7] = v0;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * verts.size();
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts.data();
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indices.size();
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices.data();
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = verts.size();
+	result.indexCount = indices.size();
+
+	return result;
+}
+
 ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	ldiRenderModel result = {};
 
@@ -170,6 +245,28 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = 
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }
 
+void gfxRenderWireModel(ldiApp* AppContext, ldiRenderLines* Model) {
+	UINT lgStride = sizeof(ldiSimpleVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->simpleInputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	AppContext->d3dDeviceContext->VSSetShader(AppContext->simpleVertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(AppContext->simplePixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->wireframeRasterizerState);
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
 void gfxCreatePrimaryBackbuffer(ldiApp* AppContext) {
 	ID3D11Texture2D* pBackBuffer;
 	AppContext->SwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
@@ -184,25 +281,30 @@ void gfxCleanupPrimaryBackbuffer(ldiApp* AppContext) {
 	}
 }
 
-void gfxCreateMainView(ldiApp* AppContext, int Width, int Height) {
-	if (AppContext->mainViewTexture) {
-		AppContext->mainViewTexture->Release();
-		AppContext->mainViewTexture = NULL;
+void gfxCreateRenderView(ldiApp* AppContext, ldiRenderViewBuffers* ViewBuffers, int Width, int Height) {
+	if (ViewBuffers->mainViewTexture) {
+		ViewBuffers->mainViewTexture->Release();
+		ViewBuffers->mainViewTexture = NULL;
 	}
 
-	if (AppContext->mainViewResourceView) {
-		AppContext->mainViewResourceView->Release();
-		AppContext->mainViewResourceView = NULL;
+	if (ViewBuffers->mainViewRtView) {
+		ViewBuffers->mainViewRtView->Release();
+		ViewBuffers->mainViewRtView = NULL;
 	}
 
-	if (AppContext->depthStencilBuffer) {
-		AppContext->depthStencilBuffer->Release();
-		AppContext->depthStencilBuffer = NULL;
+	if (ViewBuffers->mainViewResourceView) {
+		ViewBuffers->mainViewResourceView->Release();
+		ViewBuffers->mainViewResourceView = NULL;
 	}
 
-	if (AppContext->depthStencilView) {
-		AppContext->depthStencilView->Release();
-		AppContext->depthStencilView = NULL;
+	if (ViewBuffers->depthStencilBuffer) {
+		ViewBuffers->depthStencilBuffer->Release();
+		ViewBuffers->depthStencilBuffer = NULL;
+	}
+
+	if (ViewBuffers->depthStencilView) {
+		ViewBuffers->depthStencilView->Release();
+		ViewBuffers->depthStencilView = NULL;
 	}
 
 	D3D11_TEXTURE2D_DESC texDesc = {};
@@ -216,14 +318,14 @@ void gfxCreateMainView(ldiApp* AppContext, int Width, int Height) {
 	texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 	texDesc.CPUAccessFlags = 0;
 	texDesc.MiscFlags = 0;
-	AppContext->d3dDevice->CreateTexture2D(&texDesc, NULL, &AppContext->mainViewTexture);
+	AppContext->d3dDevice->CreateTexture2D(&texDesc, NULL, &ViewBuffers->mainViewTexture);
 
 	D3D11_RENDER_TARGET_VIEW_DESC rtDesc = {};
 	rtDesc.Format = texDesc.Format;
 	rtDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	AppContext->d3dDevice->CreateRenderTargetView(AppContext->mainViewTexture, &rtDesc, &AppContext->mainViewRtView);
+	AppContext->d3dDevice->CreateRenderTargetView(ViewBuffers->mainViewTexture, &rtDesc, &ViewBuffers->mainViewRtView);
 
-	AppContext->d3dDevice->CreateShaderResourceView(AppContext->mainViewTexture, NULL, &AppContext->mainViewResourceView);
+	AppContext->d3dDevice->CreateShaderResourceView(ViewBuffers->mainViewTexture, NULL, &ViewBuffers->mainViewResourceView);
 
 	D3D11_TEXTURE2D_DESC depthStencilDesc;
 	depthStencilDesc.Width = Width;
@@ -238,9 +340,8 @@ void gfxCreateMainView(ldiApp* AppContext, int Width, int Height) {
 	depthStencilDesc.CPUAccessFlags = 0;
 	depthStencilDesc.MiscFlags = 0;
 
-	AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &AppContext->depthStencilBuffer);
-	AppContext->d3dDevice->CreateDepthStencilView(AppContext->depthStencilBuffer, NULL, &AppContext->depthStencilView);
-
+	AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &ViewBuffers->depthStencilBuffer);
+	AppContext->d3dDevice->CreateDepthStencilView(ViewBuffers->depthStencilBuffer, NULL, &ViewBuffers->depthStencilView);
 }
 
 bool gfxCreateDeviceD3D(ldiApp* AppContext) {

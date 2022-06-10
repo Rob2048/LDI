@@ -15,20 +15,15 @@
 #include "model.h"
 #include "objLoader.h"
 #include "plyLoader.h"
+#include "stlLoader.h"
 #include "image.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tchar.h>
 
-enum ldiTool {
-	LDITOOL_NONE = 0,
-	LDITOOL_PLATFORM = 1
-};
-
-struct ldiToolContext {
-	ldiTool selectedTool = LDITOOL_NONE;
-};
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -49,19 +44,9 @@ struct ldiCamera {
 	mat4 viewMat;
 };
 
-struct ldiInput {
-	bool	keyForward = false;
-	bool	keyBackward = false;
-	bool	keyLeft = false;
-	bool	keyRight = false;
-	bool	mouseRight = false;
-	bool	mouseLeft = false;
-	bool	mouseMiddle = false;
-	bool	lockedMouse = false;
-	
-	int		indirectionUIMipLevel = 0;
-	bool	purgeCache = false;
-	bool	vtDebug = false;
+struct ldiTextInfo {
+	vec2 position;
+	std::string text;
 };
 
 // Application and platform context.
@@ -74,24 +59,10 @@ struct ldiApp {
 	int64_t						timeFrequency;
 	int64_t						timeCounterStart;
 
-	ImFont*						fontBig;
-
 	ID3D11Device*				d3dDevice;
 	ID3D11DeviceContext*		d3dDeviceContext;
 	IDXGISwapChain*				SwapChain;
 	ID3D11RenderTargetView*		mainRenderTargetView;
-
-	ID3D11DepthStencilView*		depthStencilView;
-	ID3D11Texture2D*			depthStencilBuffer;
-
-	ldiToolContext				tool;
-
-	bool						showPlatformWindow = false;
-	bool						showDemoWindow = false;
-
-	ID3D11Texture2D*			mainViewTexture;
-	ID3D11RenderTargetView*		mainViewRtView;
-	ID3D11ShaderResourceView*	mainViewResourceView;
 
 	ID3D11VertexShader*			basicVertexShader;
 	ID3D11PixelShader*			basicPixelShader;
@@ -128,26 +99,35 @@ struct ldiApp {
 	int								triGeometryVertCount;
 	ID3D11Buffer*					triGeometryVertexBuffer;
 
-	ldiInput					input;
-	ldiCamera					camera;
+	ImFont*						fontBig;
 
-	bool						primaryModelShowWireframe = false;
-	bool						primaryModelShowShaded = false;
+	bool						showPlatformWindow = false;
+	bool						showDemoWindow = false;
+	bool						showImageInspector = false;
+	bool						showModelInspector = false;
+	bool						showSamplerTester = true;
 
-	float						pointWorldSize = 0.01f;
-	float						pointScreenSize = 2.0f;
-	float						pointScreenSpaceBlend = 0.0f;
-
-	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
-	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
-
+	// TODO: Move to platform struct.
 	bool						platformConnected = false;
 };
 
-ldiApp _appContext;
+inline double _getTime(ldiApp* AppContext) {
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	int64_t time = counter.QuadPart - AppContext->timeCounterStart;
+	double result = (double)time / ((double)AppContext->timeFrequency);
+
+	return result;
+}
 
 #include "graphics.h"
 #include "debugPrims.h"
+#include "modelInspector.h"
+#include "samplerTester.h"
+
+ldiApp				_appContext = {};
+ldiModelInspector	_modelInspector = {};
+ldiSamplerTester	_samplerTester = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -159,15 +139,6 @@ void _initTiming(ldiApp* AppContext) {
 	QueryPerformanceCounter(&counter);
 	AppContext->timeCounterStart = counter.QuadPart;
 	AppContext->timeFrequency = freq.QuadPart;
-}
-
-inline double _getTime(ldiApp* AppContext) {
-	LARGE_INTEGER counter;
-	QueryPerformanceCounter(&counter);
-	int64_t time = counter.QuadPart - AppContext->timeCounterStart;
-	double result = (double)time / ((double)AppContext->timeFrequency);
-
-	return result;
 }
 
 vec2 getMousePosition(ldiApp* AppContext) {
@@ -190,7 +161,7 @@ void _initImgui(ldiApp* AppContext) {
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.IniFilename = NULL;
+	//io.IniFilename = NULL;
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
@@ -263,36 +234,6 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			if ((wParam & 0xfff0) == SC_KEYMENU) {
 				return 0;
 			}
-			break;
-		}
-
-		case WM_KEYDOWN: {
-			int32_t key = (int32_t)wParam;
-			break;
-		}
-
-		case WM_KEYUP: {
-			int32_t key = (int32_t)wParam;
-			break;
-		}
-
-		case WM_RBUTTONDOWN: {
-			//_appContext.input.mouseRight = true;
-			break;
-		}
-
-		case WM_RBUTTONUP: {
-			//_appContext.input.mouseRight = false;
-			break;
-		}
-
-		case WM_MBUTTONDOWN: {
-			//_appContext.input.mouseMiddle = true;
-			break;
-		}
-
-		case WM_MBUTTONUP: {
-			//_appContext.input.mouseMiddle = false;
 			break;
 		}
 
@@ -502,7 +443,7 @@ bool _initResources(ldiApp* AppContext) {
 		D3D11_DEPTH_STENCIL_DESC desc = {};
 		desc.DepthEnable = true;
 		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS;
 		desc.StencilEnable = false;
 		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
@@ -541,74 +482,25 @@ int main() {
 
 	_initImgui(appContext);
 
-	int mainViewWidth = 512;
-	int mainViewHeight = 512;
-	gfxCreateMainView(appContext, mainViewWidth, mainViewHeight);
+	ldiModelInspector* modelInspector = &_modelInspector;
+	if (modelInspectorInit(appContext, modelInspector) != 0) {
+		std::cout << "Could not init model inspector\n";
+		return 1;
+	}
 
-	appContext->camera.position = vec3(0, 0, 10);
-	appContext->camera.rotation = vec3(0, 0, 0);
-
+	ldiSamplerTester* samplerTester = &_samplerTester;
+	if (samplerTesterInit(appContext, samplerTester) != 0) {
+		std::cout << "Could not init sampler tester\n";
+		return 1;
+	}
+	
 	if (!_initResources(appContext)) {
 		return 1;
 	}
 
 	initDebugPrimitives(appContext);
 
-	ldiModel dergnModel = objLoadModel("../assets/models/dergn.obj");
-	ldiRenderModel dergnRenderModel = gfxCreateRenderModel(appContext, &dergnModel);
-
-	ldiPointCloud pointCloud;
-	if (!plyLoadPoints("../assets/models/dergnScan.ply", &pointCloud)) {
-		return 1;
-	}
-
-	ldiRenderPointCloud pointCloudRenderModel = gfxCreateRenderPointCloud(appContext, &pointCloud);
-
-	double t0 = _getTime(appContext);
-	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../assets/models/dergnTexture.png", &x, &y, &n);
-	double t1 = _getTime(appContext);
-
-	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << (t1 - t0) * 1000.0f << " ms\n";
-	
-	D3D11_SUBRESOURCE_DATA texData = {};
-	texData.pSysMem = imageRawPixels;
-	texData.SysMemPitch = x * 4;
-
-	D3D11_TEXTURE2D_DESC tex2dDesc = {};
-	tex2dDesc.Width = x;
-	tex2dDesc.Height = y;
-	tex2dDesc.MipLevels = 1;
-	tex2dDesc.ArraySize = 1;
-	tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	tex2dDesc.SampleDesc.Count = 1;
-	tex2dDesc.SampleDesc.Quality = 0;
-	tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	tex2dDesc.CPUAccessFlags = 0;
-	tex2dDesc.MiscFlags = 0;
-
-	ID3D11Texture2D* texResource;
-	if (appContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &texResource) != S_OK) {
-		std::cout << "Texture failed to create\n";
-	}
-
-	imageFree(imageRawPixels);
-
-	ID3D11ShaderResourceView* shaderResourceViewTest;
-	appContext->d3dDevice->CreateShaderResourceView(texResource, NULL, &shaderResourceViewTest);
-
-	D3D11_SAMPLER_DESC samplerDesc = {};
-	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
-	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.MipLODBias = 0;
-	samplerDesc.MaxAnisotropy = 16;
-	samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	
-	ID3D11SamplerState* texSamplerState;
-	appContext->d3dDevice->CreateSamplerState(&samplerDesc, &texSamplerState);
+	std::cout << "Vector size: " << sizeof(vec3) << "\n";
 
 	/*ImGui::GetID
 	ImGui::DockBuilderDockWindow();
@@ -620,26 +512,6 @@ int main() {
 		
 		if (_handleWindowLoop()) {
 			break;
-		}
-
-		//----------------------------------------------------------------------------------------------------
-		// Initial debug primitives.
-		//----------------------------------------------------------------------------------------------------
-		beginDebugPrimitives(appContext);
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-		//pushDebugBox(appContext, vec3(0, 0, 0), vec3(2, 2, 2), vec3(1, 0, 1));
-		//pushDebugBoxSolid(appContext, vec3(2, 0, 0), vec3(0.1, 0.1, 0.1), vec3(0.5f, 0, 0.5f));
-
-		// Grid.
-		int gridCount = 10;
-		float gridCellWidth = 1.0f;
-		vec3 gridColor = appContext->gridColor;
-		vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
-		for (int i = 0; i < gridCount + 1; ++i) {
-			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
-			pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 		}
 		
 		//----------------------------------------------------------------------------------------------------
@@ -666,20 +538,16 @@ int main() {
 				ImGui::EndMenu();
 			}
 
-			if (appContext->tool.selectedTool == LDITOOL_PLATFORM) {
-				if (ImGui::BeginMenu("Platform")) {
-					if (ImGui::MenuItem("New configuration")) {}
-					if (ImGui::MenuItem("Open configuration")) {}
-					if (ImGui::MenuItem("Save configuration")) {}
-					if (ImGui::MenuItem("Save configuration as...")) {}
-					ImGui::EndMenu();
-				}
+			if (ImGui::BeginMenu("Platform")) {
+				if (ImGui::MenuItem("New configuration")) {}
+				if (ImGui::MenuItem("Open configuration")) {}
+				if (ImGui::MenuItem("Save configuration")) {}
+				if (ImGui::MenuItem("Save configuration as...")) {}
+				ImGui::EndMenu();
 			}
 			
 			if (ImGui::BeginMenu("Workspace")) {
-				if (ImGui::MenuItem("Platform")) {
-					appContext->tool.selectedTool = LDITOOL_PLATFORM;
-				}
+				if (ImGui::MenuItem("Platform")) {}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Scan")) {}
 				if (ImGui::MenuItem("Process")) {}
@@ -698,6 +566,12 @@ int main() {
 				ImGui::Separator();
 				if (ImGui::MenuItem("Platform controls", NULL, appContext->showPlatformWindow)) {
 					appContext->showPlatformWindow = !appContext->showPlatformWindow;
+				}
+				if (ImGui::MenuItem("Model inspector", NULL, appContext->showModelInspector)) {
+					appContext->showModelInspector = !appContext->showModelInspector;
+				}
+				if (ImGui::MenuItem("Sampler tester", NULL, appContext->showSamplerTester)) {
+					appContext->showSamplerTester = !appContext->showSamplerTester;
 				}
 				ImGui::EndMenu();
 			}
@@ -786,7 +660,7 @@ int main() {
 			ImGui::End();
 		}
 
-		{
+		if (appContext->showImageInspector) {
 			//ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(700, 600));
 			ImGui::Begin("Image inspector", 0, ImGuiWindowFlags_NoCollapse);
@@ -801,7 +675,7 @@ int main() {
 					ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
 					ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
 		
-					ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
+					//ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
 				ImGui::EndChild();
 
 				ImGui::SameLine();
@@ -819,149 +693,14 @@ int main() {
 			ImGui::PopStyleVar();
 		}
 
-		{
+		if (appContext->showModelInspector) {
 			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse);
+			ImGui::Begin("Model inspector", &appContext->showModelInspector, ImGuiWindowFlags_NoCollapse);
 
 			ImVec2 viewSize = ImGui::GetContentRegionAvail();
-
-			if (viewSize.x != mainViewWidth || viewSize.y != mainViewHeight) {
-				mainViewWidth = viewSize.x;
-				mainViewHeight = viewSize.y;
-				gfxCreateMainView(appContext, mainViewWidth, mainViewHeight);
-			}
-
-			{
-				// Viewport overlay.
-				// TODO: Move to after 3d view rendering, with text locations/strings pushed to a buffer.
-				/*{
-					mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
-					viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
-					mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
-
-					mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)appContext->windowWidth, (float)appContext->windowHeight, 0.01f, 100.0f);
-					mat4 invProjMat = inverse(projMat);
-					mat4 modelMat = mat4(1.0f);
-
-					mat4 projViewModelMat = projMat * camViewMat * modelMat;
-
-					vec4 worldPos = vec4(1, 0, 0, 1);
-					vec4 clipPos = projViewModelMat * worldPos;
-					clipPos.x /= clipPos.w;
-					clipPos.y /= clipPos.w;
-
-					vec2 screenPos;
-					screenPos.x = (clipPos.x * 0.5 + 0.5) * appContext->windowWidth;
-					screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * appContext->windowHeight;
-
-					const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-					ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
-					ImGui::SetNextWindowSize(viewport->Size);
-					ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
-
-					ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-					if (clipPos.z > 0) {
-						drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
-					}
-
-					ImGui::End();
-				}*/
-
-				//----------------------------------------------------------------------------------------------------
-				// Update camera.
-				//----------------------------------------------------------------------------------------------------
-				// TODO: Update inline with input for specific viewport, before rendering.
-				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(appContext->camera.rotation.y), vec3Right);
-				viewRotMat = glm::rotate(viewRotMat, glm::radians(appContext->camera.rotation.x), vec3Up);
-				mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -appContext->camera.position);
-
-				mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)mainViewWidth, (float)mainViewHeight, 0.01f, 100.0f);
-				mat4 invProjMat = inverse(projMat);
-				mat4 modelMat = mat4(1.0f);
-
-				mat4 projViewModelMat = projMat * camViewMat * modelMat;
-
-				//----------------------------------------------------------------------------------------------------
-				// Rendering.
-				//----------------------------------------------------------------------------------------------------
-				appContext->d3dDeviceContext->OMSetRenderTargets(1, &appContext->mainViewRtView, appContext->depthStencilView);
-
-				D3D11_VIEWPORT viewport;
-				ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
-				viewport.TopLeftX = 0;
-				viewport.TopLeftY = 0;
-				viewport.Width = mainViewWidth;
-				viewport.Height = mainViewHeight;
-				viewport.MinDepth = 0.0f;
-				viewport.MaxDepth = 1.0f;
-
-				appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-				appContext->d3dDeviceContext->ClearRenderTargetView(appContext->mainViewRtView, (float*)&appContext->viewBackgroundColor);
-				appContext->d3dDeviceContext->ClearDepthStencilView(appContext->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-				//----------------------------------------------------------------------------------------------------
-				// Render debug primitives.
-				//----------------------------------------------------------------------------------------------------
-				{
-					D3D11_MAPPED_SUBRESOURCE ms;
-					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-					constantBuffer->mvp = projViewModelMat;
-					constantBuffer->color = vec4(1, 1, 1, 1);
-					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-				}
-
-				renderDebugPrimitives(appContext);
-
-				//----------------------------------------------------------------------------------------------------
-				// Render models.
-				//----------------------------------------------------------------------------------------------------
-				if (appContext->primaryModelShowShaded) {
-					gfxRenderModel(appContext, &dergnRenderModel, false, shaderResourceViewTest, texSamplerState);
-				}
-
-				if (appContext->primaryModelShowWireframe) {
-					D3D11_MAPPED_SUBRESOURCE ms;
-					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-					constantBuffer->mvp = projViewModelMat;
-					constantBuffer->color = vec4(0, 0, 0, 1);
-					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-					gfxRenderModel(appContext, &dergnRenderModel, true);
-				}
-
-				{
-					{
-						D3D11_MAPPED_SUBRESOURCE ms;
-						appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-						ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-						constantBuffer->screenSize = vec4(mainViewWidth, mainViewHeight, 0, 0);
-						constantBuffer->mvp = projViewModelMat;
-						constantBuffer->color = vec4(0, 0, 0, 1);
-						constantBuffer->view = camViewMat;
-						constantBuffer->proj = projMat;
-						appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-					}
-					{
-						D3D11_MAPPED_SUBRESOURCE ms;
-						appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-						ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
-						//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
-						//constantBuffer->size = vec4(16, 16, 1, 0);
-						constantBuffer->size = vec4(appContext->pointWorldSize, appContext->pointScreenSize, appContext->pointScreenSpaceBlend, 0);
-						appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
-					}
-
-					gfxRenderPointCloud(appContext, &pointCloudRenderModel);
-				}
-			}
-
 			ImVec2 startPos = ImGui::GetCursorPos();
-			ImGui::Image(appContext->mainViewResourceView, ImVec2(mainViewWidth, mainViewHeight));
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 			
 			// NOTE: ImDrawList API uses screen coordinates!
 			/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
@@ -969,8 +708,7 @@ int main() {
 			draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
 
 			// This will catch our interactions.
-			ImGui::SetCursorPos(startPos);
-			ImGui::InvisibleButton("__mainViewButton", ImVec2(mainViewWidth, mainViewHeight), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			const bool isHovered = ImGui::IsItemHovered(); // Hovered
 			const bool isActive = ImGui::IsItemActive();   // Held
 			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
@@ -978,7 +716,7 @@ int main() {
 
 			{
 				vec3 camMove(0, 0, 0);
-				ldiCamera* camera = &appContext->camera;
+				ldiCamera* camera = &modelInspector->camera;
 				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
 				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
 
@@ -1011,21 +749,51 @@ int main() {
 
 			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
 				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= 0.2f;
-				appContext->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+				mouseDelta *= 0.15f;
+				modelInspector->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
 			}
 
 			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
 				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
 				mouseDelta *= 0.025f;
 
-				ldiCamera* camera = &appContext->camera;
+				ldiCamera* camera = &modelInspector->camera;
 				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
 				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
 
 				camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
 				camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
 			}
+
+			ImGui::SetCursorPos(startPos);
+			std::vector<ldiTextInfo> textBuffer;
+			modelInspectorRender(modelInspector, viewSize.x, viewSize.y, &textBuffer);
+			ImGui::Image(modelInspector->renderViewBuffers.mainViewResourceView, viewSize);
+
+			// NOTE: ImDrawList API uses screen coordinates!
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			for (int i = 0; i < textBuffer.size(); ++i) {
+				ldiTextInfo* info = &textBuffer[i];
+				drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), IM_COL32(255, 255, 255, 255), info->text.c_str());
+			}
+
+			// Viewport overlay.
+			// TODO: Use command buffer of text locations/strings.
+			/*{
+				const ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+				ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
+				ImGui::SetNextWindowSize(viewport->Size);
+				ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
+
+				ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+				if (clipPos.z > 0) {
+					drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
+				}
+
+				ImGui::End();
+			}*/
 
 			{	
 				// Viewport overlay widgets.
@@ -1037,22 +805,167 @@ int main() {
 
 				ImGui::Separator();
 				ImGui::Text("Primary model");
-				ImGui::Checkbox("Shaded", &appContext->primaryModelShowShaded);
-				ImGui::Checkbox("Wireframe", &appContext->primaryModelShowWireframe);
+				ImGui::Checkbox("Shaded", &modelInspector->primaryModelShowShaded);
+				ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
 
 				ImGui::Separator();
 				ImGui::Text("Point cloud");
-				ImGui::SliderFloat("World size", &appContext->pointWorldSize, 0.0f, 1.0f);
-				ImGui::SliderFloat("Screen size", &appContext->pointScreenSize, 0.0f, 32.0f);
-				ImGui::SliderFloat("Screen blend", &appContext->pointScreenSpaceBlend, 0.0f, 1.0f);
+				ImGui::Checkbox("Show", &modelInspector->showPointCloud);
+				ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
+				ImGui::SliderFloat("Screen size", &modelInspector->pointScreenSize, 0.0f, 32.0f);
+				ImGui::SliderFloat("Screen blend", &modelInspector->pointScreenSpaceBlend, 0.0f, 1.0f);
 
 				ImGui::Separator();
 				ImGui::Text("Viewport");
-				ImGui::ColorEdit3("Background", (float*)&appContext->viewBackgroundColor);
-				ImGui::ColorEdit3("Grid", (float*)&appContext->gridColor);
+				ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
+				ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
+
+				ImGui::Separator();
+				ImGui::Text("Processing");
+				if (ImGui::Button("Process model")) {
+					modelInspectorVoxelize(modelInspector);
+					modelInspectorCreateQuadMesh(modelInspector);
+				}
+
+				if (ImGui::Button("Voxelize")) {
+					modelInspectorVoxelize(modelInspector);
+				}
+
+				if (ImGui::Button("Quadralize")) {
+					modelInspectorCreateQuadMesh(modelInspector);
+				}
 
 				ImGui::EndChild();
 			}
+
+			ImGui::End();
+			ImGui::PopStyleVar();
+		}
+
+		if (appContext->showSamplerTester) {
+			ImGui::Begin("Sampler tester controls");
+			ImGui::Checkbox("Grid", &samplerTester->showGrid);
+			if (ImGui::Button("Run sample test")) {
+				samplerTesterRunTest(samplerTester);
+			}
+			ImGui::End();
+
+			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			ImGui::Begin("Sampler tester", &appContext->showSamplerTester, ImGuiWindowFlags_NoCollapse);
+
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+			// This will catch our interactions.
+			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+			//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+
+			/*{
+				vec3 camMove(0, 0, 0);
+				ldiCamera* camera = &modelInspector->camera;
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+				if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+					if (ImGui::IsKeyDown(ImGuiKey_W)) {
+						camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_S)) {
+						camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_A)) {
+						camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_D)) {
+						camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
+				}
+
+				if (glm::length(camMove) > 0.0f) {
+					camMove = glm::normalize(camMove);
+					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
+					camera->position += camMove * cameraSpeed;
+				}
+			}
+
+			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= 0.15f;
+				modelInspector->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+			}*/
+
+			if (isHovered) {
+				float wheel = ImGui::GetIO().MouseWheel;
+
+				if (wheel) {
+					samplerTester->camScale -= wheel * 0.1f * samplerTester->camScale;
+				}
+			}
+
+			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= samplerTester->camScale;
+
+				samplerTester->camOffset -= vec3(mouseDelta.x, mouseDelta.y, 0);
+			}
+
+			ImGui::SetCursorPos(startPos);
+			std::vector<ldiTextInfo> textBuffer;
+			samplerTesterRender(samplerTester, viewSize.x, viewSize.y, &textBuffer);
+			ImGui::Image(samplerTester->renderViewBuffers.mainViewResourceView, viewSize);
+
+			//{
+			//	// Viewport overlay widgets.
+			//	ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+			//	ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
+
+			//	ImGui::Text("Time: (%f)", ImGui::GetTime());
+			//	ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+			//	ImGui::Separator();
+			//	ImGui::Text("Primary model");
+			//	ImGui::Checkbox("Shaded", &modelInspector->primaryModelShowShaded);
+			//	ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
+
+			//	ImGui::Separator();
+			//	ImGui::Text("Point cloud");
+			//	ImGui::Checkbox("Show", &modelInspector->showPointCloud);
+			//	ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
+			//	ImGui::SliderFloat("Screen size", &modelInspector->pointScreenSize, 0.0f, 32.0f);
+			//	ImGui::SliderFloat("Screen blend", &modelInspector->pointScreenSpaceBlend, 0.0f, 1.0f);
+
+			//	ImGui::Separator();
+			//	ImGui::Text("Viewport");
+			//	ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
+			//	ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
+
+			//	ImGui::Separator();
+			//	ImGui::Text("Processing");
+			//	if (ImGui::Button("Process model")) {
+			//		modelInspectorVoxelize(modelInspector);
+			//		modelInspectorCreateQuadMesh(modelInspector);
+			//	}
+
+			//	if (ImGui::Button("Voxelize")) {
+			//		modelInspectorVoxelize(modelInspector);
+			//	}
+
+			//	if (ImGui::Button("Quadralize")) {
+			//		modelInspectorCreateQuadMesh(modelInspector);
+			//	}
+
+			//	ImGui::EndChild();
+			//}
 
 			ImGui::End();
 			ImGui::PopStyleVar();
