@@ -1,5 +1,8 @@
 #pragma once
 
+#define max(a,b)            (((a) > (b)) ? (a) : (b))
+#define min(a,b)            (((a) < (b)) ? (a) : (b))
+
 struct ldiModelInspector {
 	ldiApp*						appContext;
 	
@@ -11,8 +14,10 @@ struct ldiModelInspector {
 	ldiCamera					camera;
 
 	bool						primaryModelShowWireframe = false;
-	bool						primaryModelShowShaded = true;
+	bool						primaryModelShowShaded = false;
 	bool						showPointCloud = false;
+	bool						quadMeshShowWireframe = false;
+	bool						quadMeshShowDebug = true;
 
 	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
@@ -23,6 +28,7 @@ struct ldiModelInspector {
 
 	ldiModel					dergnModel;
 	ldiRenderModel				dergnRenderModel;
+	ldiRenderModel				dergnDebugModel;
 	ID3D11ShaderResourceView*	shaderResourceViewTest;
 	ID3D11SamplerState*			texSamplerState;
 	ldiRenderLines				quadMeshWire;
@@ -114,7 +120,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		vert->pos = vert->pos * scale;
 	}
 
-	//ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
+	ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
 
 	// Import PLY quad mesh.
 	ldiQuadModel quadModel;
@@ -122,12 +128,52 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		return 1;
 	}
 
+	int quadCount = quadModel.indices.size() / 4;
+
+	double totalSideLengths = 0.0;
+	int totalSideCount = 0;
+	float maxSide = FLT_MIN;
+	float minSide = FLT_MAX;
+
+	// Side lengths.
+	for (int i = 0; i < quadCount; ++i) {
+		vec3 v0 = quadModel.verts[quadModel.indices[i * 4 + 0]];
+		vec3 v1 = quadModel.verts[quadModel.indices[i * 4 + 1]];
+		vec3 v2 = quadModel.verts[quadModel.indices[i * 4 + 2]];
+		vec3 v3 = quadModel.verts[quadModel.indices[i * 4 + 3]];
+
+		float s0 = glm::length(v0 - v1);
+		float s1 = glm::length(v1 - v2);
+		float s2 = glm::length(v2 - v3);
+		float s3 = glm::length(v3 - v0);
+
+		maxSide = max(maxSide, s0);
+		maxSide = max(maxSide, s1);
+		maxSide = max(maxSide, s2);
+		maxSide = max(maxSide, s3);
+
+		minSide = min(minSide, s0);
+		minSide = min(minSide, s1);
+		minSide = min(minSide, s2);
+		minSide = min(minSide, s3);
+
+		totalSideLengths += s0 + s1 + s2 + s3;
+		totalSideCount += 4;
+	}
+
+	totalSideLengths /= double(totalSideCount);
+
+	std::cout << "Quad model - quads: " << quadCount << " sideAvg: " << (totalSideLengths * 10000.0) << " um \n";
+	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
+
+	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &quadModel);
+
 	ldiModel quadMeshTriModel;
 	convertQuadToTriModel(&quadModel, &quadMeshTriModel);
 
 	//std::cout << "Quad tri mesh stats: " << quadMeshTriModel.verts.size() << 
 
-	ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &quadMeshTriModel);
+	//ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &quadMeshTriModel);
 
 	ldiPointCloud pointCloud;
 	if (!plyLoadPoints("../assets/models/dergnScan.ply", &pointCloud)) {
@@ -370,7 +416,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderPointCloud(appContext, &ModelInspector->pointCloudRenderModel);
 	}
 
-	{	
+	if (ModelInspector->quadMeshShowWireframe) {	
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
@@ -379,5 +425,16 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
+	}
+
+	if (ModelInspector->quadMeshShowDebug) {
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(0, 0, 0, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+		gfxRenderDebugModel(appContext, &ModelInspector->dergnDebugModel);
 	}
 }

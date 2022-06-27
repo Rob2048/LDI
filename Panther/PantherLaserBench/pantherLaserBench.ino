@@ -754,8 +754,11 @@ void updatePacketInput() {
 //--------------------------------------------------------------------------------
 void setup() {
 	Serial.begin(921600);
+
+	// NOTE: Y on LCS4.
+	if (!st1.init(32, 1, 600, 0.00625, 500.0, true)) sendMessage("Bad driver X");
 	
-	if (!st1.init(32, 0, 900, 0.00625, 10000.0, true)) sendMessage("Bad driver X");
+	// if (!st1.init(32, 0, 900, 0.00625, 10000.0, true)) sendMessage("Bad driver X");
 	if (!st2.init(32, 1, 600, 0.00625, 400.0, true)) sendMessage("Bad driver Y");
 	if (!st3.init(32, 1, 600, 0.00625, 400.0, false)) sendMessage("Bad driver Z");
 
@@ -782,117 +785,117 @@ void setup() {
 //--------------------------------------------------------------------------------
 void loop() {
 	// Comms mode.
-	sendMessage("Controller started");
-	while (1) {
-		updatePacketInput();
-	}
+	// sendMessage("Controller started");
+	// while (1) {
+	// 	updatePacketInput();
+	// }
 
-	digitalWrite(PIN_LASER_PWM, LOW);
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	analogWriteFrequency(PIN_LASER_PWM, 1000);
-	analogWrite(PIN_LASER_PWM, 8);
+	// digitalWrite(PIN_LASER_PWM, LOW);
+	// pinMode(PIN_LASER_PWM, OUTPUT);
+	// analogWriteFrequency(PIN_LASER_PWM, 1000);
+	// analogWrite(PIN_LASER_PWM, 8);
 
-	galvoMove(20, 20);
+	// galvoMove(20, 20);
 
 	// Always 400 us?
 	// Maybe 600us for max travel (0 to 4096).
 
-	while (1) {
-		// Grid
-		// galvoMove(0, 0);
-		// delay(100);
+	// while (1) {
+	// 	// Grid
+	// 	// galvoMove(0, 0);
+	// 	// delay(100);
 
-		// for (int iY = 0; iY < 40; ++iY) {
-		// 	for (int iX = 0; iX < 40; ++iX) {
-		// 		if (iY % 2 == 0) {
-		// 			galvoMove(iX, iY);
-		// 		} else {
-		// 			galvoMove(39 - iX, iY);
-		// 		}
-		// 		delay(1);
-		// 	}
-		// }
+	// 	// for (int iY = 0; iY < 40; ++iY) {
+	// 	// 	for (int iX = 0; iX < 40; ++iX) {
+	// 	// 		if (iY % 2 == 0) {
+	// 	// 			galvoMove(iX, iY);
+	// 	// 		} else {
+	// 	// 			galvoMove(39 - iX, iY);
+	// 	// 		}
+	// 	// 		delay(1);
+	// 	// 	}
+	// 	// }
 
-		galvoPreviewSquare();
-		delay(1000);
-		galvoPreviewTarget();
-		delay(1000);
+	// 	galvoPreviewSquare();
+	// 	delay(1000);
+	// 	galvoPreviewTarget();
+	// 	delay(1000);
 
 		
 
-		// WriteDacB(1024);
-		// delayMicroseconds(500);
-		// WriteDacB(0);
-		// delayMicroseconds(500);
+	// 	// WriteDacB(1024);
+	// 	// delayMicroseconds(500);
+	// 	// WriteDacB(0);
+	// 	// delayMicroseconds(500);
 
 
-		// for (int i = 0; i < 128; ++i) {
-		// 	WriteDacA(i * 32);
-		// 	delayMicroseconds(100);
-		// }
+	// 	// for (int i = 0; i < 128; ++i) {
+	// 	// 	WriteDacA(i * 32);
+	// 	// 	delayMicroseconds(100);
+	// 	// }
 
-		// for (int i = 0; i < 128; ++i) {
-		// 	WriteDacB(i * 32);
-		// 	delayMicroseconds(100);
-		// }
+	// 	// for (int i = 0; i < 128; ++i) {
+	// 	// 	WriteDacB(i * 32);
+	// 	// 	delayMicroseconds(100);
+	// 	// }
 
-		// for (int i = 0; i < 128; ++i) {
-		// 	WriteDacA(4096 - i * 32);
-		// 	delayMicroseconds(100);
-		// }
+	// 	// for (int i = 0; i < 128; ++i) {
+	// 	// 	WriteDacA(4096 - i * 32);
+	// 	// 	delayMicroseconds(100);
+	// 	// }
 
-		// for (int i = 0; i < 128; ++i) {
-		// 	WriteDacB(4096 - i * 32);
-		// 	delayMicroseconds(100);
-		// }
+	// 	// for (int i = 0; i < 128; ++i) {
+	// 	// 	WriteDacB(4096 - i * 32);
+	// 	// 	delayMicroseconds(100);
+	// 	// }
 
-		// WriteDacA(0);
-		// WriteDacB(0);
-		// delay(20);
-		// WriteDacA(4095);
-		// WriteDacB(0);
-		// delay(20);
-		// WriteDacA(4095);
-		// WriteDacB(4095);
-		// delay(20);
-		// WriteDacA(0);
-		// WriteDacB(4095);
-		// delay(20);
+	// 	// WriteDacA(0);
+	// 	// WriteDacB(0);
+	// 	// delay(20);
+	// 	// WriteDacA(4095);
+	// 	// WriteDacB(0);
+	// 	// delay(20);
+	// 	// WriteDacA(4095);
+	// 	// WriteDacB(4095);
+	// 	// delay(20);
+	// 	// WriteDacA(0);
+	// 	// WriteDacB(4095);
+	// 	// delay(20);
 
-		// {
-		// float pos = 0.0f;
-		// float inc = 0.05f;
+	// 	// {
+	// 	// float pos = 0.0f;
+	// 	// float inc = 0.05f;
 
-		// while (true) {
-		// 	int step = (pos / 0.050f) * 5.12f;
+	// 	// while (true) {
+	// 	// 	int step = (pos / 0.050f) * 5.12f;
 
-		// 	WriteDacB(400 + step);
-		// 	delayMicroseconds(750);
+	// 	// 	WriteDacB(400 + step);
+	// 	// 	delayMicroseconds(750);
 			
-		// 	pos += inc;
-		// 	if (pos >= 40.0f) {
-		// 		break;
-		// 	}
-		// }
-		// }
+	// 	// 	pos += inc;
+	// 	// 	if (pos >= 40.0f) {
+	// 	// 		break;
+	// 	// 	}
+	// 	// }
+	// 	// }
 
-		// for (int i = 0; i < 3400; ++i) {
-		// 	// WriteDacA(200 + i);
-		// 	WriteDacB(400 + i);
-		// 	delayMicroseconds(750);
-		// }
+	// 	// for (int i = 0; i < 3400; ++i) {
+	// 	// 	// WriteDacA(200 + i);
+	// 	// 	WriteDacB(400 + i);
+	// 	// 	delayMicroseconds(750);
+	// 	// }
 
-	// while (true) {
-	// 	WriteDacA(400);
-	// 	WriteDacB(400);
-	// 	delay(1000);
+	// // while (true) {
+	// // 	WriteDacA(400);
+	// // 	WriteDacB(400);
+	// // 	delay(1000);
 
-	// 	WriteDacA(3600);
-	// 	WriteDacB(3600);
-	// 	delay(1000);
+	// // 	WriteDacA(3600);
+	// // 	WriteDacB(3600);
+	// // 	delay(1000);
+	// // }
+
 	// }
-
-	}
 
 	char buff[256];
 
@@ -931,27 +934,27 @@ void loop() {
 		}
 
 		if (b == 'q') {
-			st1.moveRelative(1000, 100);
+			st1.moveRelative(32000, 150);
 			while (st1.updateStepper());
 		} else if (b == 'w') {
-			st1.moveRelative(-1000, 100);
+			st1.moveRelative(-32000, 150);
 			while (st1.updateStepper());
 		}
 
 		if (b == 'a') {
-			st2.moveRelative(1000, 100);
-			while (st2.updateStepper());
+			st1.moveRelative(8000, 150);
+			while (st1.updateStepper());
 		} else if (b == 's') {
-			st2.moveRelative(-1000, 100);
-			while (st2.updateStepper());
+			st1.moveRelative(-8000, 150);
+			while (st1.updateStepper());
 		}
 
 		if (b == 'z') {
-			st3.moveRelative(1000, 30);
-			while (st3.updateStepper());
+			st1.moveRelative(8, 30);
+			while (st1.updateStepper());
 		} else if (b == 'x') {
-			st3.moveRelative(-1000, 30);
-			while (st3.updateStepper());
+			st1.moveRelative(-8, 30);
+			while (st1.updateStepper());
 		}
 
 		if (b == 'h') {

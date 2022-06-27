@@ -104,8 +104,8 @@ struct ldiApp {
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = false;
-	bool						showModelInspector = false;
-	bool						showSamplerTester = true;
+	bool						showModelInspector = true;
+	bool						showSamplerTester = false;
 
 	// TODO: Move to platform struct.
 	bool						platformConnected = false;
@@ -809,6 +809,11 @@ int main() {
 				ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
 
 				ImGui::Separator();
+				ImGui::Text("Quad model");
+				ImGui::Checkbox("Area debug", &modelInspector->quadMeshShowDebug);
+				ImGui::Checkbox("Quad wireframe", &modelInspector->quadMeshShowWireframe);
+
+				ImGui::Separator();
 				ImGui::Text("Point cloud");
 				ImGui::Checkbox("Show", &modelInspector->showPointCloud);
 				ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
@@ -862,8 +867,18 @@ int main() {
 			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			const bool isHovered = ImGui::IsItemHovered(); // Hovered
 			const bool isActive = ImGui::IsItemActive();   // Held
+			//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
 			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
-			//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+			ImVec2 mousePos = ImGui::GetIO().MousePos;
+			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+
+			// Convert canvas pos to world pos.
+			vec2 worldPos;
+			worldPos.x = mouseCanvasPos.x;
+			worldPos.y = mouseCanvasPos.y;
+			worldPos *= samplerTester->camScale;
+			worldPos += vec2(samplerTester->camOffset);
+			//std::cout << worldPos.x << ", " << worldPos.y << "\n";
 
 			/*{
 				vec3 camMove(0, 0, 0);
@@ -909,6 +924,17 @@ int main() {
 
 				if (wheel) {
 					samplerTester->camScale -= wheel * 0.1f * samplerTester->camScale;
+
+					vec2 newWorldPos;
+					newWorldPos.x = mouseCanvasPos.x;
+					newWorldPos.y = mouseCanvasPos.y;
+					newWorldPos *= samplerTester->camScale;
+					newWorldPos += vec2(samplerTester->camOffset);
+
+					vec2 deltaWorldPos = newWorldPos - worldPos;
+
+					samplerTester->camOffset.x -= deltaWorldPos.x;
+					samplerTester->camOffset.y -= deltaWorldPos.y;
 				}
 			}
 
