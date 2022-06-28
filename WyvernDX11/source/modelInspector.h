@@ -207,6 +207,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	tex2dDesc.CPUAccessFlags = 0;
 	tex2dDesc.MiscFlags = 0;
 
+	// TODO: Move this to app context.
 	ID3D11Texture2D* texResource;
 	if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &texResource) != S_OK) {
 		std::cout << "Texture failed to create\n";

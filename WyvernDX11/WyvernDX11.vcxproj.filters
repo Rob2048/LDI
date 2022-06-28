@@ -54,6 +54,9 @@
     <ClCompile Include="source\stlLoader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="source\network.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\graphics.h">
@@ -90,6 +93,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="source\samplerTester.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\network.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\camInspector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

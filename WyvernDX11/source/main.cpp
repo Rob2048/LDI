@@ -3,6 +3,9 @@
 #include <iostream>
 #include <vector>
 
+// NOTE: Must be included before any Windows includes.
+#include "network.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_win32.h"
@@ -17,6 +20,13 @@
 #include "plyLoader.h"
 #include "stlLoader.h"
 #include "image.h"
+
+#include <opencv2/core.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/aruco.hpp>
+#include <opencv2/aruco/charuco.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -80,6 +90,9 @@ struct ldiApp {
 	ID3D11PixelShader*			pointCloudPixelShader;
 	ID3D11InputLayout*			pointCloudInputLayout;
 
+	ID3D11VertexShader*			imgCamVertexShader;
+	ID3D11PixelShader*			imgCamPixelShader;
+
 	ID3D11Buffer*				mvpConstantBuffer;
 	ID3D11Buffer*				pointcloudConstantBuffer;
 
@@ -88,6 +101,10 @@ struct ldiApp {
 	ID3D11RasterizerState*		defaultRasterizerState;
 	ID3D11RasterizerState*		wireframeRasterizerState;
 	ID3D11DepthStencilState*	defaultDepthStencilState;
+
+	ID3D11ShaderResourceView*	camResourceView;
+	ID3D11SamplerState*			camSamplerState;
+	ID3D11Texture2D*			camTex;
 	
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
 	int								lineGeometryVertMax;
@@ -103,12 +120,16 @@ struct ldiApp {
 
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = false;
+	bool						showImageInspector = true;
 	bool						showModelInspector = true;
 	bool						showSamplerTester = false;
+	bool						showCamInspector = false;
 
 	// TODO: Move to platform struct.
 	bool						platformConnected = false;
+
+	float						camImageFilterFactor = 0.6f;
+	std::vector<vec2>			camImageCharucoCorners;
 };
 
 inline double _getTime(ldiApp* AppContext) {
@@ -124,10 +145,13 @@ inline double _getTime(ldiApp* AppContext) {
 #include "debugPrims.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
+#include "camInspector.h"
 
 ldiApp				_appContext = {};
 ldiModelInspector	_modelInspector = {};
 ldiSamplerTester	_samplerTester = {};
+ldiCamInspector		_camInspector = {};
+ldiServer			_server = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -288,6 +312,138 @@ bool _handleWindowLoop() {
 	return quit;
 }
 
+
+//----------------------------------------------------------------------------------------------------
+// OpenCV functionality.
+//----------------------------------------------------------------------------------------------------
+using namespace cv;
+
+cv::Ptr<cv::aruco::Dictionary> _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
+std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
+
+void CreateCharucos() {
+	//for (int i = 0; i < 6; ++i) {
+	//	cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.009f, 0.006f, _dictionary);
+	//	charucoBoards.push_back(board);
+
+	//	// NOTE: Shift ids.
+	//	// board->ids.
+	//	int offset = i * board->ids.size();
+
+	//	for (int j = 0; j < board->ids.size(); ++j) {
+	//		board->ids[j] = offset + j;
+	//	}
+	//}
+
+	try {
+		for (int i = 0; i < 6; ++i) {
+			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.9f, 0.6f, _dictionary);
+			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
+			_charucoBoards.push_back(board);
+
+			// NOTE: Shift ids.
+			int offset = i * board->ids.size();
+
+			for (int j = 0; j < board->ids.size(); ++j) {
+				board->ids[j] = offset + j;
+			}
+
+			// NOTE: Image output.
+			cv::Mat markerImage;
+			board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
+			char fileName[512];
+			sprintf_s(fileName, "charuco_small_%d.png", i);
+			cv::imwrite(fileName, markerImage);
+		}
+
+	}
+	catch (cv::Exception e) {
+		std::cout << "Exception: " << e.what() << "\n" << std::flush;
+	}
+}
+
+void _findCharuco(uint8_t* Data) {
+	double t0 = _getTime(&_appContext);
+
+	int offset = 1;
+
+	int width = 1600;
+	int height = 1300;
+	int id = -1;
+
+	try {
+		Mat image(Size(width, height), CV_8UC1, Data);
+		//Mat image;
+		//cv::flip(imageSrc, image, 0);
+		Mat imageDebug;
+		cv::cvtColor(image, imageDebug, cv::COLOR_GRAY2RGB);
+
+		std::vector<int> markerIds;
+		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
+		cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::aruco::DetectorParameters::create();
+		// TODO: Enable subpixel corner refinement.
+		// WTF is this doing?
+		//parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
+		cv::aruco::detectMarkers(image, _dictionary, markerCorners, markerIds, parameters, rejectedCandidates);
+		// Use refine strategy to detect more markers.
+		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
+		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
+
+		if (id != -1) {
+			aruco::drawDetectedMarkers(imageDebug, markerCorners, markerIds);
+		}
+
+		std::vector<std::vector<Point2f>> charucoCorners(6);
+		std::vector<std::vector<int>> charucoIds(6);
+
+		// Interpolate charuco corners for each possible board.
+		for (int i = 0; i < 6; ++i) {
+			if (markerCorners.size() > 0) {
+				aruco::interpolateCornersCharuco(markerCorners, markerIds, image, _charucoBoards[i], charucoCorners[i], charucoIds[i]);
+			}
+
+			if (charucoCorners[i].size() > 0) {
+				if (id != -1) {
+					aruco::drawDetectedCornersCharuco(imageDebug, charucoCorners[i], charucoIds[i]);
+				}
+			}
+		}
+
+		_appContext.camImageCharucoCorners.clear();
+
+		int boardCount = charucoIds.size();
+		//send(Client, (const char*)&boardCount, 4, 0);
+		std::cout << "Boards: " << boardCount << "\n";
+
+		for (int i = 0; i < boardCount; ++i) {
+			int markerCount = charucoIds[i].size();
+			std::cout << "Board " << i << " markers: " << markerCount << "\n";
+			//send(Client, (const char*)&markerCount, 4, 0);
+
+			for (int j = 0; j < markerCount; ++j) {
+				_appContext.camImageCharucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
+				std::cout << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
+				/*send(Client, (const char*)&charucoIds[i][j], 4, 0);
+				send(Client, (const char*)&charucoCorners[i][j], 8, 0);*/
+			}
+		}
+
+		if (id != -1) {
+			char buf[256];
+			sprintf_s(buf, "debug_%d.png", id);
+			cv::imwrite(buf, imageDebug);
+		}
+
+		t0 = _getTime(&_appContext) - t0;
+		std::cout << "Find charuco: " << (t0 * 1000.0) << " ms\n";
+	}
+	catch (Exception e) {
+		std::cout << "Exception: " << e.what() << "\n" << std::flush;
+	}
+
+	//std::cout << "Done finding charuco\n" << std::flush;
+}
+
 //----------------------------------------------------------------------------------------------------
 // Application.
 //----------------------------------------------------------------------------------------------------
@@ -358,6 +514,24 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/pointcloud.hlsl", "mainPs", &AppContext->pointCloudPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Image cam shader.
+	//----------------------------------------------------------------------------------------------------
+	ID3D11InputLayout* imguiUiLayoutOb;
+	D3D11_INPUT_ELEMENT_DESC imguiUiLayout[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, pos), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, uv),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, (UINT)IM_OFFSETOF(ImDrawVert, col), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
+	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/imgCam.hlsl", "mainVs", &AppContext->imgCamVertexShader, imguiUiLayout, 3, &imguiUiLayoutOb)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
 		return false;
 	}
 	
@@ -450,8 +624,85 @@ bool _initResources(ldiApp* AppContext) {
 		desc.BackFace = desc.FrontFace;*/
 		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->defaultDepthStencilState);
 	}
+
+	// Prime camera texture.
+	{
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = 1600;
+		tex2dDesc.Height = 1300;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DYNAMIC;
+		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		tex2dDesc.MiscFlags = 0;
+
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &AppContext->camTex) != S_OK) {
+			std::cout << "Texture failed to create\n";
+		}
+
+		AppContext->d3dDevice->CreateShaderResourceView(AppContext->camTex, NULL, &AppContext->camResourceView);
+
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.MipLODBias = 0;
+		samplerDesc.MaxAnisotropy = 16;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->camSamplerState);
+	}
 	
 	return true;
+}
+
+void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	//AddDrawCmd ??
+	_appContext.d3dDeviceContext->PSSetSamplers(0, 1, &_appContext.camSamplerState);
+	_appContext.d3dDeviceContext->PSSetShader(_appContext.imgCamPixelShader, NULL, 0);
+	_appContext.d3dDeviceContext->VSSetShader(_appContext.imgCamVertexShader, NULL, 0);
+}
+
+//----------------------------------------------------------------------------------------------------
+// Network command handling.
+//----------------------------------------------------------------------------------------------------
+static float _pixels[1600 * 1300] = {};
+static uint8_t _pixelsFinal[1600 * 1300] = {};
+
+void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
+	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
+	//std::cout << "Opcode: " << packetHeader->opcode << "\n";
+
+	if (packetHeader->opcode == 1) {
+		ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)PacketView->data;
+		//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
+
+		uint8_t* frameData = PacketView->data + sizeof(ldiProtocolImageHeader);
+
+		for (int i = 0; i < 1600 * 1300; ++i) {
+			_pixels[i] = _pixels[i] * _appContext.camImageFilterFactor + frameData[i] * (1.0f - _appContext.camImageFilterFactor);
+			_pixelsFinal[i] = _pixels[i];
+		}
+		
+		D3D11_MAPPED_SUBRESOURCE ms;
+		AppContext->d3dDeviceContext->Map(AppContext->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		uint8_t* pixelData = (uint8_t*)ms.pData;
+
+		for (int i = 0; i < 1300; ++i) {
+			// memcpy(pixelData + i * ms.RowPitch, (PacketView->data + sizeof(ldiProtocolImageHeader)) + i * 1600, 1600);
+			memcpy(pixelData + i * ms.RowPitch, _pixelsFinal + i * 1600, 1600);
+		}
+		
+		AppContext->d3dDeviceContext->Unmap(AppContext->camTex, 0);
+
+	} else {
+		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
+	}
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -459,6 +710,8 @@ bool _initResources(ldiApp* AppContext) {
 //----------------------------------------------------------------------------------------------------
 int main() {
 	std::cout << "Starting WyvernDX11\n";
+
+	CreateCharucos();
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
@@ -493,6 +746,12 @@ int main() {
 		std::cout << "Could not init sampler tester\n";
 		return 1;
 	}
+
+	ldiCamInspector* camInspector = &_camInspector;
+	if (camInspectorInit(appContext, camInspector) != 0) {
+		std::cout << "Could not init cam inspector\n";
+		return 1;
+	}
 	
 	if (!_initResources(appContext)) {
 		return 1;
@@ -506,12 +765,32 @@ int main() {
 	ImGui::DockBuilderDockWindow();
 	ImGui::DockBuilderFinish();*/
 
+	if (!networkInit(&_server, "20000")) {
+		std::cout << "Networking failure\n";
+		return 1;
+	}
+
 	// Main loop
 	bool running = true;
 	while (running) {
 		
 		if (_handleWindowLoop()) {
 			break;
+		}
+
+		while (true) {
+			ldiPacketView packetView;
+			int updateResult = networkUpdate(&_server, &packetView);
+
+			if (updateResult == 1) {
+				// Got packet.
+				_processPacket(appContext, &packetView);
+			} else if (updateResult == 0) {
+				// Would block.
+				break;
+			} else {
+				// Critical error.
+			}
 		}
 		
 		//----------------------------------------------------------------------------------------------------
@@ -573,6 +852,10 @@ int main() {
 				if (ImGui::MenuItem("Sampler tester", NULL, appContext->showSamplerTester)) {
 					appContext->showSamplerTester = !appContext->showSamplerTester;
 				}
+				if (ImGui::MenuItem("Cam inspector", NULL, appContext->showCamInspector)) {
+					appContext->showCamInspector = !appContext->showCamInspector;
+				}
+
 				ImGui::EndMenu();
 			}
 
@@ -661,24 +944,85 @@ int main() {
 		}
 
 		if (appContext->showImageInspector) {
+			ImGui::Begin("Image inspector controls");
+			if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+				static int shutterSpeed = 20000;
+				if (ImGui::SliderInt("Shutter speed", &shutterSpeed, 10, 100000)) {
+					std::cout << "Set shutter: " << shutterSpeed << "\n";
+				}
+			}
+
+			static float imgScale = 1.0f;
+
+			if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
+				ImGui::SliderFloat("Filter factor", &appContext->camImageFilterFactor, 0.0f, 1.0f);
+			}
+
+			if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::Button("Find Charuco")) {
+					_findCharuco(_pixelsFinal);
+				}
+			}
+
+			//ImGui::Checkbox("Grid", &camInspector->showGrid);
+			//if (ImGui::Button("Run sample test")) {
+				//camInspectorRunTest(camInspector);
+			//}
+			ImGui::End();
+
 			//ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(700, 600));
-			ImGui::Begin("Image inspector", 0, ImGuiWindowFlags_NoCollapse);
+			ImGui::Begin("Image inspector", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar);
 
-				ImGui::BeginChild("ImageChild", ImVec2(530, 0));
-					ImGui::Text("Image");
+				//ImGui::BeginChild("ImageChild", ImVec2(530, 0));
+					//ImGui::Text("Image");
 					//ID3D11ShaderResourceView*
 					//ImTextureID my_tex_id = io.Fonts->TexID;
 					ImVec2 pos = ImGui::GetCursorScreenPos();
 					ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
 					ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
 					ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
-					ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
+					ImVec4 border_col = ImVec4(0.5f, 0.5f, 0.5f, 0.0f); // 50% opaque white
 		
 					//ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
-				ImGui::EndChild();
+					ImDrawList* draw_list = ImGui::GetWindowDrawList();
+					draw_list->AddCallback(_imageInspectorSetStateCallback, 0);
 
-				ImGui::SameLine();
+					//window->DC.CursorPos
+					//ImGui::Image(appContext->camResourceView, ImVec2(1600 * imgScale, 1300 * imgScale), uv_min, uv_max, tint_col, border_col);
+					//window->DrawList->AddImage(user_texture_id, bb.Min + ImVec2(1, 1), bb.Max - ImVec2(1, 1), uv0, uv1, GetColorU32(tint_col));
+
+					draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+
+					for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
+						vec2 o = appContext->camImageCharucoCorners[i];
+
+						ImVec2 offset = pos;
+						// TODO: Do we need half pixel offset?
+						offset.x += imgScale * 0.5f;
+						offset.y += imgScale * 0.5f;
+
+						draw_list->AddCircle(ImVec2(o.x * imgScale + offset.x, o.y * imgScale + offset.y), 4.0f, ImColor(0, 255, 0));
+					}
+
+					for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
+						vec2 o = appContext->camImageCharucoCorners[i];
+
+						ImVec2 offset = pos;
+						offset.x += (o.x * imgScale) + 10;
+						offset.y += (o.y * imgScale) - 10;
+
+						char strBuf[256];
+						sprintf_s(strBuf, 256, "%.2f, %.2f", o.x, o.y);
+
+						draw_list->AddText(ImVec2(offset.x, offset.y), ImColor(0, 255, 0), strBuf);
+					}
+					
+					
+				//ImGui::EndChild();
+
+				/*ImGui::SameLine();
 				ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x, 0), false);
 					
 					ImGui::Text("Display channel");
@@ -687,7 +1031,7 @@ int main() {
 					ImGui::SameLine();
 					ImGui::Button("M");
 
-				ImGui::EndChild();
+				ImGui::EndChild();*/
 
 			ImGui::End();
 			ImGui::PopStyleVar();
@@ -992,6 +1336,74 @@ int main() {
 
 			//	ImGui::EndChild();
 			//}
+
+			ImGui::End();
+			ImGui::PopStyleVar();
+		}
+
+		if (appContext->showCamInspector) {
+			ImGui::Begin("Cam inspector controls");
+			ImGui::Checkbox("Grid", &camInspector->showGrid);
+			if (ImGui::Button("Run sample test")) {
+				//camInspectorRunTest(camInspector);
+			}
+			ImGui::End();
+
+			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			ImGui::Begin("Camera inspector", &appContext->showCamInspector, ImGuiWindowFlags_NoCollapse);
+
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+			// This will catch our interactions.
+			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
+			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+			ImVec2 mousePos = ImGui::GetIO().MousePos;
+			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+
+			// Convert canvas pos to world pos.
+			vec2 worldPos;
+			worldPos.x = mouseCanvasPos.x;
+			worldPos.y = mouseCanvasPos.y;
+			worldPos *= camInspector->camScale;
+			worldPos += vec2(camInspector->camOffset);
+			//std::cout << worldPos.x << ", " << worldPos.y << "\n";
+
+			if (isHovered) {
+				float wheel = ImGui::GetIO().MouseWheel;
+
+				if (wheel) {
+					camInspector->camScale -= wheel * 0.1f * camInspector->camScale;
+
+					vec2 newWorldPos;
+					newWorldPos.x = mouseCanvasPos.x;
+					newWorldPos.y = mouseCanvasPos.y;
+					newWorldPos *= camInspector->camScale;
+					newWorldPos += vec2(camInspector->camOffset);
+
+					vec2 deltaWorldPos = newWorldPos - worldPos;
+
+					camInspector->camOffset.x -= deltaWorldPos.x;
+					camInspector->camOffset.y -= deltaWorldPos.y;
+				}
+			}
+
+			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= camInspector->camScale;
+
+				camInspector->camOffset -= vec3(mouseDelta.x, mouseDelta.y, 0);
+			}
+
+			ImGui::SetCursorPos(startPos);
+			std::vector<ldiTextInfo> textBuffer;
+			camInspectorRender(camInspector, viewSize.x, viewSize.y, &textBuffer);
+			ImGui::Image(camInspector->renderViewBuffers.mainViewResourceView, viewSize);
 
 			ImGui::End();
 			ImGui::PopStyleVar();
