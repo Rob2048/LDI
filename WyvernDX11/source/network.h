@@ -38,5 +38,12 @@ struct ldiProtocolImageHeader {
 	int height;
 };
 
+struct ldiProtocolSettings {
+	ldiProtocolHeader header;
+	int shutterSpeed;
+	int analogGain;
+};
+
 int networkInit(ldiServer* Server, const char* Port);
 int networkUpdate(ldiServer* Server, ldiPacketView* PacketView);
+int networkSend(ldiServer* Server, uint8_t* Data, int Size);

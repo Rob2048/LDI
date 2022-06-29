@@ -129,7 +129,13 @@ struct ldiApp {
 	bool						platformConnected = false;
 
 	float						camImageFilterFactor = 0.6f;
+	std::vector<vec2>			camImageMarkerCorners;
+	std::vector<int>			camImageMarkerIds;
 	std::vector<vec2>			camImageCharucoCorners;
+	vec2						camImageCursorPos;
+	uint8_t						camImagePixelValue;
+	int							camImageShutterSpeed = 8000;
+	int							camImageAnalogGain = 1;
 };
 
 inline double _getTime(ldiApp* AppContext) {
@@ -396,6 +402,16 @@ void _findCharuco(uint8_t* Data) {
 		std::vector<std::vector<Point2f>> charucoCorners(6);
 		std::vector<std::vector<int>> charucoIds(6);
 
+		_appContext.camImageMarkerCorners.clear();
+		_appContext.camImageCharucoCorners.clear();
+		_appContext.camImageMarkerIds = markerIds;
+
+		for (int i = 0; i < markerCorners.size(); ++i) {
+			for (int j = 0; j < markerCorners[i].size(); ++j) {
+				_appContext.camImageMarkerCorners.push_back(vec2(markerCorners[i][j].x, markerCorners[i][j].y));
+			}
+		}
+
 		// Interpolate charuco corners for each possible board.
 		for (int i = 0; i < 6; ++i) {
 			if (markerCorners.size() > 0) {
@@ -408,8 +424,6 @@ void _findCharuco(uint8_t* Data) {
 				}
 			}
 		}
-
-		_appContext.camImageCharucoCorners.clear();
 
 		int boardCount = charucoIds.size();
 		//send(Client, (const char*)&boardCount, 4, 0);
@@ -678,7 +692,14 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
 	//std::cout << "Opcode: " << packetHeader->opcode << "\n";
 
-	if (packetHeader->opcode == 1) {
+	if (packetHeader->opcode == 0) {
+		ldiProtocolSettings* packet = (ldiProtocolSettings*)PacketView->data;
+		std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
+
+		AppContext->camImageShutterSpeed = packet->shutterSpeed;
+		AppContext->camImageAnalogGain = packet->analogGain;
+
+	} else if (packetHeader->opcode == 1) {
 		ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)PacketView->data;
 		//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
 
@@ -946,17 +967,39 @@ int main() {
 		if (appContext->showImageInspector) {
 			ImGui::Begin("Image inspector controls");
 			if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-				static int shutterSpeed = 20000;
-				if (ImGui::SliderInt("Shutter speed", &shutterSpeed, 10, 100000)) {
-					std::cout << "Set shutter: " << shutterSpeed << "\n";
+				bool newSettings = false;
+
+				if (ImGui::SliderInt("Shutter speed", &appContext->camImageShutterSpeed, 10, 100000)) {
+					//std::cout << "Set shutter: " << appContext->camImageShutterSpeed << "\n";
+					newSettings = true;
+				}
+
+				if (ImGui::SliderInt("Analog gain", &appContext->camImageAnalogGain, 0, 100)) {
+					//std::cout << "Set shutter: " << appContext->camImageAnalogGain << "\n";
+					newSettings = true;
+				}
+
+				if (newSettings) {
+					ldiProtocolSettings settings;
+					settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
+					settings.header.opcode = 0;
+					settings.shutterSpeed = appContext->camImageShutterSpeed;
+					settings.analogGain = appContext->camImageAnalogGain;
+
+					networkSend(&_server, (uint8_t*)&settings, sizeof(ldiProtocolSettings));
 				}
 			}
 
 			static float imgScale = 1.0f;
+			static vec2 imgOffset(0.0f, 0.0f);
 
 			if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
 				ImGui::SliderFloat("Filter factor", &appContext->camImageFilterFactor, 0.0f, 1.0f);
+				//char strBuff[256];
+				//sprintf_s(strBuff, sizeof(strBuff), 
+				ImGui::Text("Cursor position: %.2f, %.2f", appContext->camImageCursorPos.x, appContext->camImageCursorPos.y);
+				ImGui::Text("Cursor value: %d", appContext->camImagePixelValue);
 			}
 
 			if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -975,6 +1018,50 @@ int main() {
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(700, 600));
 			ImGui::Begin("Image inspector", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar);
 
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+			// This will catch our interactions.
+			ImGui::InvisibleButton("__imgInspecViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			ImVec2 mousePos = ImGui::GetIO().MousePos;
+			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+
+			// Convert canvas pos to world pos.
+			vec2 worldPos;
+			worldPos.x = mouseCanvasPos.x;
+			worldPos.y = mouseCanvasPos.y;
+			worldPos *= (1.0 / imgScale);
+			worldPos -= imgOffset;
+
+			if (isHovered) {
+				float wheel = ImGui::GetIO().MouseWheel;
+
+				if (wheel) {
+					imgScale += wheel * 0.2f * imgScale;
+
+					vec2 newWorldPos;
+					newWorldPos.x = mouseCanvasPos.x;
+					newWorldPos.y = mouseCanvasPos.y;
+					newWorldPos *= (1.0 / imgScale);
+					newWorldPos -= imgOffset;
+
+					vec2 deltaWorldPos = newWorldPos - worldPos;
+
+					imgOffset.x += deltaWorldPos.x;
+					imgOffset.y += deltaWorldPos.y;
+				}
+			}
+
+			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= (1.0 / imgScale);
+
+				imgOffset += vec2(mouseDelta.x, mouseDelta.y);
+			}
+
 				//ImGui::BeginChild("ImageChild", ImVec2(530, 0));
 					//ImGui::Text("Image");
 					//ID3D11ShaderResourceView*
@@ -991,32 +1078,103 @@ int main() {
 
 					//window->DC.CursorPos
 					//ImGui::Image(appContext->camResourceView, ImVec2(1600 * imgScale, 1300 * imgScale), uv_min, uv_max, tint_col, border_col);
-					//window->DrawList->AddImage(user_texture_id, bb.Min + ImVec2(1, 1), bb.Max - ImVec2(1, 1), uv0, uv1, GetColorU32(tint_col));
+					ImVec2 imgMin;
+					imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
+					imgMin.y = screenStartPos.y + imgOffset.y * imgScale;
+
+					ImVec2 imgMax;
+					imgMax.x = imgMin.x + 1600 * imgScale;
+					imgMax.y = imgMin.y + 1300 * imgScale;
+
+					draw_list->AddImage(appContext->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 
 					draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+
+					std::vector<vec2> markerCentroids;
+
+					for (int i = 0; i < appContext->camImageMarkerCorners.size() / 4; ++i) {
+						/*ImVec2 offset = pos;
+						offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+						offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;*/
+
+						ImVec2 points[5];
+
+						vec2 markerCentroid(0.0f, 0.0f);
+
+						for (int j = 0; j < 4; ++j) {
+							vec2 o = appContext->camImageMarkerCorners[i * 4 + j];
+
+							points[j] = pos;
+							points[j].x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+							points[j].y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
+
+							markerCentroid.x += points[j].x;
+							markerCentroid.y += points[j].y;
+						}
+						points[4] = points[0];
+
+						markerCentroid /= 4.0f;
+						markerCentroids.push_back(markerCentroid);
+
+						draw_list->AddPolyline(points, 5, ImColor(0, 0, 255), 0, 1.0f);
+						//draw_list->AddCircle(offset, 4.0f, ImColor(0, 0, 255));
+					}
+
+					//std::cout << appContext->camImageMarkerIds.size() << "\n";
+
+					for (int i = 0; i < appContext->camImageMarkerIds.size(); ++i) {
+						char strBuff[32];
+						sprintf_s(strBuff, sizeof(strBuff), "%d", appContext->camImageMarkerIds[i]);
+						draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
+					}
 
 					for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
 						vec2 o = appContext->camImageCharucoCorners[i];
 
+						// TODO: Do we need half pixel offset? Check debug drawing commands.
 						ImVec2 offset = pos;
-						// TODO: Do we need half pixel offset?
-						offset.x += imgScale * 0.5f;
-						offset.y += imgScale * 0.5f;
+						offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+						offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
 
-						draw_list->AddCircle(ImVec2(o.x * imgScale + offset.x, o.y * imgScale + offset.y), 4.0f, ImColor(0, 255, 0));
+						draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
 					}
 
 					for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
 						vec2 o = appContext->camImageCharucoCorners[i];
 
 						ImVec2 offset = pos;
-						offset.x += (o.x * imgScale) + 10;
-						offset.y += (o.y * imgScale) - 10;
+						offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale + 5;
+						offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale - 15;
 
 						char strBuf[256];
 						sprintf_s(strBuf, 256, "%.2f, %.2f", o.x, o.y);
 
-						draw_list->AddText(ImVec2(offset.x, offset.y), ImColor(0, 255, 0), strBuf);
+						draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+					}
+
+					// Cursor.
+					{
+						vec2 pixelPos;
+						pixelPos.x = (int)worldPos.x;
+						pixelPos.y = (int)worldPos.y;
+
+						appContext->camImageCursorPos = worldPos;
+
+						if (pixelPos.x >= 0 && pixelPos.x < 1600) {
+							if (pixelPos.y >= 0 && pixelPos.y < 1300) {
+								appContext->camImagePixelValue = _pixelsFinal[(int)pixelPos.y * 1600 + (int)pixelPos.x];
+							}
+						}
+
+						ImVec2 rMin;
+						rMin.x = screenStartPos.x + (imgOffset.x + pixelPos.x) * imgScale;
+						rMin.y = screenStartPos.y + (imgOffset.y + pixelPos.y) * imgScale;
+
+						ImVec2 rMax = rMin;
+						rMax.x += imgScale;
+						rMax.y += imgScale;
+
+						draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
 					}
 					
 					
@@ -1208,7 +1366,7 @@ int main() {
 			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
 			// This will catch our interactions.
-			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			ImGui::InvisibleButton("__sampleTestViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			const bool isHovered = ImGui::IsItemHovered(); // Hovered
 			const bool isActive = ImGui::IsItemActive();   // Held
 			//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();

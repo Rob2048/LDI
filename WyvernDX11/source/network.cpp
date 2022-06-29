@@ -202,3 +202,12 @@ int networkUpdate(ldiServer* Server, ldiPacketView* PacketView) {
 
 	return 0;
 }
+
+int networkSend(ldiServer* Server, uint8_t* Data, int Size) {
+	int result = send(Server->clientSocket, (const char*)Data, Size, 0);
+	std::cout << "Send result: " << result << "\n";
+
+	return 0;
+}
+
+	

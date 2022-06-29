@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 
 struct ldiNet {
 	int socket;
@@ -52,33 +53,105 @@ int networkConnect(ldiNet* Net, const char* Hostname, int Port) {
 	servaddr.sin_addr.s_addr = inet_addr(Hostname);
 	servaddr.sin_port = htons(Port);
 
-	if (connect(sockFd, (struct sockaddr*)&servaddr, sizeof(servaddr)) != 0) {
-		std::cout << "Could not connect to server\n";
-		return 1;
+	fcntl(sockFd, F_SETFL, O_NONBLOCK);
+
+	int connectResult = connect(sockFd, (struct sockaddr*)&servaddr, sizeof(servaddr));
+
+	fd_set set;
+	FD_ZERO(&set);
+	FD_SET(sockFd, &set);
+
+	struct timeval timeout;
+	timeout.tv_sec = 1;
+	timeout.tv_usec = 0;
+
+	connectResult = select(sockFd + 1, NULL, &set, NULL, &timeout);
+
+	// std::cout << "Select: " << connectResult << "\n";
+
+	// int val = 69;
+	// socklen_t len;
+	// if (getsockopt(sockFd, SOL_SOCKET, SO_ERROR, &val, &len) == -1) {
+	// 	std::cout << "Getsocketopt error: " << errno << "\n";
+	// } else {
+	// 	std::cout << "Getsocketopt val: " << val << "\n";
+	// }
+
+	if (connectResult == 1) {
+		// NOTE: Clear O_NONBLOCKING flag. (Will clear all flags)
+		// fcntl(sockFd, F_SETFL, 0);
+		Net->socket = sockFd;
+		std::cout << "Connected to server\n";
+		return 0;
+	}
+	// std::cout << "Select result: " << connectResult << "\n";
+	// }
+
+	// Failed.
+	close(sockFd);
+	return 1;
+
+	// exit(1);
+
+	// if (connectResult != 0) {
+	// 	if (errno != EINPROGRESS) {
+	// 		std::cout << "Could not connect to server\n";
+	// 		return 1;
+	// 	} else {
+	// 		std::cout << "In progress\n";
+	// 	}
+	// }
+}
+
+int networkRead(ldiNet* Net, uint8_t* Data, int Size) {
+	int readBytes = 0;
+
+	while (true) {
+		int result = read(Net->socket, Data + readBytes, Size - readBytes);
+
+		if (result == -1) {
+			if (errno == EAGAIN) {
+				return readBytes;
+			} else {
+				std::cout << "Read -1 " << errno << "\n";
+				break;
+			}
+		} else if (result > 0) {
+			std::cout << "Read bytes: " << result << "\n";
+			readBytes += result;
+		} else if (result == 0) {
+			break;
+		}
 	}
 
-	Net->socket = sockFd;
-
-	std::cout << "Connected to server\n";
-
-	return 0;
+	networkDisconnect(Net);
+	return -1;
 }
 
 int networkWrite(ldiNet* Net, uint8_t* Data, int Size) {
 	// TODO: Make sure to write all bytes.
+	int sent = 0;
 
-	int result = send(Net->socket, Data, Size, MSG_NOSIGNAL);
+	while (sent < Size) {
+		int result = send(Net->socket, Data + sent, Size - sent, MSG_NOSIGNAL);
 
-	std::cout << "Written: " << result << "\n";
+		// std::cout << "Send result: " << result << "\n";
 
-	if (result == -1) {
-		std::cout << "Can't write to connection\n";
-		networkDisconnect(Net);
-		return 1;
-	} else if (result < Size) {
-		std::cout << "Didn't write all bytes!\n";
-		networkDisconnect(Net);
-		return 1;
+		if (result == -1) {
+			// std::cout << "Can't write to connection " << errno << "\n";
+
+			if (errno == EAGAIN) {
+				// TODO: Wait until socket becomes writable?
+			} else {
+				networkDisconnect(Net);
+				return 1;
+			}
+		} else if (result <= Size) {
+			sent += result;
+			// std::cout << "Wrote bytes" << sent << "/" << Size << "\n";
+			// networkDisconnect(Net);
+			// return 1;
+		}
 	}
 
 	return 0;
