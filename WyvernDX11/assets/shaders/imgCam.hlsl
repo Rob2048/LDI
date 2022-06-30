@@ -32,9 +32,29 @@ sampler sampler0;
 Texture2D texture0;
 
 float4 mainPs(PS_INPUT input) : SV_Target {
-	float camI = texture0.Sample(sampler0, input.uv).r;
-	// float4 out_col = input.col * texture0.Sample(sampler0, input.uv);
+	float pixelX = floor(input.uv.x * 1920);
+	float pixelY = floor(input.uv.y * 1080);
 
+	float oddX = fmod(pixelX, 2.0);
+	float oddY = fmod(pixelY, 2.0);
+
+	float gainRed = 1.4f;
+	float gainGreen = 1.4f;
+	float gainBlue = 3.0f;
+
+	float camI = texture0.Sample(sampler0, input.uv).r;
+
+	if (oddX != 0 && oddY != 0) {
+		// Red
+		camI *= gainRed;
+	} else if (oddX == 0 && oddY == 0) {
+		// Blue
+		camI *= gainBlue;
+	} else {
+		// Green
+		camI *= gainGreen;
+	}
+	
 	if (camI >= (254.0 / 255.0)) {
 		return float4(0.5, 0, 0, 1);
 	}

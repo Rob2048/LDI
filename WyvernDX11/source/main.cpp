@@ -35,6 +35,12 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+
+//#define CAM_IMG_WIDTH 1600
+//#define CAM_IMG_HEIGHT 1300
+#define CAM_IMG_WIDTH 1920
+#define CAM_IMG_HEIGHT 1080
+
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
 	vec4 screenSize;
@@ -373,8 +379,8 @@ void _findCharuco(uint8_t* Data) {
 
 	int offset = 1;
 
-	int width = 1600;
-	int height = 1300;
+	int width = CAM_IMG_WIDTH;
+	int height = CAM_IMG_HEIGHT;
 	int id = -1;
 
 	try {
@@ -642,8 +648,8 @@ bool _initResources(ldiApp* AppContext) {
 	// Prime camera texture.
 	{
 		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = 1600;
-		tex2dDesc.Height = 1300;
+		tex2dDesc.Width = CAM_IMG_WIDTH;
+		tex2dDesc.Height = CAM_IMG_HEIGHT;
 		tex2dDesc.MipLevels = 1;
 		tex2dDesc.ArraySize = 1;
 		tex2dDesc.Format = DXGI_FORMAT_R8_UNORM;
@@ -685,8 +691,8 @@ void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDraw
 //----------------------------------------------------------------------------------------------------
 // Network command handling.
 //----------------------------------------------------------------------------------------------------
-static float _pixels[1600 * 1300] = {};
-static uint8_t _pixelsFinal[1600 * 1300] = {};
+static float _pixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+static uint8_t _pixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 
 void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
@@ -705,7 +711,7 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 
 		uint8_t* frameData = PacketView->data + sizeof(ldiProtocolImageHeader);
 
-		for (int i = 0; i < 1600 * 1300; ++i) {
+		for (int i = 0; i < CAM_IMG_WIDTH * CAM_IMG_HEIGHT; ++i) {
 			_pixels[i] = _pixels[i] * _appContext.camImageFilterFactor + frameData[i] * (1.0f - _appContext.camImageFilterFactor);
 			_pixelsFinal[i] = _pixels[i];
 		}
@@ -714,9 +720,8 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 		AppContext->d3dDeviceContext->Map(AppContext->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		uint8_t* pixelData = (uint8_t*)ms.pData;
 
-		for (int i = 0; i < 1300; ++i) {
-			// memcpy(pixelData + i * ms.RowPitch, (PacketView->data + sizeof(ldiProtocolImageHeader)) + i * 1600, 1600);
-			memcpy(pixelData + i * ms.RowPitch, _pixelsFinal + i * 1600, 1600);
+		for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
+			memcpy(pixelData + i * ms.RowPitch, _pixelsFinal + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
 		}
 		
 		AppContext->d3dDeviceContext->Unmap(AppContext->camTex, 0);
@@ -1076,15 +1081,13 @@ int main() {
 					ImDrawList* draw_list = ImGui::GetWindowDrawList();
 					draw_list->AddCallback(_imageInspectorSetStateCallback, 0);
 
-					//window->DC.CursorPos
-					//ImGui::Image(appContext->camResourceView, ImVec2(1600 * imgScale, 1300 * imgScale), uv_min, uv_max, tint_col, border_col);
 					ImVec2 imgMin;
 					imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
 					imgMin.y = screenStartPos.y + imgOffset.y * imgScale;
 
 					ImVec2 imgMax;
-					imgMax.x = imgMin.x + 1600 * imgScale;
-					imgMax.y = imgMin.y + 1300 * imgScale;
+					imgMax.x = imgMin.x + CAM_IMG_WIDTH * imgScale;
+					imgMax.y = imgMin.y + CAM_IMG_HEIGHT * imgScale;
 
 					draw_list->AddImage(appContext->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 
@@ -1160,9 +1163,9 @@ int main() {
 
 						appContext->camImageCursorPos = worldPos;
 
-						if (pixelPos.x >= 0 && pixelPos.x < 1600) {
-							if (pixelPos.y >= 0 && pixelPos.y < 1300) {
-								appContext->camImagePixelValue = _pixelsFinal[(int)pixelPos.y * 1600 + (int)pixelPos.x];
+						if (pixelPos.x >= 0 && pixelPos.x < CAM_IMG_WIDTH) {
+							if (pixelPos.y >= 0 && pixelPos.y < CAM_IMG_HEIGHT) {
+								appContext->camImagePixelValue = _pixelsFinal[(int)pixelPos.y * CAM_IMG_WIDTH + (int)pixelPos.x];
 							}
 						}
 
