@@ -35,11 +35,12 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-
-//#define CAM_IMG_WIDTH 1600
-//#define CAM_IMG_HEIGHT 1300
-#define CAM_IMG_WIDTH 1920
-#define CAM_IMG_HEIGHT 1080
+#define CAM_IMG_WIDTH 1600
+#define CAM_IMG_HEIGHT 1300
+//#define CAM_IMG_WIDTH 1920
+//#define CAM_IMG_HEIGHT 1080
+//#define CAM_IMG_WIDTH 3280
+//#define CAM_IMG_HEIGHT 2464
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -48,6 +49,10 @@ struct ldiBasicConstantBuffer {
 	vec4 color;
 	mat4 view;
 	mat4 proj;
+};
+
+struct ldiCamImagePixelConstants {
+	vec4 params;
 };
 
 struct ldiPointCloudConstantBuffer {
@@ -131,9 +136,10 @@ struct ldiApp {
 	bool						showSamplerTester = false;
 	bool						showCamInspector = false;
 
-	// TODO: Move to platform struct.
+	// Platform.
 	bool						platformConnected = false;
 
+	// Cam Image.
 	float						camImageFilterFactor = 0.6f;
 	std::vector<vec2>			camImageMarkerCorners;
 	std::vector<int>			camImageMarkerIds;
@@ -142,6 +148,10 @@ struct ldiApp {
 	uint8_t						camImagePixelValue;
 	int							camImageShutterSpeed = 8000;
 	int							camImageAnalogGain = 1;
+	float						camImageGainR = 1.0f;
+	float						camImageGainG = 1.0f;
+	float						camImageGainB = 1.0f;
+	ID3D11Buffer*				camImagePixelConstants;
 };
 
 inline double _getTime(ldiApp* AppContext) {
@@ -334,21 +344,9 @@ cv::Ptr<cv::aruco::Dictionary> _dictionary = cv::aruco::getPredefinedDictionary(
 std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
 
 void CreateCharucos() {
-	//for (int i = 0; i < 6; ++i) {
-	//	cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.009f, 0.006f, _dictionary);
-	//	charucoBoards.push_back(board);
-
-	//	// NOTE: Shift ids.
-	//	// board->ids.
-	//	int offset = i * board->ids.size();
-
-	//	for (int j = 0; j < board->ids.size(); ++j) {
-	//		board->ids[j] = offset + j;
-	//	}
-	//}
-
 	try {
 		for (int i = 0; i < 6; ++i) {
+			//	cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.009f, 0.006f, _dictionary);
 			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.9f, 0.6f, _dictionary);
 			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
 			_charucoBoards.push_back(board);
@@ -364,12 +362,10 @@ void CreateCharucos() {
 			cv::Mat markerImage;
 			board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
 			char fileName[512];
-			sprintf_s(fileName, "charuco_small_%d.png", i);
+			sprintf_s(fileName, "cache/charuco_small_%d.png", i);
 			cv::imwrite(fileName, markerImage);
 		}
-
-	}
-	catch (cv::Exception e) {
+	} catch (cv::Exception e) {
 		std::cout << "Exception: " << e.what() << "\n" << std::flush;
 	}
 }
@@ -460,8 +456,6 @@ void _findCharuco(uint8_t* Data) {
 	catch (Exception e) {
 		std::cout << "Exception: " << e.what() << "\n" << std::flush;
 	}
-
-	//std::cout << "Done finding charuco\n" << std::flush;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -553,6 +547,19 @@ bool _initResources(ldiApp* AppContext) {
 
 	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
 		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Cam image constant buffer.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_BUFFER_DESC desc = {};
+		desc.ByteWidth = sizeof(ldiCamImagePixelConstants);
+		desc.Usage = D3D11_USAGE_DYNAMIC;
+		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		desc.MiscFlags = 0;
+		AppContext->d3dDevice->CreateBuffer(&desc, NULL, &AppContext->camImagePixelConstants);
 	}
 	
 	//----------------------------------------------------------------------------------------------------
@@ -682,10 +689,22 @@ bool _initResources(ldiApp* AppContext) {
 }
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	ldiApp* appContext = &_appContext;
+
 	//AddDrawCmd ??
 	_appContext.d3dDeviceContext->PSSetSamplers(0, 1, &_appContext.camSamplerState);
 	_appContext.d3dDeviceContext->PSSetShader(_appContext.imgCamPixelShader, NULL, 0);
 	_appContext.d3dDeviceContext->VSSetShader(_appContext.imgCamVertexShader, NULL, 0);
+
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
+		constantBuffer->params = vec4(appContext->camImageGainR, appContext->camImageGainG, appContext->camImageGainB, 0);
+		appContext->d3dDeviceContext->Unmap(appContext->camImagePixelConstants, 0);
+	}
+
+	_appContext.d3dDeviceContext->PSSetConstantBuffers(0, 1, &_appContext.camImagePixelConstants);
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -1001,8 +1020,9 @@ int main() {
 			if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
 				ImGui::SliderFloat("Filter factor", &appContext->camImageFilterFactor, 0.0f, 1.0f);
-				//char strBuff[256];
-				//sprintf_s(strBuff, sizeof(strBuff), 
+				ImGui::SliderFloat("Gain R", &appContext->camImageGainR, 0.0f, 2.0f);
+				ImGui::SliderFloat("Gain G", &appContext->camImageGainG, 0.0f, 2.0f);
+				ImGui::SliderFloat("Gain B", &appContext->camImageGainB, 0.0f, 2.0f);
 				ImGui::Text("Cursor position: %.2f, %.2f", appContext->camImageCursorPos.x, appContext->camImageCursorPos.y);
 				ImGui::Text("Cursor value: %d", appContext->camImagePixelValue);
 			}
@@ -1156,7 +1176,7 @@ int main() {
 					}
 
 					// Cursor.
-					{
+					if (isHovered) {
 						vec2 pixelPos;
 						pixelPos.x = (int)worldPos.x;
 						pixelPos.y = (int)worldPos.y;

@@ -187,7 +187,7 @@ int networkUpdate(ldiServer* Server, ldiPacketView* PacketView) {
 					Server->recvSize += recvBytes;
 
 					if (Server->recvSize == Server->recvPacketPayloadLen + 4) {
-						//std::cout << "Got entire packet\n";
+						//std::cout << "Got entire packet " << Server->recvSize << "\n";
 						PacketView->data = Server->recvBuffer;
 						PacketView->size = Server->recvSize;
 						Server->recvPacketState = 0;
