@@ -18,6 +18,10 @@ Laser direct imager.
 - Point filter.
 - Mesh fit.
 
+![Screenshot](resources/scan.gif)
+
+![Screenshot](resources/scan_normals.png)
+
 ## Toner coat
 - Once for Cyan, Magenta, Yellow, and Black.
 - Preparation stage between each powder coating.
@@ -29,6 +33,14 @@ Laser direct imager.
 - Apply semi-gloss coat.
 
 # Color process
+
+![Screenshot](resources/color_process_1.jpg)
+
+![Screenshot](resources/color_process_2.jpg)
+
+![Screenshot](resources/color_process_3.jpg)
+
+![Screenshot](resources/color_process_4.jpg)
 
 ## Color accuracy & image reproduction quality
 - Initial simulations have shown good coverage, but do not include beam cone.
@@ -75,6 +87,8 @@ Laser direct imager.
 	- Check papers.
 	- Directly related to kernel size?
 
+![Screenshot](resources/wyvern.png)
+
 ## Platform calibration
 - https://hackaday.io/project/11377-lego-optics-lab-laser-interferometer/details
 - Laser line created with masked lens and normal LED diode?
@@ -86,6 +100,8 @@ Laser direct imager.
 	- Laser line is central, directly over sintering laser.
 	- Camera is offset horizontally from lasers, pointing at laser focus center.
 - Machine vision ideal setup (simulation) is giving micron precision over 17cm target board.
+
+![Screenshot](resources/calibration.png)
 
 ## Galvo field calibration
 - Find center line and rotation.
@@ -161,29 +177,37 @@ Laser direct imager.
 
 # Focus tests
 2.5W, 94mm, Default lens (taps), 20 * 266
+
 ![Screenshot](resources/focus_tests/1.png)
 
 2.5W, 50mm, Default lens (taps), 12.32 * 121.8112
+
 ![Screenshot](resources/focus_tests/2.png)
 
 2.5W, 200mm, Default lens (taps), 33.6 * 589.12
+
 ![Screenshot](resources/focus_tests/3.png)
 
 2.5W, 200mm, Grey original lens, 33.6 * 748.16
+
 ![Screenshot](resources/focus_tests/4.png)
 
 0.5W, 200mm, Grey original lens, 25 * 25 (Perfect), 625um2
+
 ![Screenshot](resources/focus_tests/5.png)
 
 0.5W, 100mm, Grey original lens, 13.44 * 13.44, 181um2
 (Density is significantly better (~3.4x) than 200mm)
+
 ![Screenshot](resources/focus_tests/6.png)
 
 # Dot tests
 0.5W, offset: 12mm, burn time: 180us. 35um dots.
+
 ![Screenshot](resources/dot_tests/1.png)
 
 0.5W, offset: 10mm, burn time: 220us. 60um dots.
+
 ![Screenshot](resources/dot_tests/2.png)
 
 
