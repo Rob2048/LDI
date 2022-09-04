@@ -133,7 +133,7 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 	verts.resize(ModelSource->verts.size());
 	for (int i = 0; i < verts.size(); ++i) {
 		verts[i].position = ModelSource->verts[i];
-		verts[i].color = vec3(0.2, 0.2, 0.2);
+		verts[i].color = vec3(0.1, 0.1, 0.1);
 	}
 
 	int quadCount = ModelSource->indices.size() / 4;
@@ -200,6 +200,8 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 	uint32_t* indices = new uint32_t[indexCount];
 
 	double totalArea = 0.0;
+
+	const double dotSize = 0.0075;
 	
 	for (int i = 0; i < quadCount; ++i) {
 		vec3 p0 = ModelSource->verts[ModelSource->indices[i * 4 + 0]];
@@ -214,7 +216,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 
 		// Find biggest error;
 		float error = 0.0f;
-		float target = 0.01f;
+		float target = dotSize;
 
 		/*error = max(error, abs(s0 - target));
 		error = max(error, abs(s1 - target));
@@ -226,8 +228,26 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		totalArea += area;
 
 		error = area - (target * target);
-		float colErr = 0.5 + (error * 3000.0);
+		//float colErr = 0.5 + (error * 3000.0);
+		float colErr = 0.75 + (error * 4000.0);
 		vec3 color(colErr, colErr, colErr);
+
+		// NOTE: Calculate normal.
+		vec3 normal = glm::normalize(glm::cross(p1 - p0, p3 - p0));
+
+		color.x = normal.x * 0.5 + 0.5;
+		color.y = normal.y * 0.5 + 0.5;
+		color.z = normal.z * 0.5 + 0.5;
+
+		color.x *= colErr;
+		color.y *= colErr;
+		color.z *= colErr;
+
+		int scaledIdx = i * (0xFFFFFF / quadCount);
+
+		color.x = ((scaledIdx >> 0) & 0xFF) / 255.0f;
+		color.y = ((scaledIdx >> 8) & 0xFF) / 255.0f;
+		color.z = ((scaledIdx >> 16) & 0xFF) / 255.0f;
 
 		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
 		ldiSimpleVertex* v1 = &verts[i * 4 + 1];
@@ -254,7 +274,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		indices[i * 6 + 5] = i * 4 + 2;
 	}
 
-	double singleDotArea = 0.005 * 0.005;
+	double singleDotArea = dotSize * dotSize;
 	double dotsInArea = totalArea / singleDotArea;
 
 	std::cout << "Total area: " << totalArea << " cm3 Dots: " << (int)dotsInArea << "\n";
@@ -372,7 +392,7 @@ void gfxRenderWireModel(ldiApp* AppContext, ldiRenderLines* Model) {
 	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
 	AppContext->d3dDeviceContext->RSSetState(AppContext->wireframeRasterizerState);
 
-	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->wireframeDepthStencilState, 0);
 
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }

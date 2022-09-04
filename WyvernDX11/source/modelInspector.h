@@ -23,6 +23,8 @@ struct ldiModelInspector {
 	float						pointScreenSize = 2.0f;
 	float						pointScreenSpaceBlend = 0.0f;
 
+	float						cameraSpeed = 1.0f;
+
 	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 
@@ -38,7 +40,7 @@ struct ldiModelInspector {
 
 void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
 	double t0 = _getTime(ModelInspector->appContext);
-	stlSaveModel("./cache/source.stl", &ModelInspector->dergnModel);
+	stlSaveModel("../cache/source.stl", &ModelInspector->dergnModel);
 	t0 = _getTime(ModelInspector->appContext) - t0;
 	std::cout << "Save STL: " << t0 * 1000.0f << " ms\n";
 
@@ -56,7 +58,7 @@ void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
 		// C:\Projects\LDI\WyvernDX11\assets\bin
 
 		CreateProcessA(
-			"../assets/bin/PolyMender-clean.exe",
+			"../../assets/bin/PolyMender-clean.exe",
 			args,
 			NULL,
 			NULL,
@@ -82,11 +84,14 @@ void modelInspectorCreateQuadMesh(ldiModelInspector* ModelInspector) {
 		si.cb = sizeof(si);
 		ZeroMemory(&pi, sizeof(pi));
 
-		char args[] = "\"C:\\Projects\\LDI\\WyvernDX11\\assets\\bin\\Instant Meshes.exe\" C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\voxel.ply -o C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\output.ply --scale 0.02 --smooth 2";
+		// 100um sides.
+		//char args[] = "\"C:\\Projects\\LDI\\WyvernDX11\\assets\\bin\\Instant Meshes.exe\" C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\voxel.ply -o C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\output.ply --scale 0.02 --smooth 2";
+		// 75um sides.
+		char args[] = "\"C:\\Projects\\LDI\\WyvernDX11\\assets\\bin\\Instant Meshes.exe\" C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\voxel.ply -o C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\output.ply --scale 0.015";
 		// C:\Projects\LDI\WyvernDX11\assets\bin
 
 		CreateProcessA(
-			"../assets/bin/Instant Meshes.exe",
+			"../../assets/bin/Instant Meshes.exe",
 			args,
 			NULL,
 			NULL,
@@ -111,10 +116,12 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->camera.position = vec3(0, 0, 10);
 	ModelInspector->camera.rotation = vec3(0, 0, 0);
 
-	ModelInspector->dergnModel = objLoadModel("../assets/models/dergn.obj");
+	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
 	// Scale model.
-	float scale = 12.0 / 11.0;
+	//float scale = 12.0 / 11.0;
+	float scale = 5.0 / 11.0;
 	for (int i = 0; i < ModelInspector->dergnModel.verts.size(); ++i) {
 		ldiMeshVertex* vert = &ModelInspector->dergnModel.verts[i];
 		vert->pos = vert->pos * scale;
@@ -124,7 +131,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	// Import PLY quad mesh.
 	ldiQuadModel quadModel;
-	if (!plyLoadQuadMesh("cache/output.ply", &quadModel)) {
+	if (!plyLoadQuadMesh("../cache/output.ply", &quadModel)) {
 		return 1;
 	}
 
@@ -176,7 +183,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	//ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &quadMeshTriModel);
 
 	ldiPointCloud pointCloud;
-	if (!plyLoadPoints("../assets/models/dergnScan.ply", &pointCloud)) {
+	if (!plyLoadPoints("../../assets/models/dergnScan.ply", &pointCloud)) {
 		return 1;
 	}
 
@@ -186,7 +193,8 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	double t0 = _getTime(AppContext);
 	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../assets/models/dergnTexture.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
 
@@ -218,7 +226,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	AppContext->d3dDevice->CreateShaderResourceView(texResource, NULL, &ModelInspector->shaderResourceViewTest);
 
 	D3D11_SAMPLER_DESC samplerDesc = {};
-	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT; // D3D11_FILTER_MIN_MAG_MIP_LINEAR
 	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
 	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -417,17 +425,6 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderPointCloud(appContext, &ModelInspector->pointCloudRenderModel);
 	}
 
-	if (ModelInspector->quadMeshShowWireframe) {	
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
-		constantBuffer->color = vec4(0, 0, 0, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
-	}
-
 	if (ModelInspector->quadMeshShowDebug) {
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -437,5 +434,16 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 		gfxRenderDebugModel(appContext, &ModelInspector->dergnDebugModel);
+	}
+
+	if (ModelInspector->quadMeshShowWireframe) {	
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(0, 0, 0, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
 	}
 }

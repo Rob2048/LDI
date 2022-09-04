@@ -112,6 +112,7 @@ struct ldiApp {
 	ID3D11RasterizerState*		defaultRasterizerState;
 	ID3D11RasterizerState*		wireframeRasterizerState;
 	ID3D11DepthStencilState*	defaultDepthStencilState;
+	ID3D11DepthStencilState*	wireframeDepthStencilState;
 
 	ID3D11ShaderResourceView*	camResourceView;
 	ID3D11SamplerState*			camSamplerState;
@@ -230,10 +231,10 @@ void _initImgui(ldiApp* AppContext) {
 	ImGui_ImplWin32_Init(AppContext->hWnd);
 	ImGui_ImplDX11_Init(AppContext->d3dDevice, AppContext->d3dDeviceContext);
 
-	ImFont* font = io.Fonts->AddFontFromFileTTF("../assets/fonts/roboto/Roboto-Medium.ttf", 15.0f);
+	ImFont* font = io.Fonts->AddFontFromFileTTF("../../assets/fonts/roboto/Roboto-Medium.ttf", 15.0f);
 	IM_ASSERT(font != NULL);
 
-	AppContext->fontBig = io.Fonts->AddFontFromFileTTF("../assets/fonts/roboto/Roboto-Bold.ttf", 24.0f);
+	AppContext->fontBig = io.Fonts->AddFontFromFileTTF("../../assets/fonts/roboto/Roboto-Bold.ttf", 24.0f);
 	IM_ASSERT(AppContext->fontBig != NULL);
 }
 
@@ -362,7 +363,7 @@ void CreateCharucos() {
 			cv::Mat markerImage;
 			board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
 			char fileName[512];
-			sprintf_s(fileName, "cache/charuco_small_%d.png", i);
+			sprintf_s(fileName, "../cache/charuco_small_%d.png", i);
 			cv::imwrite(fileName, markerImage);
 		}
 	} catch (cv::Exception e) {
@@ -473,11 +474,11 @@ bool _initResources(ldiApp* AppContext) {
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/basic.hlsl", "mainVs", &AppContext->basicVertexShader, basicLayout, 3, &AppContext->basicInputLayout)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/basic.hlsl", "mainVs", &AppContext->basicVertexShader, basicLayout, 3, &AppContext->basicInputLayout)) {
 		return false;
 	}
 
-	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/basic.hlsl", "mainPs", &AppContext->basicPixelShader)) {
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/basic.hlsl", "mainPs", &AppContext->basicPixelShader)) {
 		return false;
 	}
 
@@ -489,11 +490,11 @@ bool _initResources(ldiApp* AppContext) {
 		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/simple.hlsl", "mainVs", &AppContext->simpleVertexShader, simpleLayout, 2, &AppContext->simpleInputLayout)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/simple.hlsl", "mainVs", &AppContext->simpleVertexShader, simpleLayout, 2, &AppContext->simpleInputLayout)) {
 		return false;
 	}
 
-	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/simple.hlsl", "mainPs", &AppContext->simplePixelShader)) {
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/simple.hlsl", "mainPs", &AppContext->simplePixelShader)) {
 		return false;
 	}
 
@@ -506,11 +507,11 @@ bool _initResources(ldiApp* AppContext) {
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/mesh.hlsl", "mainVs", &AppContext->meshVertexShader, meshLayout, 3, &AppContext->meshInputLayout)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/mesh.hlsl", "mainVs", &AppContext->meshVertexShader, meshLayout, 3, &AppContext->meshInputLayout)) {
 		return false;
 	}
 
-	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/mesh.hlsl", "mainPs", &AppContext->meshPixelShader)) {
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/mesh.hlsl", "mainPs", &AppContext->meshPixelShader)) {
 		return false;
 	}
 
@@ -523,11 +524,11 @@ bool _initResources(ldiApp* AppContext) {
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
-	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/pointcloud.hlsl", "mainVs", &AppContext->pointCloudVertexShader, pointcloudLayout, 3, &AppContext->pointCloudInputLayout)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/pointcloud.hlsl", "mainVs", &AppContext->pointCloudVertexShader, pointcloudLayout, 3, &AppContext->pointCloudInputLayout)) {
 		return false;
 	}
 
-	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/pointcloud.hlsl", "mainPs", &AppContext->pointCloudPixelShader)) {
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/pointcloud.hlsl", "mainPs", &AppContext->pointCloudPixelShader)) {
 		return false;
 	}
 
@@ -541,11 +542,11 @@ bool _initResources(ldiApp* AppContext) {
 		{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, (UINT)IM_OFFSETOF(ImDrawVert, col), D3D11_INPUT_PER_VERTEX_DATA, 0 },
 	};
 
-	if (!gfxCreateVertexShader(AppContext, L"../assets/shaders/imgCam.hlsl", "mainVs", &AppContext->imgCamVertexShader, imguiUiLayout, 3, &imguiUiLayoutOb)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainVs", &AppContext->imgCamVertexShader, imguiUiLayout, 3, &imguiUiLayoutOb)) {
 		return false;
 	}
 
-	if (!gfxCreatePixelShader(AppContext, L"../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
 		return false;
 	}
 
@@ -633,11 +634,24 @@ bool _initResources(ldiApp* AppContext) {
 		desc.FillMode = D3D11_FILL_WIREFRAME;
 		desc.CullMode = D3D11_CULL_BACK;
 		desc.ScissorEnable = false;
-		desc.DepthClipEnable = true;
+		desc.DepthClipEnable = false;
+		/*desc.DepthClipEnable = true;
 		desc.DepthBias = -1;
 		desc.DepthBiasClamp = 1.0f;
-		desc.SlopeScaledDepthBias = -1.0f;
+		desc.SlopeScaledDepthBias = -1.0f;*/
 		AppContext->d3dDevice->CreateRasterizerState(&desc, &AppContext->wireframeRasterizerState);
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = true;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.StencilEnable = false;
+		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;*/
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->wireframeDepthStencilState);
 	}
 
 	{
@@ -1267,7 +1281,7 @@ int main() {
 				
 				if (glm::length(camMove) > 0.0f) {
 					camMove = glm::normalize(camMove);
-					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
+					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime * modelInspector->cameraSpeed;
 					camera->position += camMove * cameraSpeed;
 				}
 			}
@@ -1349,6 +1363,7 @@ int main() {
 				ImGui::Text("Viewport");
 				ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
 				ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
+				ImGui::SliderFloat("Camera speed", &modelInspector->cameraSpeed, 0.0f, 1.0f);
 
 				ImGui::Separator();
 				ImGui::Text("Processing");
