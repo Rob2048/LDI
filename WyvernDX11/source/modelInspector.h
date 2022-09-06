@@ -447,3 +447,158 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
 	}
 }
+
+void modelInspectorShowUi(ldiModelInspector* tool) {
+	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse);
+
+	ImVec2 viewSize = ImGui::GetContentRegionAvail();
+	ImVec2 startPos = ImGui::GetCursorPos();
+	ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+	// NOTE: ImDrawList API uses screen coordinates!
+	/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
+
+	// This will catch our interactions.
+	ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+	const bool isHovered = ImGui::IsItemHovered(); // Hovered
+	const bool isActive = ImGui::IsItemActive();   // Held
+	//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+	//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+
+	{
+		vec3 camMove(0, 0, 0);
+		ldiCamera* camera = &tool->camera;
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+		if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+			ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+			if (ImGui::IsKeyDown(ImGuiKey_W)) {
+				camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_S)) {
+				camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_A)) {
+				camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_D)) {
+				camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+			}
+		}
+
+		if (glm::length(camMove) > 0.0f) {
+			camMove = glm::normalize(camMove);
+			float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime * tool->cameraSpeed;
+			camera->position += camMove * cameraSpeed;
+		}
+	}
+
+	if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+		vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+		mouseDelta *= 0.15f;
+		tool->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+	}
+
+	if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+		vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+		mouseDelta *= 0.025f;
+
+		ldiCamera* camera = &tool->camera;
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+		camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
+		camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
+	}
+
+	ImGui::SetCursorPos(startPos);
+	std::vector<ldiTextInfo> textBuffer;
+	modelInspectorRender(tool, viewSize.x, viewSize.y, &textBuffer);
+	ImGui::Image(tool->renderViewBuffers.mainViewResourceView, viewSize);
+
+	// NOTE: ImDrawList API uses screen coordinates!
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	for (int i = 0; i < textBuffer.size(); ++i) {
+		ldiTextInfo* info = &textBuffer[i];
+		drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), IM_COL32(255, 255, 255, 255), info->text.c_str());
+	}
+
+	// Viewport overlay.
+	// TODO: Use command buffer of text locations/strings.
+	/*{
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+		ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
+		ImGui::SetNextWindowSize(viewport->Size);
+		ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
+
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+		if (clipPos.z > 0) {
+			drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
+		}
+
+		ImGui::End();
+	}*/
+
+	{
+		// Viewport overlay widgets.
+		ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+		ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
+
+		ImGui::Text("Time: (%f)", ImGui::GetTime());
+		ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+		ImGui::Separator();
+		ImGui::Text("Primary model");
+		ImGui::Checkbox("Shaded", &tool->primaryModelShowShaded);
+		ImGui::Checkbox("Wireframe", &tool->primaryModelShowWireframe);
+
+		ImGui::Separator();
+		ImGui::Text("Quad model");
+		ImGui::Checkbox("Area debug", &tool->quadMeshShowDebug);
+		ImGui::Checkbox("Quad wireframe", &tool->quadMeshShowWireframe);
+
+		ImGui::Separator();
+		ImGui::Text("Point cloud");
+		ImGui::Checkbox("Show", &tool->showPointCloud);
+		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
+		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
+		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+
+		ImGui::Separator();
+		ImGui::Text("Viewport");
+		ImGui::ColorEdit3("Background", (float*)&tool->viewBackgroundColor);
+		ImGui::ColorEdit3("Grid", (float*)&tool->gridColor);
+		ImGui::SliderFloat("Camera speed", &tool->cameraSpeed, 0.0f, 1.0f);
+
+		ImGui::Separator();
+		ImGui::Text("Processing");
+		if (ImGui::Button("Process model")) {
+			modelInspectorVoxelize(tool);
+			modelInspectorCreateQuadMesh(tool);
+		}
+
+		if (ImGui::Button("Voxelize")) {
+			modelInspectorVoxelize(tool);
+		}
+
+		if (ImGui::Button("Quadralize")) {
+			modelInspectorCreateQuadMesh(tool);
+		}
+
+		ImGui::EndChild();
+	}
+
+	ImGui::End();
+	ImGui::PopStyleVar();
+}

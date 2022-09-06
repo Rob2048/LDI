@@ -21,26 +21,12 @@
 #include "stlLoader.h"
 #include "image.h"
 
-#include <opencv2/core.hpp>
-#include <opencv2/calib3d.hpp>
-#include <opencv2/aruco.hpp>
-#include <opencv2/aruco/charuco.hpp>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
-
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tchar.h>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
-
-#define CAM_IMG_WIDTH 1600
-#define CAM_IMG_HEIGHT 1300
-//#define CAM_IMG_WIDTH 1920
-//#define CAM_IMG_HEIGHT 1080
-//#define CAM_IMG_WIDTH 3280
-//#define CAM_IMG_HEIGHT 2464
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -135,12 +121,8 @@ struct ldiApp {
 	bool						showImageInspector = true;
 	bool						showModelInspector = true;
 	bool						showSamplerTester = false;
-	bool						showCamInspector = false;
 
-	// Platform.
-	bool						platformConnected = false;
-
-	// Cam Image.
+	// Computer vision.
 	float						camImageFilterFactor = 0.6f;
 	std::vector<vec2>			camImageMarkerCorners;
 	std::vector<int>			camImageMarkerIds;
@@ -152,10 +134,11 @@ struct ldiApp {
 	float						camImageGainR = 1.0f;
 	float						camImageGainG = 1.0f;
 	float						camImageGainB = 1.0f;
+
 	ID3D11Buffer*				camImagePixelConstants;
 };
 
-inline double _getTime(ldiApp* AppContext) {
+double _getTime(ldiApp* AppContext) {
 	LARGE_INTEGER counter;
 	QueryPerformanceCounter(&counter);
 	int64_t time = counter.QuadPart - AppContext->timeCounterStart;
@@ -168,12 +151,13 @@ inline double _getTime(ldiApp* AppContext) {
 #include "debugPrims.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
-#include "camInspector.h"
+#include "computerVision.h"
+#include "platform.h"
 
 ldiApp				_appContext = {};
 ldiModelInspector	_modelInspector = {};
 ldiSamplerTester	_samplerTester = {};
-ldiCamInspector		_camInspector = {};
+ldiPlatform			_platform = {};
 ldiServer			_server = {};
 
 //----------------------------------------------------------------------------------------------------
@@ -336,128 +320,7 @@ bool _handleWindowLoop() {
 }
 
 
-//----------------------------------------------------------------------------------------------------
-// OpenCV functionality.
-//----------------------------------------------------------------------------------------------------
-using namespace cv;
 
-cv::Ptr<cv::aruco::Dictionary> _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
-std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
-
-void CreateCharucos() {
-	try {
-		for (int i = 0; i < 6; ++i) {
-			//	cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.009f, 0.006f, _dictionary);
-			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.9f, 0.6f, _dictionary);
-			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
-			_charucoBoards.push_back(board);
-
-			// NOTE: Shift ids.
-			int offset = i * board->ids.size();
-
-			for (int j = 0; j < board->ids.size(); ++j) {
-				board->ids[j] = offset + j;
-			}
-
-			// NOTE: Image output.
-			cv::Mat markerImage;
-			board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
-			char fileName[512];
-			sprintf_s(fileName, "../cache/charuco_small_%d.png", i);
-			cv::imwrite(fileName, markerImage);
-		}
-	} catch (cv::Exception e) {
-		std::cout << "Exception: " << e.what() << "\n" << std::flush;
-	}
-}
-
-void _findCharuco(uint8_t* Data) {
-	double t0 = _getTime(&_appContext);
-
-	int offset = 1;
-
-	int width = CAM_IMG_WIDTH;
-	int height = CAM_IMG_HEIGHT;
-	int id = -1;
-
-	try {
-		Mat image(Size(width, height), CV_8UC1, Data);
-		//Mat image;
-		//cv::flip(imageSrc, image, 0);
-		Mat imageDebug;
-		cv::cvtColor(image, imageDebug, cv::COLOR_GRAY2RGB);
-
-		std::vector<int> markerIds;
-		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
-		cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::aruco::DetectorParameters::create();
-		// TODO: Enable subpixel corner refinement.
-		// WTF is this doing?
-		//parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
-		cv::aruco::detectMarkers(image, _dictionary, markerCorners, markerIds, parameters, rejectedCandidates);
-		// Use refine strategy to detect more markers.
-		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
-		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
-
-		if (id != -1) {
-			aruco::drawDetectedMarkers(imageDebug, markerCorners, markerIds);
-		}
-
-		std::vector<std::vector<Point2f>> charucoCorners(6);
-		std::vector<std::vector<int>> charucoIds(6);
-
-		_appContext.camImageMarkerCorners.clear();
-		_appContext.camImageCharucoCorners.clear();
-		_appContext.camImageMarkerIds = markerIds;
-
-		for (int i = 0; i < markerCorners.size(); ++i) {
-			for (int j = 0; j < markerCorners[i].size(); ++j) {
-				_appContext.camImageMarkerCorners.push_back(vec2(markerCorners[i][j].x, markerCorners[i][j].y));
-			}
-		}
-
-		// Interpolate charuco corners for each possible board.
-		for (int i = 0; i < 6; ++i) {
-			if (markerCorners.size() > 0) {
-				aruco::interpolateCornersCharuco(markerCorners, markerIds, image, _charucoBoards[i], charucoCorners[i], charucoIds[i]);
-			}
-
-			if (charucoCorners[i].size() > 0) {
-				if (id != -1) {
-					aruco::drawDetectedCornersCharuco(imageDebug, charucoCorners[i], charucoIds[i]);
-				}
-			}
-		}
-
-		int boardCount = charucoIds.size();
-		//send(Client, (const char*)&boardCount, 4, 0);
-		std::cout << "Boards: " << boardCount << "\n";
-
-		for (int i = 0; i < boardCount; ++i) {
-			int markerCount = charucoIds[i].size();
-			std::cout << "Board " << i << " markers: " << markerCount << "\n";
-			//send(Client, (const char*)&markerCount, 4, 0);
-
-			for (int j = 0; j < markerCount; ++j) {
-				_appContext.camImageCharucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
-				std::cout << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
-				/*send(Client, (const char*)&charucoIds[i][j], 4, 0);
-				send(Client, (const char*)&charucoCorners[i][j], 8, 0);*/
-			}
-		}
-
-		if (id != -1) {
-			char buf[256];
-			sprintf_s(buf, "debug_%d.png", id);
-			cv::imwrite(buf, imageDebug);
-		}
-
-		t0 = _getTime(&_appContext) - t0;
-		std::cout << "Find charuco: " << (t0 * 1000.0) << " ms\n";
-	}
-	catch (Exception e) {
-		std::cout << "Exception: " << e.what() << "\n" << std::flush;
-	}
-}
 
 //----------------------------------------------------------------------------------------------------
 // Application.
@@ -770,7 +633,7 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 int main() {
 	std::cout << "Starting WyvernDX11\n";
 
-	CreateCharucos();
+	createCharucos(false);
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
@@ -806,12 +669,12 @@ int main() {
 		return 1;
 	}
 
-	ldiCamInspector* camInspector = &_camInspector;
-	if (camInspectorInit(appContext, camInspector) != 0) {
-		std::cout << "Could not init cam inspector\n";
+	ldiPlatform* platform = &_platform;
+	if (platformInit(appContext, platform) != 0) {
+		std::cout << "Could not init platform\n";
 		return 1;
 	}
-	
+
 	if (!_initResources(appContext)) {
 		return 1;
 	}
@@ -911,10 +774,7 @@ int main() {
 				if (ImGui::MenuItem("Sampler tester", NULL, appContext->showSamplerTester)) {
 					appContext->showSamplerTester = !appContext->showSamplerTester;
 				}
-				if (ImGui::MenuItem("Cam inspector", NULL, appContext->showCamInspector)) {
-					appContext->showCamInspector = !appContext->showCamInspector;
-				}
-
+				
 				ImGui::EndMenu();
 			}
 
@@ -928,78 +788,7 @@ int main() {
 		}
 
 		if (appContext->showPlatformWindow) {
-			static float f = 0.0f;
-			static int counter = 0;
-
-			//ImGui::SetNextWindowSize(ImVec2(400, ImGui::GetMainViewport()->WorkSize.y));
-			//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
-
-			//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
-			ImGui::Begin("Platform controls", &appContext->showPlatformWindow, ImGuiWindowFlags_NoCollapse);
-
-			ImGui::Text("Connection");
-
-			ImGui::BeginDisabled(appContext->platformConnected);
-			char ipBuff[] = "192.168.0.50";
-			int port = 5000;
-			ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
-			ImGui::InputInt("Port", &port);
-			ImGui::EndDisabled();
-
-			if (appContext->platformConnected) {
-				if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
-					appContext->platformConnected = false;
-				};
-				ImGui::Text("Status: Connected");
-			} else {
-				if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-					appContext->platformConnected = true;
-				};
-				ImGui::Text("Status: Disconnected");
-			}
-
-			ImGui::Separator();
-
-			ImGui::BeginDisabled(!appContext->platformConnected);
-			ImGui::Text("Position");
-			ImGui::PushFont(appContext->fontBig);
-			
-			float startX = ImGui::GetCursorPosX();
-			float availX = ImGui::GetContentRegionAvail().x;
-			ImGui::SetCursorPosX(startX);
-			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: 0.00");
-			ImGui::SameLine();
-			ImGui::SetCursorPosX(startX + availX / 3);
-			ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: 0.00");
-			ImGui::SameLine();
-			ImGui::SetCursorPosX(startX + availX / 3 * 2);
-			ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: 0.00");
-			ImGui::PopFont();
-
-			ImGui::Button("Find home", ImVec2(-1, 0));
-			ImGui::Button("Go home", ImVec2(-1, 0));
-
-			float distance = 1;
-			ImGui::InputFloat("Distance", &distance);
-			
-			ImGui::Button("-X", ImVec2(32, 32));
-			ImGui::SameLine();
-			ImGui::Button("-Y", ImVec2(32, 32));
-			ImGui::SameLine();
-			ImGui::Button("-Z", ImVec2(32, 32));
-
-			ImGui::Button("+X", ImVec2(32, 32));
-			ImGui::SameLine();
-			ImGui::Button("+Y", ImVec2(32, 32));
-			ImGui::SameLine();
-			ImGui::Button("+Z", ImVec2(32, 32));
-			
-			ImGui::Separator();
-			ImGui::Text("Laser");
-			ImGui::Button("Start laser preview", ImVec2(-1, 0));
-			ImGui::EndDisabled();
-
-			ImGui::End();
+			platformShowUi(platform);
 		}
 
 		if (appContext->showImageInspector) {
@@ -1043,7 +832,7 @@ int main() {
 
 			if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
 				if (ImGui::Button("Find Charuco")) {
-					_findCharuco(_pixelsFinal);
+					findCharuco(_pixelsFinal, appContext);
 				}
 			}
 
@@ -1233,376 +1022,11 @@ int main() {
 		}
 
 		if (appContext->showModelInspector) {
-			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			ImGui::Begin("Model inspector", &appContext->showModelInspector, ImGuiWindowFlags_NoCollapse);
-
-			ImVec2 viewSize = ImGui::GetContentRegionAvail();
-			ImVec2 startPos = ImGui::GetCursorPos();
-			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
-			
-			// NOTE: ImDrawList API uses screen coordinates!
-			/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
-			ImDrawList* draw_list = ImGui::GetWindowDrawList();
-			draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
-
-			// This will catch our interactions.
-			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-			const bool isHovered = ImGui::IsItemHovered(); // Hovered
-			const bool isActive = ImGui::IsItemActive();   // Held
-			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
-			//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
-
-			{
-				vec3 camMove(0, 0, 0);
-				ldiCamera* camera = &modelInspector->camera;
-				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
-
-				if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
-					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-				
-					if (ImGui::IsKeyDown(ImGuiKey_W)) {
-						camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_S)) {
-						camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_A)) {
-						camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_D)) {
-						camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-					}
-				}
-				
-				if (glm::length(camMove) > 0.0f) {
-					camMove = glm::normalize(camMove);
-					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime * modelInspector->cameraSpeed;
-					camera->position += camMove * cameraSpeed;
-				}
-			}
-
-			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= 0.15f;
-				modelInspector->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
-			}
-
-			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= 0.025f;
-
-				ldiCamera* camera = &modelInspector->camera;
-				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
-
-				camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
-				camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
-			}
-
-			ImGui::SetCursorPos(startPos);
-			std::vector<ldiTextInfo> textBuffer;
-			modelInspectorRender(modelInspector, viewSize.x, viewSize.y, &textBuffer);
-			ImGui::Image(modelInspector->renderViewBuffers.mainViewResourceView, viewSize);
-
-			// NOTE: ImDrawList API uses screen coordinates!
-			ImDrawList* drawList = ImGui::GetWindowDrawList();
-			for (int i = 0; i < textBuffer.size(); ++i) {
-				ldiTextInfo* info = &textBuffer[i];
-				drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), IM_COL32(255, 255, 255, 255), info->text.c_str());
-			}
-
-			// Viewport overlay.
-			// TODO: Use command buffer of text locations/strings.
-			/*{
-				const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-				ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always, ImVec2(0, 0));
-				ImGui::SetNextWindowSize(viewport->Size);
-				ImGui::Begin("__viewport", NULL, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMouseInputs);
-
-				ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-				if (clipPos.z > 0) {
-					drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 255), "X");
-				}
-
-				ImGui::End();
-			}*/
-
-			{	
-				// Viewport overlay widgets.
-				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-				ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
-
-				ImGui::Text("Time: (%f)", ImGui::GetTime());
-				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-
-				ImGui::Separator();
-				ImGui::Text("Primary model");
-				ImGui::Checkbox("Shaded", &modelInspector->primaryModelShowShaded);
-				ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
-
-				ImGui::Separator();
-				ImGui::Text("Quad model");
-				ImGui::Checkbox("Area debug", &modelInspector->quadMeshShowDebug);
-				ImGui::Checkbox("Quad wireframe", &modelInspector->quadMeshShowWireframe);
-
-				ImGui::Separator();
-				ImGui::Text("Point cloud");
-				ImGui::Checkbox("Show", &modelInspector->showPointCloud);
-				ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
-				ImGui::SliderFloat("Screen size", &modelInspector->pointScreenSize, 0.0f, 32.0f);
-				ImGui::SliderFloat("Screen blend", &modelInspector->pointScreenSpaceBlend, 0.0f, 1.0f);
-
-				ImGui::Separator();
-				ImGui::Text("Viewport");
-				ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
-				ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
-				ImGui::SliderFloat("Camera speed", &modelInspector->cameraSpeed, 0.0f, 1.0f);
-
-				ImGui::Separator();
-				ImGui::Text("Processing");
-				if (ImGui::Button("Process model")) {
-					modelInspectorVoxelize(modelInspector);
-					modelInspectorCreateQuadMesh(modelInspector);
-				}
-
-				if (ImGui::Button("Voxelize")) {
-					modelInspectorVoxelize(modelInspector);
-				}
-
-				if (ImGui::Button("Quadralize")) {
-					modelInspectorCreateQuadMesh(modelInspector);
-				}
-
-				ImGui::EndChild();
-			}
-
-			ImGui::End();
-			ImGui::PopStyleVar();
+			modelInspectorShowUi(modelInspector);
 		}
 
 		if (appContext->showSamplerTester) {
-			ImGui::Begin("Sampler tester controls");
-			ImGui::Checkbox("Grid", &samplerTester->showGrid);
-			if (ImGui::Button("Run sample test")) {
-				samplerTesterRunTest(samplerTester);
-			}
-			ImGui::End();
-
-			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			ImGui::Begin("Sampler tester", &appContext->showSamplerTester, ImGuiWindowFlags_NoCollapse);
-
-			ImVec2 viewSize = ImGui::GetContentRegionAvail();
-			ImVec2 startPos = ImGui::GetCursorPos();
-			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
-
-			// This will catch our interactions.
-			ImGui::InvisibleButton("__sampleTestViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-			const bool isHovered = ImGui::IsItemHovered(); // Hovered
-			const bool isActive = ImGui::IsItemActive();   // Held
-			//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
-			ImVec2 mousePos = ImGui::GetIO().MousePos;
-			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
-
-			// Convert canvas pos to world pos.
-			vec2 worldPos;
-			worldPos.x = mouseCanvasPos.x;
-			worldPos.y = mouseCanvasPos.y;
-			worldPos *= samplerTester->camScale;
-			worldPos += vec2(samplerTester->camOffset);
-			//std::cout << worldPos.x << ", " << worldPos.y << "\n";
-
-			/*{
-				vec3 camMove(0, 0, 0);
-				ldiCamera* camera = &modelInspector->camera;
-				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
-
-				if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
-					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-
-					if (ImGui::IsKeyDown(ImGuiKey_W)) {
-						camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_S)) {
-						camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_A)) {
-						camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-					}
-
-					if (ImGui::IsKeyDown(ImGuiKey_D)) {
-						camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-					}
-				}
-
-				if (glm::length(camMove) > 0.0f) {
-					camMove = glm::normalize(camMove);
-					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
-					camera->position += camMove * cameraSpeed;
-				}
-			}
-
-			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= 0.15f;
-				modelInspector->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
-			}*/
-
-			if (isHovered) {
-				float wheel = ImGui::GetIO().MouseWheel;
-
-				if (wheel) {
-					samplerTester->camScale -= wheel * 0.1f * samplerTester->camScale;
-
-					vec2 newWorldPos;
-					newWorldPos.x = mouseCanvasPos.x;
-					newWorldPos.y = mouseCanvasPos.y;
-					newWorldPos *= samplerTester->camScale;
-					newWorldPos += vec2(samplerTester->camOffset);
-
-					vec2 deltaWorldPos = newWorldPos - worldPos;
-
-					samplerTester->camOffset.x -= deltaWorldPos.x;
-					samplerTester->camOffset.y -= deltaWorldPos.y;
-				}
-			}
-
-			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
-				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= samplerTester->camScale;
-
-				samplerTester->camOffset -= vec3(mouseDelta.x, mouseDelta.y, 0);
-			}
-
-			ImGui::SetCursorPos(startPos);
-			std::vector<ldiTextInfo> textBuffer;
-			samplerTesterRender(samplerTester, viewSize.x, viewSize.y, &textBuffer);
-			ImGui::Image(samplerTester->renderViewBuffers.mainViewResourceView, viewSize);
-
-			//{
-			//	// Viewport overlay widgets.
-			//	ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			//	ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
-
-			//	ImGui::Text("Time: (%f)", ImGui::GetTime());
-			//	ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-
-			//	ImGui::Separator();
-			//	ImGui::Text("Primary model");
-			//	ImGui::Checkbox("Shaded", &modelInspector->primaryModelShowShaded);
-			//	ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
-
-			//	ImGui::Separator();
-			//	ImGui::Text("Point cloud");
-			//	ImGui::Checkbox("Show", &modelInspector->showPointCloud);
-			//	ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
-			//	ImGui::SliderFloat("Screen size", &modelInspector->pointScreenSize, 0.0f, 32.0f);
-			//	ImGui::SliderFloat("Screen blend", &modelInspector->pointScreenSpaceBlend, 0.0f, 1.0f);
-
-			//	ImGui::Separator();
-			//	ImGui::Text("Viewport");
-			//	ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
-			//	ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
-
-			//	ImGui::Separator();
-			//	ImGui::Text("Processing");
-			//	if (ImGui::Button("Process model")) {
-			//		modelInspectorVoxelize(modelInspector);
-			//		modelInspectorCreateQuadMesh(modelInspector);
-			//	}
-
-			//	if (ImGui::Button("Voxelize")) {
-			//		modelInspectorVoxelize(modelInspector);
-			//	}
-
-			//	if (ImGui::Button("Quadralize")) {
-			//		modelInspectorCreateQuadMesh(modelInspector);
-			//	}
-
-			//	ImGui::EndChild();
-			//}
-
-			ImGui::End();
-			ImGui::PopStyleVar();
-		}
-
-		if (appContext->showCamInspector) {
-			ImGui::Begin("Cam inspector controls");
-			ImGui::Checkbox("Grid", &camInspector->showGrid);
-			if (ImGui::Button("Run sample test")) {
-				//camInspectorRunTest(camInspector);
-			}
-			ImGui::End();
-
-			ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			ImGui::Begin("Camera inspector", &appContext->showCamInspector, ImGuiWindowFlags_NoCollapse);
-
-			ImVec2 viewSize = ImGui::GetContentRegionAvail();
-			ImVec2 startPos = ImGui::GetCursorPos();
-			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
-
-			// This will catch our interactions.
-			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-			const bool isHovered = ImGui::IsItemHovered(); // Hovered
-			const bool isActive = ImGui::IsItemActive();   // Held
-			//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
-			ImVec2 mousePos = ImGui::GetIO().MousePos;
-			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
-
-			// Convert canvas pos to world pos.
-			vec2 worldPos;
-			worldPos.x = mouseCanvasPos.x;
-			worldPos.y = mouseCanvasPos.y;
-			worldPos *= camInspector->camScale;
-			worldPos += vec2(camInspector->camOffset);
-			//std::cout << worldPos.x << ", " << worldPos.y << "\n";
-
-			if (isHovered) {
-				float wheel = ImGui::GetIO().MouseWheel;
-
-				if (wheel) {
-					camInspector->camScale -= wheel * 0.1f * camInspector->camScale;
-
-					vec2 newWorldPos;
-					newWorldPos.x = mouseCanvasPos.x;
-					newWorldPos.y = mouseCanvasPos.y;
-					newWorldPos *= camInspector->camScale;
-					newWorldPos += vec2(camInspector->camOffset);
-
-					vec2 deltaWorldPos = newWorldPos - worldPos;
-
-					camInspector->camOffset.x -= deltaWorldPos.x;
-					camInspector->camOffset.y -= deltaWorldPos.y;
-				}
-			}
-
-			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
-				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-				mouseDelta *= camInspector->camScale;
-
-				camInspector->camOffset -= vec3(mouseDelta.x, mouseDelta.y, 0);
-			}
-
-			ImGui::SetCursorPos(startPos);
-			std::vector<ldiTextInfo> textBuffer;
-			camInspectorRender(camInspector, viewSize.x, viewSize.y, &textBuffer);
-			ImGui::Image(camInspector->renderViewBuffers.mainViewResourceView, viewSize);
-
-			ImGui::End();
-			ImGui::PopStyleVar();
+			samplerTesterShowUi(samplerTester);
 		}
 
 		_renderImgui(&_appContext);

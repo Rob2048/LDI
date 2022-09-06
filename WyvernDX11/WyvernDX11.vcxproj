@@ -169,7 +169,7 @@
     <ClCompile Include="source\stlLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="source\camInspector.h" />
+    <ClInclude Include="source\computerVision.h" />
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />
     <ClInclude Include="source\graphics.h" />
@@ -178,6 +178,7 @@
     <ClInclude Include="source\modelInspector.h" />
     <ClInclude Include="source\network.h" />
     <ClInclude Include="source\objLoader.h" />
+    <ClInclude Include="source\platform.h" />
     <ClInclude Include="source\plyLoader.h" />
     <ClInclude Include="source\samplerTester.h" />
     <ClInclude Include="source\stb_image.h" />

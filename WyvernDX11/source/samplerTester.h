@@ -2,7 +2,7 @@
 
 struct ldiSamplerTester {
 	ldiApp*						appContext;
-
+	
 	int							mainViewWidth;
 	int							mainViewHeight;
 
@@ -268,7 +268,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 
 	int sourceWidth, sourceHeight, sourceChannels;
 	//uint8_t* sourcePixels = stbi_load("images\\dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
-	uint8_t* sourcePixels = imageLoadRgba("../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
+	uint8_t* sourcePixels = imageLoadRgba("../../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
 
 	t0 = _getTime(SamplerTester->appContext) - t0;
 	std::cout << "Image loaded: " << (t0 * 1000.0f) << " ms\n";
@@ -309,4 +309,154 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	}
 
 	samplerTesterInitPointModel(SamplerTester, &SamplerTester->samplePointModel, &samplePoints);
+}
+
+void samplerTesterShowUi(ldiSamplerTester* tool) {
+	ImGui::Begin("Sampler tester controls");
+	ImGui::Checkbox("Grid", &tool->showGrid);
+	if (ImGui::Button("Run sample test")) {
+		samplerTesterRunTest(tool);
+	}
+	ImGui::End();
+
+	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	ImGui::Begin("Sampler tester", 0, ImGuiWindowFlags_NoCollapse);
+
+	ImVec2 viewSize = ImGui::GetContentRegionAvail();
+	ImVec2 startPos = ImGui::GetCursorPos();
+	ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+	// This will catch our interactions.
+	ImGui::InvisibleButton("__sampleTestViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+	const bool isHovered = ImGui::IsItemHovered(); // Hovered
+	const bool isActive = ImGui::IsItemActive();   // Held
+	//ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
+	//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+	ImVec2 mousePos = ImGui::GetIO().MousePos;
+	const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+
+	// Convert canvas pos to world pos.
+	vec2 worldPos;
+	worldPos.x = mouseCanvasPos.x;
+	worldPos.y = mouseCanvasPos.y;
+	worldPos *= tool->camScale;
+	worldPos += vec2(tool->camOffset);
+	//std::cout << worldPos.x << ", " << worldPos.y << "\n";
+
+	/*{
+		vec3 camMove(0, 0, 0);
+		ldiCamera* camera = &modelInspector->camera;
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+
+		if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+			ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+			if (ImGui::IsKeyDown(ImGuiKey_W)) {
+				camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_S)) {
+				camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_A)) {
+				camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+			}
+
+			if (ImGui::IsKeyDown(ImGuiKey_D)) {
+				camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+			}
+		}
+
+		if (glm::length(camMove) > 0.0f) {
+			camMove = glm::normalize(camMove);
+			float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime;
+			camera->position += camMove * cameraSpeed;
+		}
+	}
+
+	if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+		vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+		mouseDelta *= 0.15f;
+		modelInspector->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
+	}*/
+
+	if (isHovered) {
+		float wheel = ImGui::GetIO().MouseWheel;
+
+		if (wheel) {
+			tool->camScale -= wheel * 0.1f * tool->camScale;
+
+			vec2 newWorldPos;
+			newWorldPos.x = mouseCanvasPos.x;
+			newWorldPos.y = mouseCanvasPos.y;
+			newWorldPos *= tool->camScale;
+			newWorldPos += vec2(tool->camOffset);
+
+			vec2 deltaWorldPos = newWorldPos - worldPos;
+
+			tool->camOffset.x -= deltaWorldPos.x;
+			tool->camOffset.y -= deltaWorldPos.y;
+		}
+	}
+
+	if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+		vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+		mouseDelta *= tool->camScale;
+
+		tool->camOffset -= vec3(mouseDelta.x, mouseDelta.y, 0);
+	}
+
+	ImGui::SetCursorPos(startPos);
+	std::vector<ldiTextInfo> textBuffer;
+	samplerTesterRender(tool, viewSize.x, viewSize.y, &textBuffer);
+	ImGui::Image(tool->renderViewBuffers.mainViewResourceView, viewSize);
+
+	//{
+	//	// Viewport overlay widgets.
+	//	ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+	//	ImGui::BeginChild("_simpleOverlayMainView", ImVec2(300, 0), false, ImGuiWindowFlags_NoScrollbar);
+
+	//	ImGui::Text("Time: (%f)", ImGui::GetTime());
+	//	ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+	//	ImGui::Separator();
+	//	ImGui::Text("Primary model");
+	//	ImGui::Checkbox("Shaded", &modelInspector->primaryModelShowShaded);
+	//	ImGui::Checkbox("Wireframe", &modelInspector->primaryModelShowWireframe);
+
+	//	ImGui::Separator();
+	//	ImGui::Text("Point cloud");
+	//	ImGui::Checkbox("Show", &modelInspector->showPointCloud);
+	//	ImGui::SliderFloat("World size", &modelInspector->pointWorldSize, 0.0f, 1.0f);
+	//	ImGui::SliderFloat("Screen size", &modelInspector->pointScreenSize, 0.0f, 32.0f);
+	//	ImGui::SliderFloat("Screen blend", &modelInspector->pointScreenSpaceBlend, 0.0f, 1.0f);
+
+	//	ImGui::Separator();
+	//	ImGui::Text("Viewport");
+	//	ImGui::ColorEdit3("Background", (float*)&modelInspector->viewBackgroundColor);
+	//	ImGui::ColorEdit3("Grid", (float*)&modelInspector->gridColor);
+
+	//	ImGui::Separator();
+	//	ImGui::Text("Processing");
+	//	if (ImGui::Button("Process model")) {
+	//		modelInspectorVoxelize(modelInspector);
+	//		modelInspectorCreateQuadMesh(modelInspector);
+	//	}
+
+	//	if (ImGui::Button("Voxelize")) {
+	//		modelInspectorVoxelize(modelInspector);
+	//	}
+
+	//	if (ImGui::Button("Quadralize")) {
+	//		modelInspectorCreateQuadMesh(modelInspector);
+	//	}
+
+	//	ImGui::EndChild();
+	//}
+
+	ImGui::End();
+	ImGui::PopStyleVar();
 }

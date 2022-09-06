@@ -243,11 +243,56 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		color.y *= colErr;
 		color.z *= colErr;
 
-		int scaledIdx = i * (0xFFFFFF / quadCount);
-
+		// NOTE: Unique color for each quad.		
+		/*int scaledIdx = i * (0xFFFFFF / quadCount);
 		color.x = ((scaledIdx >> 0) & 0xFF) / 255.0f;
 		color.y = ((scaledIdx >> 8) & 0xFF) / 255.0f;
-		color.z = ((scaledIdx >> 16) & 0xFF) / 255.0f;
+		color.z = ((scaledIdx >> 16) & 0xFF) / 255.0f;*/
+
+		// NOTE: Colormap for quad ID.
+		static vec3 colorMap[] = {
+			{0, 0, 0},
+			
+			{0, 0, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 1, 1},
+			
+			/*{0, 0, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 1, 1},
+
+			{0, 0, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 1, 1},
+
+			{0, 0, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 1, 1},*/
+
+			{1, 1, 1},
+		};
+
+		int colorMapEntries = (sizeof(colorMap) / sizeof(vec3)) - 1;
+		float idNorm = ((float)i / (float)quadCount) * colorMapEntries;
+		int colorMapSection = idNorm;
+		float colorMapT = idNorm - colorMapSection;
+
+		vec3 cA = colorMap[colorMapSection + 0];
+		vec3 cB = colorMap[colorMapSection + 1];
+		
+		color = cA + (cB - cA) * colorMapT;
 
 		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
 		ldiSimpleVertex* v1 = &verts[i * 4 + 1];

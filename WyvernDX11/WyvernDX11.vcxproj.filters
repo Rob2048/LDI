@@ -98,7 +98,10 @@
     <ClInclude Include="source\network.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="source\camInspector.h">
+    <ClInclude Include="source\computerVision.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\platform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
