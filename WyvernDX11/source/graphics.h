@@ -186,6 +186,112 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 	return result;
 }
 
+void gfxReleaseSurfelRenderModel(ldiRenderModel* Model) {
+	if (Model->indexBuffer != 0) {
+		Model->indexBuffer->Release();
+		Model->indexBuffer = 0;
+	}
+
+	if (Model->vertexBuffer != 0) {
+		Model->vertexBuffer->Release();
+		Model->vertexBuffer = 0;
+	}
+}
+
+ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel> Surfels) {
+	ldiRenderModel result = {};
+
+	int quadCount = Surfels.size();
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiSimpleVertex* verts = new ldiSimpleVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	float surfelSize = 0.006;
+	float hSize = surfelSize / 2.0;
+	float normalAdjust = 0.001;
+	
+	for (int i = 0; i < quadCount; ++i) {
+		ldiSurfel* s = &Surfels[i];
+
+		vec3 upVec(0, 1, 0);
+
+		if (s->normal == upVec || s->normal == -upVec) {
+			upVec = vec3(1, 0, 0);
+		}
+
+		vec3 tangent = glm::cross(s->normal, upVec);
+		tangent = glm::normalize(tangent);
+
+		vec3 bitangent = glm::cross(s->normal, tangent);
+		bitangent = glm::normalize(bitangent);
+
+		vec3 p0 = s->position - tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p1 = s->position + tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p2 = s->position + tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
+		vec3 p3 = s->position - tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
+
+		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
+		ldiSimpleVertex* v1 = &verts[i * 4 + 1];
+		ldiSimpleVertex* v2 = &verts[i * 4 + 2];
+		ldiSimpleVertex* v3 = &verts[i * 4 + 3];
+
+		//vec3 color = s->normal * 0.5f + 0.5f;
+		vec3 color = s->color;
+
+		v0->position = p0;
+		v0->color = color;
+
+		v1->position = p1;
+		v1->color = color;
+
+		v2->position = p2;
+		v2->color = color;
+
+		v3->position = p3;
+		v3->color = color;
+
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+
 ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* ModelSource) {
 	ldiRenderModel result = {};
 
@@ -292,7 +398,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		vec3 cA = colorMap[colorMapSection + 0];
 		vec3 cB = colorMap[colorMapSection + 1];
 		
-		color = cA + (cB - cA) * colorMapT;
+		//color = cA + (cB - cA) * colorMapT;
 
 		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
 		ldiSimpleVertex* v1 = &verts[i * 4 + 1];

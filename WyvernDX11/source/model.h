@@ -40,6 +40,20 @@ struct ldiQuadModel {
 	std::vector<uint32_t> indices;
 };
 
+struct ldiSurfel {
+	int id;
+	vec3 position;
+	vec3 normal;
+	vec3 color;
+	float scale;
+};
+
+struct ldiImage {
+	int width;
+	int height;
+	uint8_t* data;
+};
+
 static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {
 	Dest->verts.resize(Source->verts.size());
 

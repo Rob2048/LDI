@@ -18,6 +18,7 @@ struct ldiModelInspector {
 	bool						showPointCloud = false;
 	bool						quadMeshShowWireframe = false;
 	bool						quadMeshShowDebug = true;
+	bool						showSurfels = true;
 
 	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
@@ -34,9 +35,107 @@ struct ldiModelInspector {
 	ID3D11ShaderResourceView*	shaderResourceViewTest;
 	ID3D11SamplerState*			texSamplerState;
 	ldiRenderLines				quadMeshWire;
+	ldiRenderModel				surfelRenderModel;
 
 	ldiRenderPointCloud			pointCloudRenderModel;
+
+	ldiPhysicsMesh				cookedDergn;
+
+	std::vector<ldiSurfel>		surfels;
+	ldiImage					baseTexture;
 };
+
+void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
+	std::cout << "Run smooth\n";
+	for (size_t i = 0; i < Surfels->size(); ++i) {
+		(*Surfels)[i].normal = vec3(0, 1, 0);
+	}
+}
+
+std::vector<ldiSurfel> geoCreateSurfels(ldiQuadModel* Model) {
+	int quadCount = Model->indices.size() / 4;
+
+	std::vector<ldiSurfel> result;
+	result.reserve(quadCount);
+
+	float normalAdjust = 0.0;
+
+	for (int i = 0; i < quadCount; ++i) {
+		vec3 p0 = Model->verts[Model->indices[i * 4 + 0]];
+		vec3 p1 = Model->verts[Model->indices[i * 4 + 1]];
+		vec3 p2 = Model->verts[Model->indices[i * 4 + 2]];
+		vec3 p3 = Model->verts[Model->indices[i * 4 + 3]];
+
+		vec3 center = p0 + p1 + p2 + p3;
+		center /= 4;
+
+		float s0 = glm::length(p0 - p1);
+		float s1 = glm::length(p1 - p2);
+		float s2 = glm::length(p2 - p3);
+		float s3 = glm::length(p3 - p0);
+
+		vec3 normal0 = glm::normalize(glm::cross(p1 - p0, p3 - p0));
+		vec3 normal1 = glm::normalize(glm::cross(p3 - p2, p1 - p2));
+
+		vec3 normal = normal0 + normal1;
+		normal = glm::normalize(normal);
+
+		ldiSurfel surfel{};
+		surfel.id = i;
+		surfel.position = center + normal * normalAdjust;
+		surfel.normal = normal;
+		surfel.color = vec3(0, 0, 0);
+		surfel.scale = 1.0f;
+
+		result.push_back(surfel);
+	}
+
+	return result;
+}
+
+void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
+	float normalAdjust = 0.01;
+	int triCount = SrcModel->indices.size() / 3;
+
+	for (size_t i = 0; i < Surfels->size(); ++i) {
+		ldiSurfel* s = &(*Surfels)[i];
+		ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, s->position + s->normal * normalAdjust, -s->normal);
+
+		if (result.hit) {
+			//s->color = vec3(result.barry.x, result.barry.y, 0);
+			/*int scaledIdx = result.faceIdx * (0xFFFFFF / triCount);
+			vec3 color;
+			color.x = ((scaledIdx >> 0) & 0xFF) / 255.0f;
+			color.y = ((scaledIdx >> 8) & 0xFF) / 255.0f;
+			color.z = ((scaledIdx >> 16) & 0xFF) / 255.0f;*/
+
+			//P = uA + vB + wC
+
+			ldiMeshVertex v0 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 0]];
+			ldiMeshVertex v1 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 1]];
+			ldiMeshVertex v2 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 2]];
+
+			float u = result.barry.x;
+			float v = result.barry.y;
+			float w = 1.0 - (u + v);
+			//vec2 uv = u * v0.uv + v * v1.uv + w * v2.uv;
+			//vec2 uv = u * v2.uv + v * v1.uv + w * v0.uv;
+			
+			//vec2 uv = u * v0.uv + v * v2.uv + w * v1.uv;
+			vec2 uv = u * v1.uv + v * v2.uv + w * v0.uv;
+
+			int pixX = uv.x * Image->width;
+			int pixY = (Image->height - 1) - (uv.y * Image->height);
+			uint8_t r = Image->data[(pixX + pixY * Image->width) * 4 + 0];
+			uint8_t g = Image->data[(pixX + pixY * Image->width) * 4 + 1];
+			uint8_t b = Image->data[(pixX + pixY * Image->width) * 4 + 2];
+
+			s->color = vec3(r / 255.0, g / 255.0, b / 255.0);
+		} else {
+			s->color = vec3(1, 0, 0);
+		}
+	}
+}
 
 void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
 	double t0 = _getTime(ModelInspector->appContext);
@@ -127,6 +226,8 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		vert->pos = vert->pos * scale;
 	}
 
+	physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
+
 	ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
 
 	// Import PLY quad mesh.
@@ -175,8 +276,29 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &quadModel);
 
-	ldiModel quadMeshTriModel;
-	convertQuadToTriModel(&quadModel, &quadMeshTriModel);
+	ModelInspector->surfels = geoCreateSurfels(&quadModel);
+
+	double t0 = _getTime(AppContext);
+	int x, y, n;
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+
+	ModelInspector->baseTexture.width = x;
+	ModelInspector->baseTexture.height = y;
+	ModelInspector->baseTexture.data = imageRawPixels;
+
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
+
+	t0 = _getTime(ModelInspector->appContext);
+	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseTexture, &ModelInspector->surfels);
+	t0 = _getTime(ModelInspector->appContext) - t0;
+	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
+
+	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, ModelInspector->surfels);
+
+	//ldiModel quadMeshTriModel;
+	//convertQuadToTriModel(&quadModel, &quadMeshTriModel);
 
 	//std::cout << "Quad tri mesh stats: " << quadMeshTriModel.verts.size() << 
 
@@ -190,13 +312,6 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->pointCloudRenderModel = gfxCreateRenderPointCloud(AppContext, &pointCloud);
 
 	ModelInspector->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &quadModel);
-
-	double t0 = _getTime(AppContext);
-	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
-	t0 = _getTime(AppContext) - t0;
-	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
 
 	D3D11_SUBRESOURCE_DATA texData = {};
 	texData.pSysMem = imageRawPixels;
@@ -221,7 +336,7 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		std::cout << "Texture failed to create\n";
 	}
 
-	imageFree(imageRawPixels);
+	//imageFree(imageRawPixels);
 
 	AppContext->d3dDevice->CreateShaderResourceView(texResource, NULL, &ModelInspector->shaderResourceViewTest);
 
@@ -326,6 +441,17 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		TextBuffer->push_back(text0);
 	}
 
+	/*vec3 rayOrigin(sin(_getTime(appContext)), 10, 0);
+	vec3 rayDir(0, -1, 0);
+
+	ldiRaycastResult rayHit = physicsRaycast(appContext->physics, &ModelInspector->cookedDergn, rayOrigin, rayDir);
+
+	if (rayHit.hit) {
+		pushDebugLine(appContext, rayOrigin, rayHit.pos, vec3(0, 1, 0));
+	} else {
+		pushDebugLine(appContext, rayOrigin, rayOrigin + rayDir * vec3(10, 10, 10), vec3(1, 0, 0));
+	}*/
+	
 	// Grid.
 	int gridCount = 10;
 	float gridCellWidth = 1.0f;
@@ -445,6 +571,17 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
+	}
+
+	if (ModelInspector->showSurfels) {
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(0, 0, 0, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+		gfxRenderDebugModel(appContext, &ModelInspector->surfelRenderModel);
 	}
 }
 
@@ -567,6 +704,12 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Text("Quad model");
 		ImGui::Checkbox("Area debug", &tool->quadMeshShowDebug);
 		ImGui::Checkbox("Quad wireframe", &tool->quadMeshShowWireframe);
+		ImGui::Checkbox("Surfels", &tool->showSurfels);
+		if (ImGui::Button("Smooth surfels")) {
+			geoSmoothSurfels(&tool->surfels);
+			gfxReleaseSurfelRenderModel(&tool->surfelRenderModel);
+			tool->surfelRenderModel = gfxCreateSurfelRenderModel(tool->appContext, tool->surfels);
+		}
 
 		ImGui::Separator();
 		ImGui::Text("Point cloud");

@@ -119,13 +119,13 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452d.lib;opencv_aruco452d.lib;opencv_calib3d452d.lib;opencv_features2d452d.lib;opencv_imgproc452d.lib;opencv_imgcodecs452d.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Debug</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452d.lib;opencv_aruco452d.lib;opencv_calib3d452d.lib;opencv_features2d452d.lib;opencv_imgproc452d.lib;opencv_imgcodecs452d.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Debug;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\debug</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -136,15 +136,15 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452.lib;opencv_aruco452.lib;opencv_calib3d452.lib;opencv_features2d452.lib;opencv_imgproc452.lib;opencv_imgcodecs452.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Release</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452.lib;opencv_aruco452.lib;opencv_calib3d452.lib;opencv_features2d452.lib;opencv_imgproc452.lib;opencv_imgcodecs452.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Release;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\release</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -174,10 +174,12 @@
     <ClInclude Include="source\glm.h" />
     <ClInclude Include="source\graphics.h" />
     <ClInclude Include="source\image.h" />
+    <ClInclude Include="source\imageInspector.h" />
     <ClInclude Include="source\model.h" />
     <ClInclude Include="source\modelInspector.h" />
     <ClInclude Include="source\network.h" />
     <ClInclude Include="source\objLoader.h" />
+    <ClInclude Include="source\physics.h" />
     <ClInclude Include="source\platform.h" />
     <ClInclude Include="source\plyLoader.h" />
     <ClInclude Include="source\samplerTester.h" />

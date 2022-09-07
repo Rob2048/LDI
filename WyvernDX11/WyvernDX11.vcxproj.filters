@@ -104,5 +104,11 @@
     <ClInclude Include="source\platform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\imageInspector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\physics.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
