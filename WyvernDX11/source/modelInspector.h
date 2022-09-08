@@ -102,15 +102,6 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 		ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, s->position + s->normal * normalAdjust, -s->normal);
 
 		if (result.hit) {
-			//s->color = vec3(result.barry.x, result.barry.y, 0);
-			/*int scaledIdx = result.faceIdx * (0xFFFFFF / triCount);
-			vec3 color;
-			color.x = ((scaledIdx >> 0) & 0xFF) / 255.0f;
-			color.y = ((scaledIdx >> 8) & 0xFF) / 255.0f;
-			color.z = ((scaledIdx >> 16) & 0xFF) / 255.0f;*/
-
-			//P = uA + vB + wC
-
 			ldiMeshVertex v0 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 0]];
 			ldiMeshVertex v1 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 1]];
 			ldiMeshVertex v2 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 2]];
@@ -118,14 +109,12 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 			float u = result.barry.x;
 			float v = result.barry.y;
 			float w = 1.0 - (u + v);
-			//vec2 uv = u * v0.uv + v * v1.uv + w * v2.uv;
-			//vec2 uv = u * v2.uv + v * v1.uv + w * v0.uv;
-			
-			//vec2 uv = u * v0.uv + v * v2.uv + w * v1.uv;
-			vec2 uv = u * v1.uv + v * v2.uv + w * v0.uv;
+			vec2 uv = w * v0.uv + u * v1.uv + v * v2.uv;
 
+			// TODO: Clamp/Wrap lookup index on each axis.
 			int pixX = uv.x * Image->width;
 			int pixY = (Image->height - 1) - (uv.y * Image->height);
+
 			uint8_t r = Image->data[(pixX + pixY * Image->width) * 4 + 0];
 			uint8_t g = Image->data[(pixX + pixY * Image->width) * 4 + 1];
 			uint8_t b = Image->data[(pixX + pixY * Image->width) * 4 + 2];
