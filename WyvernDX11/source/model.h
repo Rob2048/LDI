@@ -45,6 +45,7 @@ struct ldiSurfel {
 	vec3 position;
 	vec3 normal;
 	vec3 color;
+	vec3 smoothedNormal;
 	float scale;
 };
 
@@ -64,7 +65,7 @@ static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {
 		Dest->verts[i] = vert;
 	}
 
-	int quadCount = Source->indices.size() / 4;
+	int quadCount = (int)(Source->indices.size() / 4);
 	int triCount = quadCount * 2;
 	int indCount = triCount * 3;
 

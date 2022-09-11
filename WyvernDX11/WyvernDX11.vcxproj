@@ -183,6 +183,7 @@
     <ClInclude Include="source\platform.h" />
     <ClInclude Include="source\plyLoader.h" />
     <ClInclude Include="source\samplerTester.h" />
+    <ClInclude Include="source\serialPort.h" />
     <ClInclude Include="source\stb_image.h" />
     <ClInclude Include="source\stb_image_write.h" />
     <ClInclude Include="source\stlLoader.h" />

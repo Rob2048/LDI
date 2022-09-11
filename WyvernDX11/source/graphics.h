@@ -38,7 +38,7 @@ ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, ldiPointCloud*
 	ldiRenderPointCloud result = {};
 
 	// Pack point data into verts.
-	int pointCount = PointCloud->points.size();
+	int pointCount = (int)PointCloud->points.size();
 	int vertCount = pointCount * 4;
 	std::vector<ldiBasicVertex> packedVerts;
 	packedVerts.resize(vertCount);
@@ -136,7 +136,7 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 		verts[i].color = vec3(0.1, 0.1, 0.1);
 	}
 
-	int quadCount = ModelSource->indices.size() / 4;
+	int quadCount = (int)(ModelSource->indices.size() / 4);
 	std::vector<uint32_t> indices;
 	indices.resize(quadCount * 8);
 	for (int i = 0; i < quadCount; ++i) {
@@ -160,7 +160,7 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * verts.size();
+	vbDesc.ByteWidth = (UINT)(sizeof(ldiSimpleVertex) * verts.size());
 	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vbDesc.CPUAccessFlags = 0;
 
@@ -171,7 +171,7 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 
 	D3D11_BUFFER_DESC ibDesc = {};
 	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	ibDesc.ByteWidth = sizeof(uint32_t) * indices.size();
+	ibDesc.ByteWidth = (UINT)(sizeof(uint32_t) * indices.size());
 	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 	ibDesc.CPUAccessFlags = 0;
 
@@ -180,8 +180,8 @@ ldiRenderLines gfxCreateRenderQuadWireframe(ldiApp* AppContext, ldiQuadModel* Mo
 
 	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
 
-	result.vertCount = verts.size();
-	result.indexCount = indices.size();
+	result.vertCount = (int)verts.size();
+	result.indexCount = (int)indices.size();
 
 	return result;
 }
@@ -201,17 +201,17 @@ void gfxReleaseSurfelRenderModel(ldiRenderModel* Model) {
 ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel> Surfels) {
 	ldiRenderModel result = {};
 
-	int quadCount = Surfels.size();
+	int quadCount = (int)Surfels.size();
 	int vertCount = quadCount * 4;
 	int triCount = quadCount * 2;
 	int indexCount = triCount * 3;
 
-	ldiSimpleVertex* verts = new ldiSimpleVertex[vertCount];
+	ldiBasicVertex* verts = new ldiBasicVertex[vertCount];
 	uint32_t* indices = new uint32_t[indexCount];
 
-	float surfelSize = 0.006;
-	float hSize = surfelSize / 2.0;
-	float normalAdjust = 0.001;
+	float surfelSize = 0.0075f;
+	float hSize = surfelSize / 2.0f;
+	float normalAdjust = 0.001f;
 	
 	for (int i = 0; i < quadCount; ++i) {
 		ldiSurfel* s = &Surfels[i];
@@ -233,25 +233,29 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 		vec3 p2 = s->position + tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
 		vec3 p3 = s->position - tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
 
-		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
-		ldiSimpleVertex* v1 = &verts[i * 4 + 1];
-		ldiSimpleVertex* v2 = &verts[i * 4 + 2];
-		ldiSimpleVertex* v3 = &verts[i * 4 + 3];
+		ldiBasicVertex* v0 = &verts[i * 4 + 0];
+		ldiBasicVertex* v1 = &verts[i * 4 + 1];
+		ldiBasicVertex* v2 = &verts[i * 4 + 2];
+		ldiBasicVertex* v3 = &verts[i * 4 + 3];
 
-		//vec3 color = s->normal * 0.5f + 0.5f;
-		vec3 color = s->color;
+		vec3 color = s->normal * 0.5f + 0.5f;
+		//vec3 color = s->color;
 
 		v0->position = p0;
 		v0->color = color;
+		v0->uv = vec2(0, 0);
 
 		v1->position = p1;
 		v1->color = color;
+		v1->uv = vec2(1, 0);
 
 		v2->position = p2;
 		v2->color = color;
+		v2->uv = vec2(1, 1);
 
 		v3->position = p3;
 		v3->color = color;
+		v3->uv = vec2(0, 1);
 
 		indices[i * 6 + 0] = i * 4 + 2;
 		indices[i * 6 + 1] = i * 4 + 1;
@@ -263,7 +267,7 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * vertCount;
+	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * vertCount;
 	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vbDesc.CPUAccessFlags = 0;
 
@@ -297,7 +301,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 
 	// Unique quads with unique verts per quad.
 
-	int quadCount = ModelSource->indices.size() / 4;
+	int quadCount = (int)(ModelSource->indices.size() / 4);
 	int vertCount = quadCount * 4;
 	int triCount = quadCount * 2;
 	int indexCount = triCount * 3;
@@ -322,7 +326,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 
 		// Find biggest error;
 		float error = 0.0f;
-		float target = dotSize;
+		float target = (float)dotSize;
 
 		/*error = max(error, abs(s0 - target));
 		error = max(error, abs(s1 - target));
@@ -515,6 +519,33 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = 
 	} else {
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 	}
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
+void gfxRenderBasicModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
+	UINT lgStride = sizeof(ldiBasicVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->basicInputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(AppContext->basicVertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(AppContext->basicPixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 
 	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
 

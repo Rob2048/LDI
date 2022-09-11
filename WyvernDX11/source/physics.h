@@ -52,8 +52,6 @@ struct ldiPhysics {
 	PxFoundation*		foundation;
 	PxPhysics*			physics;
 	PxCooking*			cooking;
-
-	
 };
 
 struct ldiPhysicsMesh {
@@ -92,18 +90,16 @@ int physicsInit(ldiApp* AppContext, ldiPhysics* Physics) {
 
 int physicsCookMesh(ldiPhysics* Physics, ldiModel* Model, ldiPhysicsMesh* Result) {
 	PxTriangleMeshDesc meshDesc;
-	meshDesc.points.count = Model->verts.size();
+	meshDesc.points.count = (uint32_t)Model->verts.size();
 	meshDesc.points.stride = sizeof(ldiMeshVertex);
 	meshDesc.points.data = Model->verts.data();
 
-	meshDesc.triangles.count = Model->indices.size() / 3;
+	meshDesc.triangles.count = (uint32_t)(Model->indices.size() / 3);
 	meshDesc.triangles.stride = 3 * sizeof(uint32_t);
 	meshDesc.triangles.data = Model->indices.data();
 
-	PxDefaultMemoryOutputStream writeBuffer;
 	PxTriangleMeshCookingResult::Enum result;
-	//bool status = Physics->cooking->cookTriangleMesh(meshDesc, writeBuffer, &result);
-
+	
 	double t0 = _getTime(Physics->appContext);
 	PxTriangleMesh* cookedMesh = Physics->cooking->createTriangleMesh(meshDesc, Physics->physics->getPhysicsInsertionCallback(), &result);
 	t0 = _getTime(Physics->appContext) - t0;
@@ -136,8 +132,7 @@ ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 
 	PxTransform geomPose(0, 0, 0);
 
 	PxRaycastHit rayHit;
-	int hitCount = PxGeometryQuery::raycast(rayOrigin, rayDir, Mesh->cookedMesh, geomPose, 0.02, PxHitFlag::ePOSITION | PxHitFlag::eUV | PxHitFlag::eFACE_INDEX | PxHitFlag::eMESH_BOTH_SIDES, 1, &rayHit);
-
+	int hitCount = PxGeometryQuery::raycast(rayOrigin, rayDir, Mesh->cookedMesh, geomPose, 0.02f, PxHitFlag::ePOSITION | PxHitFlag::eUV | PxHitFlag::eFACE_INDEX | PxHitFlag::eMESH_BOTH_SIDES, 1, &rayHit);
 
 	if (hitCount > 0) {
 		hit.hit = true;

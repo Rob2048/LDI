@@ -98,7 +98,7 @@ inline void SetPixelImage(OutputImage* Image, int X, int Y, uint8_t R, uint8_t G
 	Image->Data[pixelIdx + 2] = B;
 }
 
-void DrawCircle(OutputImage* Image, float X, float Y, float Radius) {
+void DrawCircle(OutputImage* Image, float X, float Y, float Radius, float Value = 0.0f) {
 	float tX = X * Image->Scale;
 	float tY = Y * Image->Scale;
 	float tR = Radius * Image->Scale;
@@ -115,6 +115,8 @@ void DrawCircle(OutputImage* Image, float X, float Y, float Radius) {
 
 	float radiusSqr = tR * tR;
 
+	uint8_t color = (uint8_t)(Value * 255.0f);
+
 	for (int iY = gSy; iY <= gEy; ++iY) {
 		for (int iX = gSx; iX <= gEx; ++iX) {
 			float dX = tX - iX;
@@ -122,7 +124,7 @@ void DrawCircle(OutputImage* Image, float X, float Y, float Radius) {
 			float distSqr = dX * dX + dY * dY;
 
 			if (distSqr <= radiusSqr) {
-				SetPixelImage(Image, iX, iY, 0, 0, 0);
+				SetPixelImage(Image, iX, iY, color, color, color);
 			}
 		}
 	}
@@ -147,6 +149,7 @@ int main()
 	auto t0 = Clock::now();
 
 	int sourceWidth, sourceHeight, sourceChannels;
+	//uint8_t* sourcePixels = stbi_load("images\\dergn.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
 	uint8_t* sourcePixels = stbi_load("images\\dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
 	//uint8_t* sourcePixels = stbi_load("images\\char_render_sat_smaller.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
 	//uint8_t* sourcePixels = stbi_load("images\\imM.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
@@ -205,17 +208,29 @@ int main()
 				continue;
 			}
 
-			float area = 1.0f / (1.0f - value) * 3.14f;
-			float radius = sqrt(area / M_PI);
-			radius = pow(radius, 2.2f);
-			//radius *= 1.44f;
-			radius *= 2.0f;
-
 			SamplePoint* s = &candidateList[candidateCount++];
 			s->X = iX * sampleScale;
 			s->Y = iY * sampleScale;
 			s->Value = value;
-			s->Scale = singlePixelScale * 0.5f * 1.0f;
+
+			float radiusMul = 2.4f;
+
+			float radius = 1;
+
+			float minDotSize = 0.2f;
+			float minDotInv = 1.0 - minDotSize;
+
+			if (value > minDotInv) {
+				s->Value = minDotInv;
+
+				float area = 1.0f / (1.0f - (value - minDotInv)) * 3.14f;
+				radius = sqrt(area / M_PI);
+				radius = pow(radius, 2.2f);
+			}
+
+			radius *= radiusMul;
+			
+			s->Scale = singlePixelScale * 0.5f * 1.4f;
 			s->Radius = singlePixelScale * 0.5f * radius;
 		}
 	}
@@ -235,13 +250,13 @@ int main()
 	}
 
 	// Randomize pairs
-	/*for (int j = 0; j < candidateCount; ++j) {
+	for (int j = 0; j < candidateCount; ++j) {
 		int targetSlot = rand() % candidateCount;
 
 		int tmp = orderList[targetSlot];
 		orderList[targetSlot] = orderList[j];
 		orderList[j] = tmp;
-	}*/
+	}
 
 	t1 = Clock::now();
 	std::cout << "Generate random sample order: " << getProfileTime(t0, t1) << " ms\n";
@@ -348,7 +363,10 @@ int main()
 	for (int i = 0; i < pointCount; ++i) {
 		SamplePoint* s = &candidateList[pointList[i]];
 
-		DrawCircle(&outputImage, s->X, s->Y, s->Scale);
+		// NOTE: Intensity based.
+		//DrawCircle(&outputImage, s->X, s->Y, s->Scale, s->Value);
+		// NOTE: Size based.
+		DrawCircle(&outputImage, s->X, s->Y, s->Scale * (1.0 - s->Value), 0);
 	}
 
 	stbi_write_png("images\\output.png", outputImage.PixelWidth, outputImage.PixelHeight, 3, outputImage.Data, 1 * outputImage.PixelWidth * 3);

@@ -3,7 +3,7 @@
 //----------------------------------------------------------------------------------------------------
 void initDebugPrimitives(ldiApp* AppContext) {
 	{
-		AppContext->triGeometryVertMax = 64000;
+		AppContext->triGeometryVertMax = 256000;
 
 		D3D11_BUFFER_DESC vbDesc;
 		ZeroMemory(&vbDesc, sizeof(vbDesc));
@@ -15,7 +15,7 @@ void initDebugPrimitives(ldiApp* AppContext) {
 	}
 
 	{
-		AppContext->lineGeometryVertMax = 16000;
+		AppContext->lineGeometryVertMax = 512000;
 
 		D3D11_BUFFER_DESC vbDesc;
 		ZeroMemory(&vbDesc, sizeof(vbDesc));
@@ -59,6 +59,33 @@ inline void pushDebugBox(ldiApp* AppContext, vec3 Origin, vec3 Size, vec3 Color)
 	vec3 v5 = Origin + vec3(-halfSize.x, halfSize.y, halfSize.z);
 	vec3 v6 = Origin + vec3(halfSize.x, halfSize.y, halfSize.z);
 	vec3 v7 = Origin + vec3(halfSize.x, halfSize.y, -halfSize.z);
+
+	pushDebugLine(AppContext, v0, v1, Color);
+	pushDebugLine(AppContext, v1, v2, Color);
+	pushDebugLine(AppContext, v2, v3, Color);
+	pushDebugLine(AppContext, v3, v0, Color);
+
+	pushDebugLine(AppContext, v4, v5, Color);
+	pushDebugLine(AppContext, v5, v6, Color);
+	pushDebugLine(AppContext, v6, v7, Color);
+	pushDebugLine(AppContext, v7, v4, Color);
+
+	pushDebugLine(AppContext, v0, v4, Color);
+	pushDebugLine(AppContext, v1, v5, Color);
+	pushDebugLine(AppContext, v2, v6, Color);
+	pushDebugLine(AppContext, v3, v7, Color);
+}
+
+inline void pushDebugBoxMinMax(ldiApp* AppContext, vec3 Min, vec3 Max, vec3 Color) {
+	vec3 v0 = vec3(Min.x, Min.y, Min.z);
+	vec3 v1 = vec3(Min.x, Min.y, Max.z);
+	vec3 v2 = vec3(Max.x, Min.y, Max.z);
+	vec3 v3 = vec3(Max.x, Min.y, Min.z);
+
+	vec3 v4 = vec3(Min.x, Max.y, Min.z);
+	vec3 v5 = vec3(Min.x, Max.y, Max.z);
+	vec3 v6 = vec3(Max.x, Max.y, Max.z);
+	vec3 v7 = vec3(Max.x, Max.y, Min.z);
 
 	pushDebugLine(AppContext, v0, v1, Color);
 	pushDebugLine(AppContext, v1, v2, Color);

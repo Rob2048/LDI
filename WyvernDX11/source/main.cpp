@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <vector>
+#include <thread>
 
 // NOTE: Must be included before any Windows includes.
 #include "network.h"
@@ -152,6 +153,7 @@ double _getTime(ldiApp* AppContext) {
 	return result;
 }
 
+#include "serialPort.h"
 #include "physics.h"
 #include "graphics.h"
 #include "debugPrims.h"
@@ -830,6 +832,8 @@ int main() {
 	gfxCleanupDeviceD3D(&_appContext);
 	DestroyWindow(_appContext.hWnd);
 	_unregisterWindow(&_appContext);
+
+	platformDestroy(platform);
 
 	return 0;
 }
