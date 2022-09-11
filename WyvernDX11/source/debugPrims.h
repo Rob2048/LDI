@@ -48,6 +48,23 @@ inline void pushDebugTri(ldiApp* AppContext, vec3 A, vec3 B, vec3 C, vec3 Color)
 	AppContext->triGeometryVertData.push_back({ C, Color });
 }
 
+inline void pushDebugQuad(ldiApp* AppContext, vec3 Min, vec3 Max, vec3 Color) {
+	AppContext->triGeometryVertCount += 6;
+
+	vec3 v0(Min.x, Min.y, Min.z);
+	vec3 v1(Max.x, Min.y, Min.z);
+	vec3 v2(Max.x, Max.y, Min.z);
+	vec3 v3(Min.x, Max.y, Min.z);
+
+	AppContext->triGeometryVertData.push_back({ v0, Color });
+	AppContext->triGeometryVertData.push_back({ v1, Color });
+	AppContext->triGeometryVertData.push_back({ v2, Color });
+
+	AppContext->triGeometryVertData.push_back({ v0, Color });
+	AppContext->triGeometryVertData.push_back({ v2, Color });
+	AppContext->triGeometryVertData.push_back({ v3, Color });
+}
+
 inline void pushDebugBox(ldiApp* AppContext, vec3 Origin, vec3 Size, vec3 Color) {
 	vec3 halfSize = Size * 0.5f;
 	vec3 v0 = Origin + vec3(-halfSize.x, -halfSize.y, -halfSize.z);

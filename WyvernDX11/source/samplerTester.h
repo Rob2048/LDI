@@ -8,8 +8,8 @@ struct ldiSamplerTester {
 
 	ldiRenderViewBuffers		renderViewBuffers;
 
-	vec4						viewBackgroundColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-	vec4						gridColor = { 0.9f, 0.9f, 0.9f, 1.0f };
+	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
+	vec4						gridColor = { 0.67f, 0.3f, 0.76f, 1.0f };
 	bool						showGrid = true;
 
 	vec3						camOffset = { 0, 0, 1 };
@@ -40,18 +40,26 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 	//----------------------------------------------------------------------------------------------------
 	beginDebugPrimitives(appContext);
 
+	// Origin.
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-	
+
+	pushDebugQuad(appContext, vec3(0, 0, -1), vec3(50, 69.6, 0), vec3(1, 1, 1));
+
 	if (SamplerTester->showGrid) {
-		int gridCount = 10;
-		float gridCellWidth = 1.0f;
+		int gridCountX = 100;
+		int gridCountY = 140;
+		float gridCellWidth = 0.5f;
 		vec3 gridColor = SamplerTester->gridColor;
-		vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, gridCellWidth * gridCount, 0) * 0.5f;
-		for (int i = 0; i < gridCount + 1; ++i) {
-			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCount * gridCellWidth, 0) - gridHalfOffset, gridColor);
-			pushDebugLine(appContext, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCount * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
+		//vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, gridCellWidth * gridCount, 0) * 0.5f;
+		vec3 gridHalfOffset(0, 0, 0);
+		for (int i = 0; i < gridCountX + 1; ++i) {
+			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCountY * gridCellWidth, 0) - gridHalfOffset, gridColor);
+		}
+		
+		for (int i = 0; i < gridCountY + 1; ++i) {
+			pushDebugLine(appContext, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCountX * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
 		}
 	}
 
@@ -104,6 +112,7 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 	//----------------------------------------------------------------------------------------------------
 	// Render point samples.
 	//----------------------------------------------------------------------------------------------------
+	// TODO: Set texture!
 	if (SamplerTester->samplePointModel.vertCount > 0) {
 		UINT lgStride = sizeof(ldiMeshVertex);
 		UINT lgOffset = 0;
@@ -162,7 +171,7 @@ float GetSourceValue(float* Data, int Width, int Height, float X, float Y) {
 	return Data[idx];
 }
 
-int clamp(int Value, int Min, int Max) {
+inline int clamp(int Value, int Min, int Max) {
 	return min(max(Value, Min), Max);
 }
 
@@ -342,12 +351,12 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 
 				float area = 1.0f / (1.0f - (value - minDotInv)) * 3.14f;
 				radius = sqrt(area / M_PI);
-				//radius = pow(radius, 2.2f);
+				radius = pow(radius, 4.0f);
 			}
 
 			radius *= radiusMul;
 
-			s->scale = singlePixelScale * 0.5f * 1.4f;
+			s->scale = singlePixelScale * 0.5f * 1.7f;
 			s->radius = singlePixelScale * 0.5f * radius;
 		}
 	}
