@@ -90,8 +90,13 @@ struct ldiApp {
 	ID3D11PixelShader*			pointCloudPixelShader;
 	ID3D11InputLayout*			pointCloudInputLayout;
 
+	ID3D11VertexShader*			surfelVertexShader;
+	ID3D11PixelShader*			surfelPixelShader;
+	ID3D11InputLayout*			surfelInputLayout;
+
 	ID3D11VertexShader*			imgCamVertexShader;
 	ID3D11PixelShader*			imgCamPixelShader;
+	ID3D11InputLayout*			imgCamInputLayout;
 
 	ID3D11Buffer*				mvpConstantBuffer;
 	ID3D11Buffer*				pointcloudConstantBuffer;
@@ -121,9 +126,9 @@ struct ldiApp {
 
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = true;
+	bool						showImageInspector = false;
 	bool						showModelInspector = true;
-	bool						showSamplerTester = false;
+	bool						showSamplerTester = true;
 
 	// Computer vision.
 	float						camImageFilterFactor = 0.6f;
@@ -334,9 +339,6 @@ bool _handleWindowLoop() {
 	return quit;
 }
 
-
-
-
 //----------------------------------------------------------------------------------------------------
 // Application.
 //----------------------------------------------------------------------------------------------------
@@ -344,7 +346,7 @@ bool _initResources(ldiApp* AppContext) {
 	std::cout << "Compiling shaders\n";
 
 	//----------------------------------------------------------------------------------------------------
-	// Basic shader.
+	// Layouts.
 	//----------------------------------------------------------------------------------------------------
 	D3D11_INPUT_ELEMENT_DESC basicLayout[] = {
 		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -352,6 +354,32 @@ bool _initResources(ldiApp* AppContext) {
 		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
 	};
 
+	D3D11_INPUT_ELEMENT_DESC simpleLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
+	};
+
+	D3D11_INPUT_ELEMENT_DESC meshLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
+	};
+
+	D3D11_INPUT_ELEMENT_DESC pointcloudLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
+	};
+
+	D3D11_INPUT_ELEMENT_DESC imguiUiLayout[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, pos), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, uv),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, (UINT)IM_OFFSETOF(ImDrawVert, col), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
+	//----------------------------------------------------------------------------------------------------
+	// Basic shader.
+	//----------------------------------------------------------------------------------------------------
 	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/basic.hlsl", "mainVs", &AppContext->basicVertexShader, basicLayout, 3, &AppContext->basicInputLayout)) {
 		return false;
 	}
@@ -361,13 +389,19 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	//----------------------------------------------------------------------------------------------------
+	// Surfel shader.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/surfel.hlsl", "mainVs", &AppContext->surfelVertexShader, basicLayout, 3, &AppContext->surfelInputLayout)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/surfel.hlsl", "mainPs", &AppContext->surfelPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
 	// Simple shader.
 	//----------------------------------------------------------------------------------------------------
-	D3D11_INPUT_ELEMENT_DESC simpleLayout[] = {
-		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
 	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/simple.hlsl", "mainVs", &AppContext->simpleVertexShader, simpleLayout, 2, &AppContext->simpleInputLayout)) {
 		return false;
 	}
@@ -379,12 +413,6 @@ bool _initResources(ldiApp* AppContext) {
 	//----------------------------------------------------------------------------------------------------
 	// Mesh shader.
 	//----------------------------------------------------------------------------------------------------
-	D3D11_INPUT_ELEMENT_DESC meshLayout[] = {
-		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
 	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/mesh.hlsl", "mainVs", &AppContext->meshVertexShader, meshLayout, 3, &AppContext->meshInputLayout)) {
 		return false;
 	}
@@ -396,12 +424,6 @@ bool _initResources(ldiApp* AppContext) {
 	//----------------------------------------------------------------------------------------------------
 	// Pointcloud shader.
 	//----------------------------------------------------------------------------------------------------
-	D3D11_INPUT_ELEMENT_DESC pointcloudLayout[] = {
-		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD",	0,	DXGI_FORMAT_R32G32_FLOAT,		0,	24,	D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
 	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/pointcloud.hlsl", "mainVs", &AppContext->pointCloudVertexShader, pointcloudLayout, 3, &AppContext->pointCloudInputLayout)) {
 		return false;
 	}
@@ -413,14 +435,7 @@ bool _initResources(ldiApp* AppContext) {
 	//----------------------------------------------------------------------------------------------------
 	// Image cam shader.
 	//----------------------------------------------------------------------------------------------------
-	ID3D11InputLayout* imguiUiLayoutOb;
-	D3D11_INPUT_ELEMENT_DESC imguiUiLayout[] = {
-		{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, pos), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,   0, (UINT)IM_OFFSETOF(ImDrawVert, uv),  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, (UINT)IM_OFFSETOF(ImDrawVert, col), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	};
-
-	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainVs", &AppContext->imgCamVertexShader, imguiUiLayout, 3, &imguiUiLayoutOb)) {
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainVs", &AppContext->imgCamVertexShader, imguiUiLayout, 3, &AppContext->imgCamInputLayout)) {
 		return false;
 	}
 

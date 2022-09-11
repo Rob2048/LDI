@@ -925,7 +925,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderBasicModel(appContext, &ModelInspector->surfelRenderModel, ModelInspector->dotShaderResourceView, ModelInspector->dotSamplerState);
+		gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, ModelInspector->dotShaderResourceView, ModelInspector->dotSamplerState);
 	}
 }
 

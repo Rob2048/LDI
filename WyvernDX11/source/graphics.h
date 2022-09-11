@@ -557,6 +557,33 @@ void gfxRenderBasicModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11Shader
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }
 
+void gfxRenderSurfelModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
+	UINT lgStride = sizeof(ldiBasicVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->surfelInputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(AppContext->surfelVertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(AppContext->surfelPixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
 void gfxRenderWireModel(ldiApp* AppContext, ldiRenderLines* Model) {
 	UINT lgStride = sizeof(ldiSimpleVertex);
 	UINT lgOffset = 0;

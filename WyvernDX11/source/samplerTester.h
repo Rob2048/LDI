@@ -8,8 +8,8 @@ struct ldiSamplerTester {
 
 	ldiRenderViewBuffers		renderViewBuffers;
 
-	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
-	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
+	vec4						viewBackgroundColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	vec4						gridColor = { 0.9f, 0.9f, 0.9f, 1.0f };
 	bool						showGrid = true;
 
 	vec3						camOffset = { 0, 0, 1 };
@@ -39,12 +39,12 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 	// Debug primitives.
 	//----------------------------------------------------------------------------------------------------
 	beginDebugPrimitives(appContext);
+
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 	
 	if (SamplerTester->showGrid) {
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-		pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-
 		int gridCount = 10;
 		float gridCellWidth = 1.0f;
 		vec3 gridColor = SamplerTester->gridColor;
@@ -192,7 +192,7 @@ void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel
 	for (int i = 0; i < quadCount; ++i) {
 		SamplePoint* sample = &(*SamplePoints)[i];
 
-		float hS = sample->scale * 0.5f;
+		float hS = (sample->scale * (1.0 - sample->value));
 
 		verts[i * 4 + 0].position = vec3(-hS + sample->pos.x, -hS + sample->pos.y, 0);
 		verts[i * 4 + 0].color = basicColor;
@@ -200,15 +200,15 @@ void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel
 
 		verts[i * 4 + 1].position = vec3(hS + sample->pos.x, -hS + sample->pos.y, 0);
 		verts[i * 4 + 1].color = basicColor;
-		verts[i * 4 + 1].uv = vec2(0, 0);
+		verts[i * 4 + 1].uv = vec2(1, 0);
 
 		verts[i * 4 + 2].position = vec3(hS + sample->pos.x, hS + sample->pos.y, 0);
 		verts[i * 4 + 2].color = basicColor;
-		verts[i * 4 + 2].uv = vec2(0, 0);
+		verts[i * 4 + 2].uv = vec2(1, 1);
 
 		verts[i * 4 + 3].position = vec3(-hS + sample->pos.x, hS + sample->pos.y, 0);
 		verts[i * 4 + 3].color = basicColor;
-		verts[i * 4 + 3].uv = vec2(0, 0);
+		verts[i * 4 + 3].uv = vec2(0, 1);
 	}
 
 	D3D11_BUFFER_DESC vbDesc = {};
@@ -268,10 +268,11 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 
 	int sourceWidth, sourceHeight, sourceChannels;
 	//uint8_t* sourcePixels = stbi_load("images\\dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
-	uint8_t* sourcePixels = imageLoadRgba("../../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
+	//uint8_t* sourcePixels = imageLoadRgba("../../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
+	uint8_t* sourcePixels = imageLoadRgba("../../assets/images/dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels);
 
 	t0 = _getTime(SamplerTester->appContext) - t0;
-	std::cout << "Image loaded: " << (t0 * 1000.0f) << " ms\n";
+	std::cout << "Image loaded: " << (t0 * 1000.0) << " ms\n";
 
 	std::cout << "Image stats: " << sourceWidth << ", " << sourceHeight << " " << sourceChannels << "\n";
 
@@ -285,37 +286,212 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	t0 = _getTime(SamplerTester->appContext);
 
 	for (int i = 0; i < sourceTotalPixels; ++i) {
-		uint8_t r = sourcePixels[i * sourceChannels + 0];
+		uint8_t r = sourcePixels[i * 4 + 0];
 		//uint8_t g = sourcePixels[i * sourceChannels + 1];
 		//uint8_t b = sourcePixels[i * sourceChannels + 2];
 
 		float lum = r / 255.0f;// (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
 		//float lum = (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
 
-		sourceIntensity[i] = GammaToLinear(lum);
-		//sourceIntensity[i] = lum;
+		//sourceIntensity[i] = GammaToLinear(lum);
+		sourceIntensity[i] = lum;
 	}
 
 	t0 = _getTime(SamplerTester->appContext) - t0;
-	std::cout << "Greyscale: " << (t0 * 1000.0f) << " ms\n";
+	std::cout << "Greyscale: " << (t0 * 1000.0) << " ms\n";
 
+	//---------------------------------------------------------------------------------------------------------------
+	// Poisson disk sampler - generate sample pool.
+	//---------------------------------------------------------------------------------------------------------------
+	t0 = _getTime(SamplerTester->appContext);
+
+	float samplesPerPixel = 8.0f;
+	float sampleScale = ((sourceWidth / 10.0f) / sourceWidth) / samplesPerPixel;
+	float singlePixelScale = sampleScale * 8;
+
+	int samplesWidth = (int)(sourceWidth * samplesPerPixel);
+	int samplesHeight = (int)(sourceHeight * samplesPerPixel);
+
+	SamplePoint* candidateList = new SamplePoint[samplesWidth * samplesHeight];
+	int candidateCount = 0;
+
+	for (int iY = 0; iY < samplesHeight; ++iY) {
+		for (int iX = 0; iX < samplesWidth; ++iX) {
+			float sX = (float)iX / samplesWidth;
+			float sY = (float)iY / samplesHeight;
+			float value = GetSourceValue(sourceIntensity, sourceWidth, sourceHeight, sX, sY);
+
+			if (value >= 0.999f) {
+				continue;
+			}
+
+			SamplePoint* s = &candidateList[candidateCount++];
+			s->pos.x = iX * sampleScale;
+			s->pos.y = iY * sampleScale;
+			s->value = value;
+
+			float radiusMul = 2.4f;
+
+			float radius = 1;
+
+			float minDotSize = 0.2f;
+			float minDotInv = 1.0 - minDotSize;
+
+			if (value > minDotInv) {
+				s->value = minDotInv;
+
+				float area = 1.0f / (1.0f - (value - minDotInv)) * 3.14f;
+				radius = sqrt(area / M_PI);
+				//radius = pow(radius, 2.2f);
+			}
+
+			radius *= radiusMul;
+
+			s->scale = singlePixelScale * 0.5f * 1.4f;
+			s->radius = singlePixelScale * 0.5f * radius;
+		}
+	}
+
+	t0 = _getTime(SamplerTester->appContext) - t0;
+	std::cout << "Generate sample pool: " << (t0 * 1000.0) << " ms\n";
+	std::cout << "Sample count: " << candidateCount << "\n";
+
+	//---------------------------------------------------------------------------------------------------------------
+	// Create random order for sample selection.
+	//---------------------------------------------------------------------------------------------------------------
+	t0 = _getTime(SamplerTester->appContext);
+
+	int* orderList = new int[candidateCount];
+	for (int i = 0; i < candidateCount; ++i) {
+		orderList[i] = i;
+	}
+
+	// Randomize pairs
+	for (int j = 0; j < candidateCount; ++j) {
+		int targetSlot = rand() % candidateCount;
+
+		int tmp = orderList[targetSlot];
+		orderList[targetSlot] = orderList[j];
+		orderList[j] = tmp;
+	}
+
+	t0 = _getTime(SamplerTester->appContext) - t0;
+	std::cout << "Generate random sample order: " << (t0 * 1000.0) << " ms\n";
+
+	//---------------------------------------------------------------------------------------------------------------
+	// Build spatial table.
+	//---------------------------------------------------------------------------------------------------------------
+	float gridCellSize = 5 * singlePixelScale;
+	float gridPotentialWidth = sampleScale * samplesWidth;
+	float gridPotentialHeight = sampleScale * samplesHeight;
+	int gridCellsX = (int)ceil(gridPotentialWidth / gridCellSize);
+	int gridCellsY = (int)ceil(gridPotentialHeight / gridCellSize);
+	int gridTotalCells = gridCellsX * gridCellsY;
+
+	std::cout << "Grid size: " << gridCellsX << ", " << gridCellsY << "(" << gridCellSize << ") Total: " << gridTotalCells << "\n";
+
+	int* gridCells = new int[gridCellsX * gridCellsY];
+
+	for (int i = 0; i < gridCellsX * gridCellsY; ++i) {
+		gridCells[i] = -1;
+	}
+
+	//---------------------------------------------------------------------------------------------------------------
+	// Add samples from pool.
+	//---------------------------------------------------------------------------------------------------------------
+	t0 = _getTime(SamplerTester->appContext);
+
+	//int* pointList = new int[candidateCount];
+	//int pointCount = 0;
 	std::vector<SamplePoint> samplePoints;
 
-	for (int i = 0; i < 200000; ++i) {
+	for (int i = 0; i < candidateCount; ++i) {
+		int candidateId = orderList[i];
+
+		SamplePoint* candidate = &candidateList[candidateId];
+		bool found = false;
+
+		float halfGcs = candidate->radius;
+
+		int gSx = (int)((candidate->pos.x - halfGcs) / gridCellSize);
+		int gEx = (int)((candidate->pos.x + halfGcs) / gridCellSize);
+		int gSy = (int)((candidate->pos.y - halfGcs) / gridCellSize);
+		int gEy = (int)((candidate->pos.y + halfGcs) / gridCellSize);
+
+		gSx = clamp(gSx, 0, gridCellsX - 1);
+		gEx = clamp(gEx, 0, gridCellsX - 1);
+		gSy = clamp(gSy, 0, gridCellsY - 1);
+		gEy = clamp(gEy, 0, gridCellsY - 1);
+
+		for (int iY = gSy; iY <= gEy; ++iY) {
+			for (int iX = gSx; iX <= gEx; ++iX) {
+
+				int targetId = gridCells[iY * gridCellsX + iX];
+
+				while (targetId != -1) {
+					SamplePoint* target = &candidateList[targetId];
+
+					float dX = candidate->pos.x - target->pos.x;
+					float dY = candidate->pos.y - target->pos.y;
+					float sqrDist = dX * dX + dY * dY;
+
+					if (sqrDist <= (candidate->radius * candidate->radius)) {
+						found = true;
+						break;
+					}
+
+					targetId = target->nextSampleId;
+				}
+
+				if (found == true) {
+					break;
+				}
+			}
+
+			if (found == true) {
+				break;
+			}
+		}
+
+		if (!found) {
+			//pointList[pointCount++] = candidateId;
+			samplePoints.push_back(*candidate);
+
+			int gX = (int)((candidate->pos.x) / gridCellSize);
+			int gY = (int)((candidate->pos.y) / gridCellSize);
+
+			int tempId = gridCells[gY * gridCellsX + gX];
+			candidate->nextSampleId = tempId;
+			gridCells[gY * gridCellsX + gX] = candidateId;
+		}
+	}
+
+	t0 = _getTime(SamplerTester->appContext) - t0;
+	std::cout << "Generate poisson samples: " << (t0 * 1000.0) << " ms\n";
+	std::cout << "Poisson sample count: " << samplePoints.size() << "\n";
+
+	/*for (int i = 0; i < 200000; ++i) {
 		SamplePoint point;
 		point.scale = 0.01f;
 		point.pos = vec2((rand() % 1000000) / 10000.0, (rand() % 1000000) / 10000.0);
 		samplePoints.push_back(point);
-	}
+	}*/
 
 	samplerTesterInitPointModel(SamplerTester, &SamplerTester->samplePointModel, &samplePoints);
 }
 
 void samplerTesterShowUi(ldiSamplerTester* tool) {
 	ImGui::Begin("Sampler tester controls");
-	ImGui::Checkbox("Grid", &tool->showGrid);
-	if (ImGui::Button("Run sample test")) {
-		samplerTesterRunTest(tool);
+	if (ImGui::CollapsingHeader("Viewport")) {
+		ImGui::ColorEdit3("Background", (float*)&tool->viewBackgroundColor);
+		ImGui::ColorEdit3("Grid color", (float*)&tool->gridColor);
+		ImGui::Checkbox("Grid", &tool->showGrid);
+	}
+
+	if (ImGui::CollapsingHeader("Processing", ImGuiTreeNodeFlags_DefaultOpen) ) {
+		if (ImGui::Button("Run sample test")) {
+			samplerTesterRunTest(tool);
+		}
 	}
 	ImGui::End();
 

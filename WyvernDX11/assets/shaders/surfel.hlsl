@@ -33,5 +33,26 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 		discard;
 	}
 
+	if (input.dist.x >= 1 && input.dist.x <= 1.3) {
+		if (input.dist.y >= 0.866) {
+			// 30
+			return float4(0, 1, 0, 1);
+		} else if (input.dist.y >= 0.707) {
+			// 45
+			return float4(0, 0.75, 0, 1);
+		} else if (input.dist.y >= 0.5) {
+			// 60
+			return float4(0, 0.5, 0, 1);
+		} else if (input.dist.y >= 0.34) {
+			// 70
+			return float4(1.0, 0.5, 0, 1);
+		}
+
+
+		return float4(1, 0, 0, 1);
+	}
+
+	return float4(input.dist.y, input.dist.y, input.dist.y, 1);
+
 	return tex * input.col;
 }
