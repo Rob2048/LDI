@@ -18,6 +18,14 @@ struct ldiSamplerTester {
 	ldiRenderModel				samplePointModel;
 };
 
+struct ldiSamplePoint {
+	vec2 pos;
+	float value;
+	float scale;
+	float radius;
+	int nextSampleId;
+};
+
 int samplerTesterInit(ldiApp* AppContext, ldiSamplerTester* SamplerTester) {
 	SamplerTester->appContext = AppContext;
 	SamplerTester->mainViewWidth = 0;
@@ -25,128 +33,6 @@ int samplerTesterInit(ldiApp* AppContext, ldiSamplerTester* SamplerTester) {
 
 	return 0;
 }
-
-void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
-	ldiApp* appContext = SamplerTester->appContext;
-
-	if (Width != SamplerTester->mainViewWidth || Height != SamplerTester->mainViewHeight) {
-		SamplerTester->mainViewWidth = Width;
-		SamplerTester->mainViewHeight = Height;
-		gfxCreateRenderView(appContext, &SamplerTester->renderViewBuffers, Width, Height);
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Debug primitives.
-	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(appContext);
-
-	// Origin.
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-
-	pushDebugQuad(appContext, vec3(0, 0, -1), vec3(50, 69.6, 0), vec3(1, 1, 1));
-
-	if (SamplerTester->showGrid) {
-		int gridCountX = 100;
-		int gridCountY = 140;
-		float gridCellWidth = 0.5f;
-		vec3 gridColor = SamplerTester->gridColor;
-		//vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, gridCellWidth * gridCount, 0) * 0.5f;
-		vec3 gridHalfOffset(0, 0, 0);
-		for (int i = 0; i < gridCountX + 1; ++i) {
-			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCountY * gridCellWidth, 0) - gridHalfOffset, gridColor);
-		}
-		
-		for (int i = 0; i < gridCountY + 1; ++i) {
-			pushDebugLine(appContext, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCountX * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
-		}
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Update camera.
-	//----------------------------------------------------------------------------------------------------
-	// TODO: Update inline with input for specific viewport, before rendering.
-	vec3 camPos = SamplerTester->camOffset;
-	mat4 camViewMat = glm::translate(mat4(1.0f), -camPos);
-
-	float viewWidth = SamplerTester->mainViewWidth * SamplerTester->camScale;
-	float viewHeight = SamplerTester->mainViewHeight * SamplerTester->camScale;
-	mat4 projMat = glm::orthoRH_ZO(0.0f, viewWidth, viewHeight, 0.0f, 0.01f, 100.0f);
-	//mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)SamplerTester->mainViewWidth, (float)SamplerTester->mainViewHeight, 0.01f, 100.0f);
-	
-	mat4 projViewModelMat = projMat * camViewMat;
-
-	//----------------------------------------------------------------------------------------------------
-	// Rendering.
-	//----------------------------------------------------------------------------------------------------
-	appContext->d3dDeviceContext->OMSetRenderTargets(1, &SamplerTester->renderViewBuffers.mainViewRtView, SamplerTester->renderViewBuffers.depthStencilView);
-
-	D3D11_VIEWPORT viewport;
-	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
-	viewport.TopLeftX = 0;
-	viewport.TopLeftY = 0;
-	viewport.Width = SamplerTester->mainViewWidth;
-	viewport.Height = SamplerTester->mainViewHeight;
-	viewport.MinDepth = 0.0f;
-	viewport.MaxDepth = 1.0f;
-
-	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-	appContext->d3dDeviceContext->ClearRenderTargetView(SamplerTester->renderViewBuffers.mainViewRtView, (float*)&SamplerTester->viewBackgroundColor);
-	appContext->d3dDeviceContext->ClearDepthStencilView(SamplerTester->renderViewBuffers.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-	//----------------------------------------------------------------------------------------------------
-	// Render debug primitives.
-	//----------------------------------------------------------------------------------------------------
-	{
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
-		constantBuffer->color = vec4(1, 1, 1, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-	}
-
-	renderDebugPrimitives(appContext);
-
-	//----------------------------------------------------------------------------------------------------
-	// Render point samples.
-	//----------------------------------------------------------------------------------------------------
-	// TODO: Set texture!
-	if (SamplerTester->samplePointModel.vertCount > 0) {
-		UINT lgStride = sizeof(ldiMeshVertex);
-		UINT lgOffset = 0;
-
-		appContext->d3dDeviceContext->IASetInputLayout(appContext->basicInputLayout);
-		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &SamplerTester->samplePointModel.vertexBuffer, &lgStride, &lgOffset);
-		appContext->d3dDeviceContext->IASetIndexBuffer(SamplerTester->samplePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		appContext->d3dDeviceContext->VSSetShader(appContext->basicVertexShader, 0, 0);
-		appContext->d3dDeviceContext->VSSetConstantBuffers(0, 2, &appContext->mvpConstantBuffer);
-		appContext->d3dDeviceContext->PSSetShader(appContext->basicPixelShader, 0, 0);
-		appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
-		appContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
-		appContext->d3dDeviceContext->OMSetBlendState(appContext->defaultBlendState, NULL, 0xffffffff);
-		appContext->d3dDeviceContext->RSSetState(appContext->defaultRasterizerState);
-		appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->defaultDepthStencilState, 0);
-
-		appContext->d3dDeviceContext->DrawIndexed(SamplerTester->samplePointModel.indexCount, 0, 0);
-	}
-}
-
-//---------------------------------------------------------------------------------------------------------------
-// Image space helper functions.
-//---------------------------------------------------------------------------------------------------------------
-#define max(a,b)            (((a) > (b)) ? (a) : (b))
-#define min(a,b)            (((a) < (b)) ? (a) : (b))
-
-struct SamplePoint {
-	vec2 pos;
-	float value;
-	float scale;
-	float radius;
-	int nextSampleId;
-};
 
 float GammaToLinear(float In) {
 	float linearRGBLo = In / 12.92f;
@@ -161,7 +47,6 @@ float LinearToGamma(float In) {
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
 }
 
-
 // Get intensity value from source texture at x,y, 0.0 to 1.0.
 float GetSourceValue(float* Data, int Width, int Height, float X, float Y) {
 	int pX = (int)(X * Width);
@@ -175,7 +60,7 @@ inline int clamp(int Value, int Min, int Max) {
 	return min(max(Value, Min), Max);
 }
 
-void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel* Model, std::vector<SamplePoint>* SamplePoints) {
+void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel* Model, std::vector<ldiSamplePoint>* SamplePoints) {
 	ldiApp* appContext = SamplerTester->appContext;
 
 	if (Model->vertexBuffer) {
@@ -199,7 +84,7 @@ void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel
 	vec3 basicColor(0, 0, 0);
 
 	for (int i = 0; i < quadCount; ++i) {
-		SamplePoint* sample = &(*SamplePoints)[i];
+		ldiSamplePoint* sample = &(*SamplePoints)[i];
 
 		float hS = (sample->scale * (1.0 - sample->value));
 
@@ -265,10 +150,6 @@ void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel
 	Model->indexCount = indexCount;
 }
 
-void samplerTesterUpdatePointModel(ldiSamplerTester* SamplerTester, std::vector<SamplePoint>* SamplePoints) {
-
-}
-
 void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	//---------------------------------------------------------------------------------------------------------------
 	// Load image.
@@ -276,23 +157,20 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	double t0 = _getTime(SamplerTester->appContext);
 
 	int sourceWidth, sourceHeight, sourceChannels;
-	//uint8_t* sourcePixels = stbi_load("images\\dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels, 0);
 	//uint8_t* sourcePixels = imageLoadRgba("../../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
 	uint8_t* sourcePixels = imageLoadRgba("../../assets/images/dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels);
 
 	t0 = _getTime(SamplerTester->appContext) - t0;
 	std::cout << "Image loaded: " << (t0 * 1000.0) << " ms\n";
-
 	std::cout << "Image stats: " << sourceWidth << ", " << sourceHeight << " " << sourceChannels << "\n";
 
 	//---------------------------------------------------------------------------------------------------------------
 	// Convert image to greyscale
 	//---------------------------------------------------------------------------------------------------------------
-	int sourceTotalPixels = sourceWidth * sourceHeight;
-
-	float* sourceIntensity = new float[sourceTotalPixels];
-
 	t0 = _getTime(SamplerTester->appContext);
+	
+	int sourceTotalPixels = sourceWidth * sourceHeight;
+	float* sourceIntensity = new float[sourceTotalPixels];
 
 	for (int i = 0; i < sourceTotalPixels; ++i) {
 		uint8_t r = sourcePixels[i * 4 + 0];
@@ -321,7 +199,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	int samplesWidth = (int)(sourceWidth * samplesPerPixel);
 	int samplesHeight = (int)(sourceHeight * samplesPerPixel);
 
-	SamplePoint* candidateList = new SamplePoint[samplesWidth * samplesHeight];
+	ldiSamplePoint* candidateList = new ldiSamplePoint[samplesWidth * samplesHeight];
 	int candidateCount = 0;
 
 	for (int iY = 0; iY < samplesHeight; ++iY) {
@@ -334,7 +212,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 				continue;
 			}
 
-			SamplePoint* s = &candidateList[candidateCount++];
+			ldiSamplePoint* s = &candidateList[candidateCount++];
 			s->pos.x = iX * sampleScale;
 			s->pos.y = iY * sampleScale;
 			s->value = value;
@@ -412,12 +290,12 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 
 	//int* pointList = new int[candidateCount];
 	//int pointCount = 0;
-	std::vector<SamplePoint> samplePoints;
+	std::vector<ldiSamplePoint> samplePoints;
 
 	for (int i = 0; i < candidateCount; ++i) {
 		int candidateId = orderList[i];
 
-		SamplePoint* candidate = &candidateList[candidateId];
+		ldiSamplePoint* candidate = &candidateList[candidateId];
 		bool found = false;
 
 		float halfGcs = candidate->radius;
@@ -438,7 +316,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 				int targetId = gridCells[iY * gridCellsX + iX];
 
 				while (targetId != -1) {
-					SamplePoint* target = &candidateList[targetId];
+					ldiSamplePoint* target = &candidateList[targetId];
 
 					float dX = candidate->pos.x - target->pos.x;
 					float dY = candidate->pos.y - target->pos.y;
@@ -479,14 +357,115 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	std::cout << "Generate poisson samples: " << (t0 * 1000.0) << " ms\n";
 	std::cout << "Poisson sample count: " << samplePoints.size() << "\n";
 
-	/*for (int i = 0; i < 200000; ++i) {
-		SamplePoint point;
-		point.scale = 0.01f;
-		point.pos = vec2((rand() % 1000000) / 10000.0, (rand() % 1000000) / 10000.0);
-		samplePoints.push_back(point);
-	}*/
-
 	samplerTesterInitPointModel(SamplerTester, &SamplerTester->samplePointModel, &samplePoints);
+}
+
+void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
+	ldiApp* appContext = SamplerTester->appContext;
+
+	if (Width != SamplerTester->mainViewWidth || Height != SamplerTester->mainViewHeight) {
+		SamplerTester->mainViewWidth = Width;
+		SamplerTester->mainViewHeight = Height;
+		gfxCreateRenderView(appContext, &SamplerTester->renderViewBuffers, Width, Height);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Debug primitives.
+	//----------------------------------------------------------------------------------------------------
+	beginDebugPrimitives(appContext);
+
+	// Origin.
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+
+	pushDebugQuad(appContext, vec3(0, 0, -1), vec3(50, 69.6, 0), vec3(1, 1, 1));
+
+	if (SamplerTester->showGrid) {
+		int gridCountX = 100;
+		int gridCountY = 140;
+		float gridCellWidth = 0.5f;
+		vec3 gridColor = SamplerTester->gridColor;
+		//vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, gridCellWidth * gridCount, 0) * 0.5f;
+		vec3 gridHalfOffset(0, 0, 0);
+		for (int i = 0; i < gridCountX + 1; ++i) {
+			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCountY * gridCellWidth, 0) - gridHalfOffset, gridColor);
+		}
+
+		for (int i = 0; i < gridCountY + 1; ++i) {
+			pushDebugLine(appContext, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCountX * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	// TODO: Update inline with input for specific viewport, before rendering.
+	vec3 camPos = SamplerTester->camOffset;
+	mat4 camViewMat = glm::translate(mat4(1.0f), -camPos);
+
+	float viewWidth = SamplerTester->mainViewWidth * SamplerTester->camScale;
+	float viewHeight = SamplerTester->mainViewHeight * SamplerTester->camScale;
+	mat4 projMat = glm::orthoRH_ZO(0.0f, viewWidth, viewHeight, 0.0f, 0.01f, 100.0f);
+	//mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)SamplerTester->mainViewWidth, (float)SamplerTester->mainViewHeight, 0.01f, 100.0f);
+
+	mat4 projViewModelMat = projMat * camViewMat;
+
+	//----------------------------------------------------------------------------------------------------
+	// Rendering.
+	//----------------------------------------------------------------------------------------------------
+	appContext->d3dDeviceContext->OMSetRenderTargets(1, &SamplerTester->renderViewBuffers.mainViewRtView, SamplerTester->renderViewBuffers.depthStencilView);
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = SamplerTester->mainViewWidth;
+	viewport.Height = SamplerTester->mainViewHeight;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+	appContext->d3dDeviceContext->ClearRenderTargetView(SamplerTester->renderViewBuffers.mainViewRtView, (float*)&SamplerTester->viewBackgroundColor);
+	appContext->d3dDeviceContext->ClearDepthStencilView(SamplerTester->renderViewBuffers.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	//----------------------------------------------------------------------------------------------------
+	// Render debug primitives.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(1, 1, 1, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	}
+
+	renderDebugPrimitives(appContext);
+
+	//----------------------------------------------------------------------------------------------------
+	// Render point samples.
+	//----------------------------------------------------------------------------------------------------
+	// TODO: Set texture!
+	if (SamplerTester->samplePointModel.vertCount > 0) {
+		UINT lgStride = sizeof(ldiMeshVertex);
+		UINT lgOffset = 0;
+
+		appContext->d3dDeviceContext->IASetInputLayout(appContext->basicInputLayout);
+		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &SamplerTester->samplePointModel.vertexBuffer, &lgStride, &lgOffset);
+		appContext->d3dDeviceContext->IASetIndexBuffer(SamplerTester->samplePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		appContext->d3dDeviceContext->VSSetShader(appContext->basicVertexShader, 0, 0);
+		appContext->d3dDeviceContext->VSSetConstantBuffers(0, 2, &appContext->mvpConstantBuffer);
+		appContext->d3dDeviceContext->PSSetShader(appContext->basicPixelShader, 0, 0);
+		appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
+		appContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+		appContext->d3dDeviceContext->OMSetBlendState(appContext->defaultBlendState, NULL, 0xffffffff);
+		appContext->d3dDeviceContext->RSSetState(appContext->defaultRasterizerState);
+		appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->defaultDepthStencilState, 0);
+
+		appContext->d3dDeviceContext->DrawIndexed(SamplerTester->samplePointModel.indexCount, 0, 0);
+	}
 }
 
 void samplerTesterShowUi(ldiSamplerTester* tool) {

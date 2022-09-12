@@ -29,6 +29,9 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+#define max(a,b)            (((a) > (b)) ? (a) : (b))
+#define min(a,b)            (((a) < (b)) ? (a) : (b))
+
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
 	vec4 screenSize;
@@ -111,6 +114,10 @@ struct ldiApp {
 	ID3D11ShaderResourceView*	camResourceView;
 	ID3D11SamplerState*			camSamplerState;
 	ID3D11Texture2D*			camTex;
+
+	ID3D11Texture2D*			dotTexture;
+	ID3D11ShaderResourceView*	dotShaderResourceView;
+	ID3D11SamplerState*			dotSamplerState;
 	
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
 	int								lineGeometryVertMax;
@@ -578,7 +585,10 @@ bool _initResources(ldiApp* AppContext) {
 			std::cout << "Texture failed to create\n";
 		}
 
-		AppContext->d3dDevice->CreateShaderResourceView(AppContext->camTex, NULL, &AppContext->camResourceView);
+		if (AppContext->d3dDevice->CreateShaderResourceView(AppContext->camTex, NULL, &AppContext->camResourceView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return false;
+		}
 
 		D3D11_SAMPLER_DESC samplerDesc = {};
 		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
@@ -590,6 +600,69 @@ bool _initResources(ldiApp* AppContext) {
 		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->camSamplerState);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Dot texture.
+	//----------------------------------------------------------------------------------------------------
+	{
+		int x, y, n;
+		uint8_t* imageRawPixels = imageLoadRgba("../../assets/images/dot.png", &x, &y, &n);
+
+		D3D11_SUBRESOURCE_DATA texData = {};
+		texData.pSysMem = imageRawPixels;
+		texData.SysMemPitch = x * 4;
+
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = x;
+		tex2dDesc.Height = y;
+		tex2dDesc.MipLevels = 0;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DEFAULT; // D3D11_USAGE_IMMUTABLE;
+		tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = 0;
+		tex2dDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+		if (FAILED(AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &AppContext->dotTexture))) {
+			std::cout << "Texture failed to create\n";
+			return false;
+		}
+
+		AppContext->d3dDeviceContext->UpdateSubresource(AppContext->dotTexture, 0, NULL, imageRawPixels, x * 4, 0);
+
+		imageFree(imageRawPixels);
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+		viewDesc.Format = tex2dDesc.Format;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MostDetailedMip = 0;
+		viewDesc.Texture2D.MipLevels = -1;
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(AppContext->dotTexture, &viewDesc, &AppContext->dotShaderResourceView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return false;
+		}
+
+		AppContext->d3dDeviceContext->GenerateMips(AppContext->dotShaderResourceView);
+
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.MipLODBias = 0;
+		samplerDesc.MaxAnisotropy = 16;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+		samplerDesc.MinLOD = 0;
+		samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		if (FAILED(AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->dotSamplerState))) {
+			std::cout << "CreateSamplerState failed\n";
+			return false;
+		}
 	}
 	
 	return true;
@@ -669,7 +742,6 @@ int main() {
 	ldiApp* appContext = &_appContext;
 
 	_initTiming(appContext);
-
 	_createWindow(appContext);
 
 	// Initialize Direct3D.
@@ -683,6 +755,12 @@ int main() {
 	UpdateWindow(appContext->hWnd);
 
 	_initImgui(appContext);
+
+	if (!_initResources(appContext)) {
+		return 1;
+	}
+
+	initDebugPrimitives(appContext);
 
 	appContext->physics = &_physics;
 	if (physicsInit(appContext, &_physics) != 0) {
@@ -707,14 +785,6 @@ int main() {
 		std::cout << "Could not init platform\n";
 		return 1;
 	}
-
-	if (!_initResources(appContext)) {
-		return 1;
-	}
-
-	initDebugPrimitives(appContext);
-
-	std::cout << "Vector size: " << sizeof(vec3) << "\n";
 
 	/*ImGui::GetID
 	ImGui::DockBuilderDockWindow();

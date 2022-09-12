@@ -217,10 +217,6 @@ struct ldiModelInspector {
 	ID3D11ShaderResourceView*	shaderResourceViewTest;
 	ID3D11SamplerState*			texSamplerState;
 
-	ID3D11Texture2D*			dotTexture;
-	ID3D11ShaderResourceView*	dotShaderResourceView;
-	ID3D11SamplerState*			dotSamplerState;
-
 	ldiRenderLines				quadMeshWire;
 	ldiRenderModel				surfelRenderModel;
 
@@ -626,10 +622,14 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		// TODO: Move this to app context.
 		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseImageTexture) != S_OK) {
 			std::cout << "Texture failed to create\n";
+			return 1;
 		}
-
+		
 		//imageFree(imageRawPixels);
-		AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->shaderResourceViewTest);
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->shaderResourceViewTest) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
 
 		D3D11_SAMPLER_DESC samplerDesc = {};
 		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT; // D3D11_FILTER_MIN_MAG_MIP_LINEAR
@@ -641,54 +641,6 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 	
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &ModelInspector->texSamplerState);
-	}
-
-	// Load dot texture.
-	{
-		int x, y, n;
-		uint8_t* imageRawPixels = imageLoadRgba("../../assets/images/dot.png", &x, &y, &n);
-
-		D3D11_SUBRESOURCE_DATA texData = {};
-		texData.pSysMem = imageRawPixels;
-		texData.SysMemPitch = x * 4;
-
-		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = x;
-		tex2dDesc.Height = y;
-		tex2dDesc.MipLevels = 0;
-		tex2dDesc.ArraySize = 1;
-		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		//tex2dDesc.SampleDesc.Count = 1;
-		//tex2dDesc.SampleDesc.Quality = 0;
-		tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
-		tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-		tex2dDesc.CPUAccessFlags = 0;
-		tex2dDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-
-		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->dotTexture) != S_OK) {
-			std::cout << "Texture failed to create\n";
-		}
-
-		imageFree(imageRawPixels);
-
-		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-		viewDesc.Format = tex2dDesc.Format;
-		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		viewDesc.Texture2D.MipLevels = -1;
-
-		AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->dotTexture, &viewDesc, &ModelInspector->dotShaderResourceView);
-		AppContext->d3dDeviceContext->GenerateMips(ModelInspector->dotShaderResourceView);
-
-		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.MipLODBias = 0;
-		samplerDesc.MaxAnisotropy = 16;
-		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-
-		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &ModelInspector->dotSamplerState);
 	}
 
 	return 0;
@@ -932,7 +884,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, ModelInspector->dotShaderResourceView, ModelInspector->dotSamplerState);
+		gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 	}
 }
 

@@ -29,7 +29,7 @@ Texture2D texture0;
 float4 mainPs(PS_INPUT input) : SV_Target {	
 	float4 tex = texture0.Sample(sampler0, float2(input.uv.x, 1.0 - input.uv.y));
 
-	if (tex.a < 0.8) {
+	if (tex.a < 0.2) {
 		discard;
 	}
 
@@ -52,7 +52,7 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 		return float4(1, 0, 0, 1);
 	}
 
-	return float4(input.dist.y, input.dist.y, input.dist.y, 1);
+	return float4(tex.rgb, 1) * float4(input.dist.y, input.dist.y, input.dist.y, 1);
 
-	return tex * input.col;
+	return float4(tex.rgb, 1) * input.col;
 }
