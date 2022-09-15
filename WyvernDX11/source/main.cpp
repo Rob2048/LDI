@@ -133,7 +133,7 @@ struct ldiApp {
 
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = false;
+	bool						showImageInspector = true;
 	bool						showModelInspector = true;
 	bool						showSamplerTester = true;
 
@@ -142,6 +142,8 @@ struct ldiApp {
 	std::vector<vec2>			camImageMarkerCorners;
 	std::vector<int>			camImageMarkerIds;
 	std::vector<vec2>			camImageCharucoCorners;
+	std::vector<int>			camImageCharucoIds;
+
 	vec2						camImageCursorPos;
 	uint8_t						camImagePixelValue;
 	int							camImageShutterSpeed = 8000;
@@ -176,7 +178,6 @@ double _getTime(ldiApp* AppContext) {
 
 static float _pixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 static uint8_t _pixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
-void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd);
 
 #include "imageInspector.h"
 
@@ -185,7 +186,6 @@ ldiApp				_appContext = {};
 ldiModelInspector	_modelInspector = {};
 ldiSamplerTester	_samplerTester = {};
 ldiPlatform			_platform = {};
-
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -666,25 +666,6 @@ bool _initResources(ldiApp* AppContext) {
 	}
 	
 	return true;
-}
-
-void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
-	ldiApp* appContext = &_appContext;
-
-	//AddDrawCmd ??
-	_appContext.d3dDeviceContext->PSSetSamplers(0, 1, &_appContext.camSamplerState);
-	_appContext.d3dDeviceContext->PSSetShader(_appContext.imgCamPixelShader, NULL, 0);
-	_appContext.d3dDeviceContext->VSSetShader(_appContext.imgCamVertexShader, NULL, 0);
-
-	{
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
-		constantBuffer->params = vec4(appContext->camImageGainR, appContext->camImageGainG, appContext->camImageGainB, 0);
-		appContext->d3dDeviceContext->Unmap(appContext->camImagePixelConstants, 0);
-	}
-
-	_appContext.d3dDeviceContext->PSSetConstantBuffers(0, 1, &_appContext.camImagePixelConstants);
 }
 
 //----------------------------------------------------------------------------------------------------

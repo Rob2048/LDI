@@ -7,10 +7,12 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-// #define IMG_WIDTH 1600
-// #define IMG_HEIGHT 1300
-#define IMG_WIDTH 1920
-#define IMG_HEIGHT 1080
+#define IMG_WIDTH 1600
+#define IMG_HEIGHT 1300
+// #define IMG_WIDTH 1920
+// #define IMG_HEIGHT 1080
+// #define IMG_WIDTH 3280
+// #define IMG_HEIGHT 2464
 
 uint8_t pixelBuffer[IMG_WIDTH * IMG_HEIGHT];
 
@@ -262,6 +264,7 @@ int runIMX219() {
 }
 
 int runOV2311() {
+	std::cout << "runOV2311\n";
 	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
 	// compressedBufferSize = LZ4_compressBound(decompressedSize);
 	// std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
@@ -270,7 +273,8 @@ int runOV2311() {
 	LibCamera cam;
 
 	// formats::RGB888
-	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB10, 4, 0);
+	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB8, 4, 0);
+	// int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB10, 4, 0);
 
 	if (ret) {
 		std::cout << "Cam init failure\n";
@@ -280,7 +284,7 @@ int runOV2311() {
 
 	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
 	ControlList controls_;
-	int64_t frame_time = 1000000 / 10;
+	int64_t frame_time = 1000000 / 60;
 	controls_.set(controls::FrameDurationLimits, { frame_time, frame_time });
 	controls_.set(controls::ExposureTime, _shutterSpeed);
 	// NOTE: Analog gain at 0 is some kind of automatic?
@@ -355,7 +359,8 @@ int runOV2311() {
 			timeAtLastFrame = timeAtFrame;
 
 			int64_t t0 = platformGetMicrosecond();
-			processImage(frameData.imageData, frameData.size);
+			// processImage(frameData.imageData, frameData.size);
+			processImageSRGGB8(frameData.imageData, frameData.size);
 			t0 = platformGetMicrosecond() - t0;
 
 			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms\n";
@@ -389,6 +394,6 @@ int runOV2311() {
 }
 
 int main() {
-	// return runOV2311();
-	return runIMX219();
+	return runOV2311();
+	// return runIMX219();
 }

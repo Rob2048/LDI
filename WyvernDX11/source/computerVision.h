@@ -84,6 +84,7 @@ void findCharuco(uint8_t* Data, ldiApp* AppContext) {
 
 		AppContext->camImageMarkerCorners.clear();
 		AppContext->camImageCharucoCorners.clear();
+		AppContext->camImageCharucoIds.clear();
 		AppContext->camImageMarkerIds = markerIds;
 
 		for (int i = 0; i < markerCorners.size(); ++i) {
@@ -115,8 +116,10 @@ void findCharuco(uint8_t* Data, ldiApp* AppContext) {
 			//send(Client, (const char*)&markerCount, 4, 0);
 
 			for (int j = 0; j < markerCount; ++j) {
+				int cornerId = charucoIds[i][j];
 				AppContext->camImageCharucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
-				std::cout << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
+				std::cout << cornerId << ": " << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
+				AppContext->camImageCharucoIds.push_back(cornerId);
 				/*send(Client, (const char*)&charucoIds[i][j], 4, 0);
 				send(Client, (const char*)&charucoCorners[i][j], 8, 0);*/
 			}

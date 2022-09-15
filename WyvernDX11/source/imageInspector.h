@@ -1,5 +1,25 @@
 #pragma once
 
+void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	// ldiApp* appContext = &_appContext;
+	ldiApp* appContext = (ldiApp*)cmd->UserCallbackData;
+
+	//AddDrawCmd ??
+	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->camSamplerState);
+	appContext->d3dDeviceContext->PSSetShader(appContext->imgCamPixelShader, NULL, 0);
+	appContext->d3dDeviceContext->VSSetShader(appContext->imgCamVertexShader, NULL, 0);
+
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
+		constantBuffer->params = vec4(appContext->camImageGainR, appContext->camImageGainG, appContext->camImageGainB, 0);
+		appContext->d3dDeviceContext->Unmap(appContext->camImagePixelConstants, 0);
+	}
+
+	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->camImagePixelConstants);
+}
+
 void imageInspectorShowUi(ldiApp* appContext) {
 	ImGui::Begin("Image inspector controls");
 	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -111,7 +131,7 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 	//ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-	draw_list->AddCallback(_imageInspectorSetStateCallback, 0);
+	draw_list->AddCallback(_imageInspectorSetStateCallback, appContext);
 
 	ImVec2 imgMin;
 	imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
@@ -176,13 +196,14 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 	for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
 		vec2 o = appContext->camImageCharucoCorners[i];
+		int cornerId = appContext->camImageCharucoIds[i];
 
 		ImVec2 offset = pos;
 		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale + 5;
 		offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale - 15;
 
 		char strBuf[256];
-		sprintf_s(strBuf, 256, "%.2f, %.2f", o.x, o.y);
+		sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
 
 		draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
 	}
@@ -211,20 +232,6 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 		draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
 	}
-
-
-	//ImGui::EndChild();
-
-	/*ImGui::SameLine();
-	ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x, 0), false);
-
-		ImGui::Text("Display channel");
-		ImGui::SameLine();
-		ImGui::Button("C");
-		ImGui::SameLine();
-		ImGui::Button("M");
-
-	ImGui::EndChild();*/
 
 	ImGui::End();
 	ImGui::PopStyleVar();

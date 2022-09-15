@@ -49,12 +49,6 @@ struct ldiSurfel {
 	float scale;
 };
 
-struct ldiImage {
-	int width;
-	int height;
-	uint8_t* data;
-};
-
 static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {
 	Dest->verts.resize(Source->verts.size());
 
