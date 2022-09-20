@@ -60,6 +60,8 @@ void imageInspectorShowUi(ldiApp* appContext) {
 	}
 
 	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Process", &appContext->camImageProcess);
+
 		if (ImGui::Button("Find Charuco")) {
 			findCharuco(_pixelsFinal, appContext);
 		}

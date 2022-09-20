@@ -151,6 +151,7 @@ struct ldiApp {
 	float						camImageGainR = 1.0f;
 	float						camImageGainG = 1.0f;
 	float						camImageGainB = 1.0f;
+	bool						camImageProcess = false;
 
 	ID3D11Buffer*				camImagePixelConstants;
 
@@ -703,6 +704,9 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 		
 		AppContext->d3dDeviceContext->Unmap(AppContext->camTex, 0);
 
+		if (AppContext->camImageProcess) {
+			findCharuco(_pixelsFinal, AppContext);
+		}
 	} else {
 		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
 	}
