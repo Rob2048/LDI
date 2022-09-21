@@ -113,5 +113,8 @@
     <ClInclude Include="source\serialPort.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\visionSimulator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

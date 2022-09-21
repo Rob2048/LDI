@@ -528,7 +528,6 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		surfelsMax.z = max(surfelsMax.z, s->position.z);
 	}
 
-
 	ldiSpatialGrid spatialGrid{};
 	spatialGridInit(&spatialGrid, surfelsMin, surfelsMax, 0.05f);
 
@@ -686,12 +685,10 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
-
 	pushDebugLine(appContext, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
 	pushDebugLine(appContext, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
 	pushDebugLine(appContext, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
 	pushDebugLine(appContext, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
-	
 	
 	pushDebugBox(appContext, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
 	pushDebugBoxSolid(appContext, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));

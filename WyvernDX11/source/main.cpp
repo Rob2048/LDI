@@ -61,6 +61,7 @@ struct ldiTextInfo {
 };
 
 struct ldiPhysics;
+struct ldiImageInspector;
 
 // Application and platform context.
 struct ldiApp {
@@ -111,9 +112,7 @@ struct ldiApp {
 	ID3D11DepthStencilState*	defaultDepthStencilState;
 	ID3D11DepthStencilState*	wireframeDepthStencilState;
 
-	ID3D11ShaderResourceView*	camResourceView;
-	ID3D11SamplerState*			camSamplerState;
-	ID3D11Texture2D*			camTex;
+	ID3D11SamplerState*			defaultPointSamplerState;
 
 	ID3D11Texture2D*			dotTexture;
 	ID3D11ShaderResourceView*	dotShaderResourceView;
@@ -133,30 +132,14 @@ struct ldiApp {
 
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = true;
-	bool						showModelInspector = true;
-	bool						showSamplerTester = true;
-
-	// Computer vision.
-	float						camImageFilterFactor = 0.6f;
-	std::vector<vec2>			camImageMarkerCorners;
-	std::vector<int>			camImageMarkerIds;
-	std::vector<vec2>			camImageCharucoCorners;
-	std::vector<int>			camImageCharucoIds;
-
-	vec2						camImageCursorPos;
-	uint8_t						camImagePixelValue;
-	int							camImageShutterSpeed = 8000;
-	int							camImageAnalogGain = 1;
-	float						camImageGainR = 1.0f;
-	float						camImageGainG = 1.0f;
-	float						camImageGainB = 1.0f;
-	bool						camImageProcess = false;
-
-	ID3D11Buffer*				camImagePixelConstants;
+	bool						showImageInspector = false;
+	bool						showModelInspector = false;
+	bool						showSamplerTester = false;
+	bool						showVisionSimulator = true;
 
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
+	ldiImageInspector*			imageInspector = 0;
 };
 
 double _getTime(ldiApp* AppContext) {
@@ -172,13 +155,11 @@ double _getTime(ldiApp* AppContext) {
 #include "physics.h"
 #include "graphics.h"
 #include "debugPrims.h"
+#include "computerVision.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
-#include "computerVision.h"
 #include "platform.h"
-
-static float _pixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
-static uint8_t _pixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+#include "visionSimulator.h"
 
 #include "imageInspector.h"
 
@@ -187,6 +168,8 @@ ldiApp				_appContext = {};
 ldiModelInspector	_modelInspector = {};
 ldiSamplerTester	_samplerTester = {};
 ldiPlatform			_platform = {};
+ldiVisionSimulator	_visionSimulator = {};
+ldiImageInspector	_imageInspector = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -452,19 +435,6 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	//----------------------------------------------------------------------------------------------------
-	// Cam image constant buffer.
-	//----------------------------------------------------------------------------------------------------
-	{
-		D3D11_BUFFER_DESC desc = {};
-		desc.ByteWidth = sizeof(ldiCamImagePixelConstants);
-		desc.Usage = D3D11_USAGE_DYNAMIC;
-		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-		desc.MiscFlags = 0;
-		AppContext->d3dDevice->CreateBuffer(&desc, NULL, &AppContext->camImagePixelConstants);
-	}
-	
-	//----------------------------------------------------------------------------------------------------
 	// Basic constant buffer.
 	//----------------------------------------------------------------------------------------------------
 	{
@@ -567,30 +537,8 @@ bool _initResources(ldiApp* AppContext) {
 		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->defaultDepthStencilState);
 	}
 
-	// Prime camera texture.
+	// Default point sampler.
 	{
-		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = CAM_IMG_WIDTH;
-		tex2dDesc.Height = CAM_IMG_HEIGHT;
-		tex2dDesc.MipLevels = 1;
-		tex2dDesc.ArraySize = 1;
-		tex2dDesc.Format = DXGI_FORMAT_R8_UNORM;
-		tex2dDesc.SampleDesc.Count = 1;
-		tex2dDesc.SampleDesc.Quality = 0;
-		tex2dDesc.Usage = D3D11_USAGE_DYNAMIC;
-		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-		tex2dDesc.MiscFlags = 0;
-
-		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &AppContext->camTex) != S_OK) {
-			std::cout << "Texture failed to create\n";
-		}
-
-		if (AppContext->d3dDevice->CreateShaderResourceView(AppContext->camTex, NULL, &AppContext->camResourceView) != S_OK) {
-			std::cout << "CreateShaderResourceView failed\n";
-			return false;
-		}
-
 		D3D11_SAMPLER_DESC samplerDesc = {};
 		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
 		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -600,7 +548,7 @@ bool _initResources(ldiApp* AppContext) {
 		samplerDesc.MaxAnisotropy = 16;
 		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
-		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->camSamplerState);
+		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->defaultPointSamplerState);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -677,36 +625,9 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 	//std::cout << "Opcode: " << packetHeader->opcode << "\n";
 
 	if (packetHeader->opcode == 0) {
-		ldiProtocolSettings* packet = (ldiProtocolSettings*)PacketView->data;
-		std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
-
-		AppContext->camImageShutterSpeed = packet->shutterSpeed;
-		AppContext->camImageAnalogGain = packet->analogGain;
-
+		imageInspectorHandlePacket(AppContext->imageInspector, PacketView);
 	} else if (packetHeader->opcode == 1) {
-		ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)PacketView->data;
-		//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
-
-		uint8_t* frameData = PacketView->data + sizeof(ldiProtocolImageHeader);
-
-		for (int i = 0; i < CAM_IMG_WIDTH * CAM_IMG_HEIGHT; ++i) {
-			_pixels[i] = _pixels[i] * _appContext.camImageFilterFactor + frameData[i] * (1.0f - _appContext.camImageFilterFactor);
-			_pixelsFinal[i] = _pixels[i];
-		}
-		
-		D3D11_MAPPED_SUBRESOURCE ms;
-		AppContext->d3dDeviceContext->Map(AppContext->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		uint8_t* pixelData = (uint8_t*)ms.pData;
-
-		for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
-			memcpy(pixelData + i * ms.RowPitch, _pixelsFinal + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
-		}
-		
-		AppContext->d3dDeviceContext->Unmap(AppContext->camTex, 0);
-
-		if (AppContext->camImageProcess) {
-			findCharuco(_pixelsFinal, AppContext);
-		}
+		imageInspectorHandlePacket(AppContext->imageInspector, PacketView);
 	} else {
 		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
 	}
@@ -768,6 +689,18 @@ int main() {
 	ldiPlatform* platform = &_platform;
 	if (platformInit(appContext, platform) != 0) {
 		std::cout << "Could not init platform\n";
+		return 1;
+	}
+
+	appContext->imageInspector = &_imageInspector;
+	if (imageInspectorInit(appContext, &_imageInspector) != 0) {
+		std::cout << "Could not init image inspector\n";
+		return 1;
+	}
+
+	ldiVisionSimulator* visionSimulator = &_visionSimulator;
+	if (visionSimulatorInit(appContext, visionSimulator) != 0) {
+		std::cout << "Could not init vision simulator\n";
 		return 1;
 	}
 
@@ -852,15 +785,26 @@ int main() {
 				if (ImGui::MenuItem("ImGUI demo window", NULL, appContext->showDemoWindow)) {
 					appContext->showDemoWindow = !appContext->showDemoWindow;
 				}
-				ImGui::Separator();
+				
+				ImGui::Separator();				
 				if (ImGui::MenuItem("Platform controls", NULL, appContext->showPlatformWindow)) {
 					appContext->showPlatformWindow = !appContext->showPlatformWindow;
 				}
+				
 				if (ImGui::MenuItem("Model inspector", NULL, appContext->showModelInspector)) {
 					appContext->showModelInspector = !appContext->showModelInspector;
 				}
+				
 				if (ImGui::MenuItem("Sampler tester", NULL, appContext->showSamplerTester)) {
 					appContext->showSamplerTester = !appContext->showSamplerTester;
+				}
+				
+				if (ImGui::MenuItem("Image inspector", NULL, appContext->showImageInspector)) {
+					appContext->showImageInspector = !appContext->showImageInspector;
+				}
+
+				if (ImGui::MenuItem("Vision simulator", NULL, appContext->showVisionSimulator)) {
+					appContext->showVisionSimulator = !appContext->showVisionSimulator;
 				}
 				
 				ImGui::EndMenu();
@@ -880,7 +824,7 @@ int main() {
 		}
 
 		if (appContext->showImageInspector) {
-			imageInspectorShowUi(appContext);
+			imageInspectorShowUi(appContext->imageInspector);
 		}
 
 		if (appContext->showModelInspector) {
@@ -889,6 +833,10 @@ int main() {
 
 		if (appContext->showSamplerTester) {
 			samplerTesterShowUi(samplerTester);
+		}
+
+		if (appContext->showVisionSimulator) {
+			visionSimulatorShowUi(visionSimulator);
 		}
 
 		_renderImgui(&_appContext);

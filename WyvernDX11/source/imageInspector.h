@@ -1,36 +1,154 @@
 #pragma once
 
+#define CAM_IMG_WIDTH 1600
+#define CAM_IMG_HEIGHT 1300
+
+struct ldiImageInspector {
+	ldiApp*						appContext;
+
+	float						camImageFilterFactor = 0.6f;
+
+	ldiCharucoResults			camImageCharucoResults = {};
+
+	vec2						camImageCursorPos;
+	uint8_t						camImagePixelValue;
+	int							camImageShutterSpeed = 8000;
+	int							camImageAnalogGain = 1;
+	float						camImageGainR = 1.0f;
+	float						camImageGainG = 1.0f;
+	float						camImageGainB = 1.0f;
+	bool						camImageProcess = false;
+
+	ID3D11Buffer*				camImagePixelConstants;
+	ID3D11ShaderResourceView*	camResourceView;
+	ID3D11Texture2D*			camTex;
+
+	float						camPixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+	uint8_t						camPixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+};
+
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
-	// ldiApp* appContext = &_appContext;
-	ldiApp* appContext = (ldiApp*)cmd->UserCallbackData;
+	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
+	ldiApp* appContext = tool->appContext;
 
 	//AddDrawCmd ??
-	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->camSamplerState);
+	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
 	appContext->d3dDeviceContext->PSSetShader(appContext->imgCamPixelShader, NULL, 0);
 	appContext->d3dDeviceContext->VSSetShader(appContext->imgCamVertexShader, NULL, 0);
 
 	{
 		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		appContext->d3dDeviceContext->Map(tool->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
-		constantBuffer->params = vec4(appContext->camImageGainR, appContext->camImageGainG, appContext->camImageGainB, 0);
-		appContext->d3dDeviceContext->Unmap(appContext->camImagePixelConstants, 0);
+		constantBuffer->params = vec4(tool->camImageGainR, tool->camImageGainG, tool->camImageGainB, 0);
+		appContext->d3dDeviceContext->Unmap(tool->camImagePixelConstants, 0);
 	}
 
-	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->camImagePixelConstants);
+	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &tool->camImagePixelConstants);
 }
 
-void imageInspectorShowUi(ldiApp* appContext) {
+void imageInspectorHandlePacket(ldiImageInspector* Tool, ldiPacketView* PacketView) {
+	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
+
+	if (packetHeader->opcode == 0) {
+		ldiProtocolSettings* packet = (ldiProtocolSettings*)PacketView->data;
+		std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
+
+		Tool->camImageShutterSpeed = packet->shutterSpeed;
+		Tool->camImageAnalogGain = packet->analogGain;
+
+	} else if (packetHeader->opcode == 1) {
+		ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)PacketView->data;
+		//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
+
+		uint8_t* frameData = PacketView->data + sizeof(ldiProtocolImageHeader);
+
+		for (int i = 0; i < CAM_IMG_WIDTH * CAM_IMG_HEIGHT; ++i) {
+			Tool->camPixels[i] = Tool->camPixels[i] * Tool->camImageFilterFactor + frameData[i] * (1.0f - Tool->camImageFilterFactor);
+			Tool->camPixelsFinal[i] = Tool->camPixels[i];
+		}
+
+		D3D11_MAPPED_SUBRESOURCE ms;
+		Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		uint8_t* pixelData = (uint8_t*)ms.pData;
+
+		for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
+			memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
+		}
+
+		Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
+
+		if (Tool->camImageProcess) {
+			ldiImage camImg = {};
+			camImg.data = Tool->camPixelsFinal;
+			camImg.width = CAM_IMG_WIDTH;
+			camImg.height = CAM_IMG_HEIGHT;
+
+			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+		}
+	} else {
+		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
+	}
+}
+
+int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
+	Tool->appContext = AppContext;
+
+	//----------------------------------------------------------------------------------------------------
+	// Cam image constant buffer.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_BUFFER_DESC desc = {};
+		desc.ByteWidth = sizeof(ldiCamImagePixelConstants);
+		desc.Usage = D3D11_USAGE_DYNAMIC;
+		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		desc.MiscFlags = 0;
+		AppContext->d3dDevice->CreateBuffer(&desc, NULL, &Tool->camImagePixelConstants);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Prime camera texture.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = CAM_IMG_WIDTH;
+		tex2dDesc.Height = CAM_IMG_HEIGHT;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DYNAMIC;
+		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		tex2dDesc.MiscFlags = 0;
+
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->camTex) != S_OK) {
+			std::cout << "Texture failed to create\n";
+			return 1;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(Tool->camTex, NULL, &Tool->camResourceView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+void imageInspectorShowUi(ldiImageInspector* Tool) {
 	ImGui::Begin("Image inspector controls");
 	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
 		bool newSettings = false;
 
-		if (ImGui::SliderInt("Shutter speed", &appContext->camImageShutterSpeed, 10, 100000)) {
+		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 10, 100000)) {
 			//std::cout << "Set shutter: " << appContext->camImageShutterSpeed << "\n";
 			newSettings = true;
 		}
 
-		if (ImGui::SliderInt("Analog gain", &appContext->camImageAnalogGain, 0, 100)) {
+		if (ImGui::SliderInt("Analog gain", &Tool->camImageAnalogGain, 0, 100)) {
 			//std::cout << "Set shutter: " << appContext->camImageAnalogGain << "\n";
 			newSettings = true;
 		}
@@ -39,10 +157,10 @@ void imageInspectorShowUi(ldiApp* appContext) {
 			ldiProtocolSettings settings;
 			settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
 			settings.header.opcode = 0;
-			settings.shutterSpeed = appContext->camImageShutterSpeed;
-			settings.analogGain = appContext->camImageAnalogGain;
+			settings.shutterSpeed = Tool->camImageShutterSpeed;
+			settings.analogGain = Tool->camImageAnalogGain;
 
-			networkSend(&appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolSettings));
+			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolSettings));
 		}
 	}
 
@@ -51,19 +169,24 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
-		ImGui::SliderFloat("Filter factor", &appContext->camImageFilterFactor, 0.0f, 1.0f);
-		ImGui::SliderFloat("Gain R", &appContext->camImageGainR, 0.0f, 2.0f);
-		ImGui::SliderFloat("Gain G", &appContext->camImageGainG, 0.0f, 2.0f);
-		ImGui::SliderFloat("Gain B", &appContext->camImageGainB, 0.0f, 2.0f);
-		ImGui::Text("Cursor position: %.2f, %.2f", appContext->camImageCursorPos.x, appContext->camImageCursorPos.y);
-		ImGui::Text("Cursor value: %d", appContext->camImagePixelValue);
+		ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
+		ImGui::SliderFloat("Gain R", &Tool->camImageGainR, 0.0f, 2.0f);
+		ImGui::SliderFloat("Gain G", &Tool->camImageGainG, 0.0f, 2.0f);
+		ImGui::SliderFloat("Gain B", &Tool->camImageGainB, 0.0f, 2.0f);
+		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
+		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
 	}
 
 	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::Checkbox("Process", &appContext->camImageProcess);
+		ImGui::Checkbox("Process", &Tool->camImageProcess);
 
 		if (ImGui::Button("Find Charuco")) {
-			findCharuco(_pixelsFinal, appContext);
+			ldiImage camImg = {};
+			camImg.data = Tool->camPixelsFinal;
+			camImg.width = CAM_IMG_WIDTH;
+			camImg.height = CAM_IMG_HEIGHT;
+
+			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 		}
 	}
 
@@ -133,7 +256,6 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 	//ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-	draw_list->AddCallback(_imageInspectorSetStateCallback, appContext);
 
 	ImVec2 imgMin;
 	imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
@@ -143,13 +265,18 @@ void imageInspectorShowUi(ldiApp* appContext) {
 	imgMax.x = imgMin.x + CAM_IMG_WIDTH * imgScale;
 	imgMax.y = imgMin.y + CAM_IMG_HEIGHT * imgScale;
 
-	draw_list->AddImage(appContext->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
-
+	draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
+	draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 	draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
+	//----------------------------------------------------------------------------------------------------
+	// Draw charuco results.
+	//----------------------------------------------------------------------------------------------------
 	std::vector<vec2> markerCentroids;
 
-	for (int i = 0; i < appContext->camImageMarkerCorners.size() / 4; ++i) {
+	const ldiCharucoResults* charucos = &Tool->camImageCharucoResults;
+
+	for (int i = 0; i < charucos->markerCorners.size() / 4; ++i) {
 		/*ImVec2 offset = pos;
 		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
 		offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;*/
@@ -159,7 +286,7 @@ void imageInspectorShowUi(ldiApp* appContext) {
 		vec2 markerCentroid(0.0f, 0.0f);
 
 		for (int j = 0; j < 4; ++j) {
-			vec2 o = appContext->camImageMarkerCorners[i * 4 + j];
+			vec2 o = charucos->markerCorners[i * 4 + j];
 
 			points[j] = pos;
 			points[j].x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
@@ -179,14 +306,14 @@ void imageInspectorShowUi(ldiApp* appContext) {
 
 	//std::cout << appContext->camImageMarkerIds.size() << "\n";
 
-	for (int i = 0; i < appContext->camImageMarkerIds.size(); ++i) {
+	for (int i = 0; i < charucos->markerIds.size(); ++i) {
 		char strBuff[32];
-		sprintf_s(strBuff, sizeof(strBuff), "%d", appContext->camImageMarkerIds[i]);
+		sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markerIds[i]);
 		draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
 	}
 
-	for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
-		vec2 o = appContext->camImageCharucoCorners[i];
+	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
+		vec2 o = charucos->charucoCorners[i];
 
 		// TODO: Do we need half pixel offset? Check debug drawing commands.
 		ImVec2 offset = pos;
@@ -196,9 +323,9 @@ void imageInspectorShowUi(ldiApp* appContext) {
 		draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
 	}
 
-	for (int i = 0; i < appContext->camImageCharucoCorners.size(); ++i) {
-		vec2 o = appContext->camImageCharucoCorners[i];
-		int cornerId = appContext->camImageCharucoIds[i];
+	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
+		vec2 o = charucos->charucoCorners[i];
+		int cornerId = charucos->charucoIds[i];
 
 		ImVec2 offset = pos;
 		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale + 5;
@@ -210,17 +337,19 @@ void imageInspectorShowUi(ldiApp* appContext) {
 		draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
 	}
 
-	// Cursor.
+	//----------------------------------------------------------------------------------------------------
+	// Draw cursor.
+	//----------------------------------------------------------------------------------------------------
 	if (isHovered) {
 		vec2 pixelPos;
 		pixelPos.x = (int)worldPos.x;
 		pixelPos.y = (int)worldPos.y;
 
-		appContext->camImageCursorPos = worldPos;
+		Tool->camImageCursorPos = worldPos;
 
 		if (pixelPos.x >= 0 && pixelPos.x < CAM_IMG_WIDTH) {
 			if (pixelPos.y >= 0 && pixelPos.y < CAM_IMG_HEIGHT) {
-				appContext->camImagePixelValue = _pixelsFinal[(int)pixelPos.y * CAM_IMG_WIDTH + (int)pixelPos.x];
+				Tool->camImagePixelValue = Tool->camPixelsFinal[(int)pixelPos.y * CAM_IMG_WIDTH + (int)pixelPos.x];
 			}
 		}
 

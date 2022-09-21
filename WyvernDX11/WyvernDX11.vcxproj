@@ -170,6 +170,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\computerVision.h" />
+    <ClInclude Include="source\visionSimulator.h" />
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />
     <ClInclude Include="source\graphics.h" />

@@ -1,12 +1,5 @@
 #pragma once
 
-#define CAM_IMG_WIDTH 1600
-#define CAM_IMG_HEIGHT 1300
-//#define CAM_IMG_WIDTH 1920
-//#define CAM_IMG_HEIGHT 1080
-//#define CAM_IMG_WIDTH 3280
-//#define CAM_IMG_HEIGHT 2464
-
 #include <opencv2/core.hpp>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/aruco.hpp>
@@ -48,19 +41,22 @@ void createCharucos(bool Output) {
 	}
 }
 
-void findCharuco(uint8_t* Data, ldiApp* AppContext) {
+struct ldiCharucoResults {
+	std::vector<vec2>	markerCorners;
+	std::vector<int>	markerIds;
+	std::vector<vec2>	charucoCorners;
+	std::vector<int>	charucoIds;
+};
+
+void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results) {
 	int offset = 1;
 
-	int width = CAM_IMG_WIDTH;
-	int height = CAM_IMG_HEIGHT;
-
 	try {
-		cv::Mat image(cv::Size(width, height), CV_8UC1, Data);
+		cv::Mat image(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
 		std::vector<int> markerIds;
 		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
 		cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::aruco::DetectorParameters::create();
-		// TODO: Enable subpixel corner refinement.
-		// WTF is this doing?
+		// TODO: Enable subpixel corner refinement. WTF is this doing?
 		//parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
 		
 		double t0 = _getTime(AppContext);
@@ -75,14 +71,14 @@ void findCharuco(uint8_t* Data, ldiApp* AppContext) {
 		std::vector<std::vector<cv::Point2f>> charucoCorners(6);
 		std::vector<std::vector<int>> charucoIds(6);
 
-		AppContext->camImageMarkerCorners.clear();
-		AppContext->camImageCharucoCorners.clear();
-		AppContext->camImageCharucoIds.clear();
-		AppContext->camImageMarkerIds = markerIds;
+		Results->markerCorners.clear();
+		Results->charucoCorners.clear();
+		Results->charucoIds.clear();
+		Results->markerIds = markerIds;
 
 		for (int i = 0; i < markerCorners.size(); ++i) {
 			for (int j = 0; j < markerCorners[i].size(); ++j) {
-				AppContext->camImageMarkerCorners.push_back(vec2(markerCorners[i][j].x, markerCorners[i][j].y));
+				Results->markerCorners.push_back(vec2(markerCorners[i][j].x, markerCorners[i][j].y));
 			}
 		}
 
@@ -101,14 +97,12 @@ void findCharuco(uint8_t* Data, ldiApp* AppContext) {
 
 		for (int i = 0; i < boardCount; ++i) {
 			int markerCount = charucoIds[i].size();
-			//std::cout << "Board " << i << " markers: " << markerCount << "\n";
-
-			//send(Client, (const char*)&markerCount, 4, 0);
+			std::cout << "Board " << i << " markers: " << markerCount << "\n";
 
 			for (int j = 0; j < markerCount; ++j) {
 				int cornerId = charucoIds[i][j];
-				AppContext->camImageCharucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
-				AppContext->camImageCharucoIds.push_back(cornerId);
+				Results->charucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
+				Results->charucoIds.push_back(cornerId);
 				//std::cout << cornerId << ": " << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
 			}
 		}
