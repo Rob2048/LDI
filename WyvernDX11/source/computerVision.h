@@ -15,7 +15,9 @@ void createCharucos(bool Output) {
 		for (int i = 0; i < 6; ++i) {
 			//	cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.009f, 0.006f, _dictionary);
 			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.9f, 0.6f, _dictionary);
-			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
+			
+			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
+			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(5, 5, 1.0f, 0.7f, _dictionary);
 			_charucoBoards.push_back(board);
 
 			// NOTE: Shift ids.
@@ -26,10 +28,10 @@ void createCharucos(bool Output) {
 			}
 
 			// NOTE: Image output.
-			cv::Mat markerImage;
-			board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
-
 			if (Output) {
+				cv::Mat markerImage;
+				board->draw(cv::Size(1000, 1000), markerImage, 50, 1);
+
 				char fileName[512];
 				sprintf_s(fileName, "../cache/charuco_small_%d.png", i);
 				cv::imwrite(fileName, markerImage);

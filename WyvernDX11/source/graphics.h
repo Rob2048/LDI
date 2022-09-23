@@ -498,6 +498,13 @@ ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	return result;
 }
 
+void gfxMapConstantBuffer(ldiApp* AppContext, ID3D11Buffer* Dst, void* Src, int Size) {
+	D3D11_MAPPED_SUBRESOURCE ms;
+	AppContext->d3dDeviceContext->Map(Dst, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	memcpy(ms.pData, Src, Size);
+	AppContext->d3dDeviceContext->Unmap(Dst, 0);
+}
+
 void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = false, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
 	UINT lgStride = sizeof(ldiMeshVertex);
 	UINT lgOffset = 0;
