@@ -53,6 +53,7 @@ struct ldiCamera {
 	vec3 position;
 	vec3 rotation;
 	mat4 viewMat;
+	mat4 projMat;
 };
 
 struct ldiTextInfo {

@@ -58,6 +58,7 @@ struct ldiVisionSimulator {
 
 	ldiRenderModel				targetModel;
 	mat4						targetFaceMat[6];
+	ldiTransform				targetModelMat;
 
 	ldiCharucoResults			charucoResults = {};
 
@@ -100,20 +101,24 @@ void horseUpdateMats(ldiHorse* Horse) {
 }
 
 void horseInit(ldiHorse* Horse) {
-	transformInit(&Horse->origin, vec3(0, 0, 0), vec3(-90, 0, 0));
-	transformInit(&Horse->axisX, vec3(0, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisY, vec3(0, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisZ, vec3(0, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisA, vec3(0, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisB, vec3(0, 0, 0), vec3(0, 0, 0));
+	// X: -10 to 10
+	// Y: -10 to 10
+	// Z: -10 to 10
+
+	transformInit(&Horse->origin, vec3(-30.0f, 0, 0), vec3(-90, 0, 0));
+	transformInit(&Horse->axisX, vec3(19.5f, 0, 9.8f), vec3(0, 0, 0));
+	transformInit(&Horse->axisY, vec3(0, 0, 6.8f), vec3(0, 0, 0));
+	transformInit(&Horse->axisZ, vec3(0, 0, 17.4f), vec3(0, 0, 0));
+	transformInit(&Horse->axisA, vec3(6.9f, 0, 0), vec3(0, 0, 0));
+	transformInit(&Horse->axisB, vec3(13.7f, 0, -7.5f), vec3(0, 0, 0));
 
 	horseUpdateMats(Horse);
 }
 
 void horseUpdate(ldiHorse* Horse) {
-	Horse->axisX.localPos.x = Horse->x;
-	Horse->axisY.localPos.y = Horse->y - 10.0f;
-	Horse->axisZ.localPos.z = Horse->z;
+	Horse->axisX.localPos.x = Horse->x + 19.5f;
+	Horse->axisY.localPos.y = Horse->y;
+	Horse->axisZ.localPos.z = Horse->z + 17.4f;
 	Horse->axisA.localRot.x = Horse->a;
 	Horse->axisB.localRot.z = Horse->b;
 
@@ -130,18 +135,6 @@ void _visionSimulatorSetStateCallback(const ImDrawList* parent_list, const ImDra
 	ldiApp* appContext = (ldiApp*)cmd->UserCallbackData;
 
 	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
-	/*appContext->d3dDeviceContext->PSSetShader(appContext->imgCamPixelShader, NULL, 0);
-	appContext->d3dDeviceContext->VSSetShader(appContext->imgCamVertexShader, NULL, 0);
-
-	{
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
-		constantBuffer->params = vec4(appContext->camImageGainR, appContext->camImageGainG, appContext->camImageGainB, 0);
-		appContext->d3dDeviceContext->Unmap(appContext->camImagePixelConstants, 0);
-	}
-
-	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->camImagePixelConstants);*/
 }
 
 int _visionSimulatorLoadCubeFaceTexture(ldiVisionSimulator* Tool, uint8_t* ImageData, int ImageWidth, int ImageHeight, int FaceId) {
@@ -211,14 +204,16 @@ void _visionSimulatorCopyRenderToBuffer(ldiVisionSimulator* Tool) {
 int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	Tool->appContext = AppContext;
 
-	Tool->camera = {};
-	Tool->camera.position = vec3(10, 10, 10);
-	Tool->camera.rotation = vec3(-45, 45, 0);
-
 	Tool->imageScale = 1.0f;
 	Tool->imageOffset = vec2(0.0f, 0.0f);
 	Tool->imageWidth = 1600;
 	Tool->imageHeight = 1300;
+
+	Tool->camera = {};
+	// NOTE: Camera location relative to machine origin: 56.0, 0, 51.0.
+	Tool->camera.position = vec3(26.0f, 51.0f, 0);
+	Tool->camera.rotation = vec3(-90, 45, 0);
+	Tool->camera.projMat = glm::perspectiveFovRH_ZO(glm::radians(42.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 50.0f);
 
 	Tool->renderViewCopy = new uint8_t[Tool->imageWidth * Tool->imageHeight * 4];
 
@@ -308,6 +303,10 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	// Y-
 	Tool->targetFaceMat[5] = glm::rotate(mat4(1.0f), glm::radians(180.0f), vec3(1.0f, 0.0f, 0.0f));
 
+	Tool->targetModelMat.localPos = vec3(0, 0, 7.5f);
+	Tool->targetModelMat.localRot = vec3(90, 0, 0);
+	transformUpdateLocal(&Tool->targetModelMat);
+
 	return 0;
 }
 
@@ -345,7 +344,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	//----------------------------------------------------------------------------------------------------
 	// Grid.
 	//----------------------------------------------------------------------------------------------------
-	int gridCount = 10;
+	int gridCount = 30;
 	float gridCellWidth = 1.0f;
 	vec3 gridColor = Tool->gridColor;
 	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
@@ -397,11 +396,42 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		_renderTransformOrigin(Tool, &Tool->horse.axisA, "A", TextBuffer);
 		_renderTransformOrigin(Tool, &Tool->horse.axisB, "B", TextBuffer);
 
-		// NOTE: camera rotation doesn't really translate to an ldiTransfrom style rotation.
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+
 		ldiTransform mvCameraTransform = {};
-		transformInit(&mvCameraTransform, Tool->camera.position, Tool->camera.rotation);
-		transformUpdateWorld(&mvCameraTransform, 0);
+		mvCameraTransform.world = glm::inverse(camViewMat);
 		_renderTransformOrigin(Tool, &mvCameraTransform, "Camera", TextBuffer);
+
+		// Render camera frustum.
+		mat4 projViewMat = Tool->camera.projMat * camViewMat;
+		mat4 invProjViewMat = glm::inverse(projViewMat);
+		
+		vec4 f0 = invProjViewMat * vec4(-1, -1, 0, 1); f0 /= f0.w;
+		vec4 f1 = invProjViewMat * vec4(1, -1, 0, 1); f1 /= f1.w;
+		vec4 f2 = invProjViewMat * vec4(1, 1, 0, 1); f2 /= f2.w;
+		vec4 f3 = invProjViewMat * vec4(-1, 1, 0, 1); f3 /= f3.w;
+
+		vec4 f4 = invProjViewMat * vec4(-1, -1, 1, 1); f4 /= f4.w;
+		vec4 f5 = invProjViewMat * vec4(1, -1, 1, 1); f5 /= f5.w;
+		vec4 f6 = invProjViewMat * vec4(1, 1, 1, 1); f6 /= f6.w;
+		vec4 f7 = invProjViewMat * vec4(-1, 1, 1, 1); f7 /= f7.w;
+
+		pushDebugLine(appContext, f0, f4, vec3(1, 0, 1));
+		pushDebugLine(appContext, f1, f5, vec3(1, 0, 1));
+		pushDebugLine(appContext, f2, f6, vec3(1, 0, 1));
+		pushDebugLine(appContext, f3, f7, vec3(1, 0, 1));
+
+		pushDebugLine(appContext, f0, f1, vec3(1, 0, 1));
+		pushDebugLine(appContext, f1, f2, vec3(1, 0, 1));
+		pushDebugLine(appContext, f2, f3, vec3(1, 0, 1));
+		pushDebugLine(appContext, f3, f0, vec3(1, 0, 1));
+
+		pushDebugLine(appContext, f4, f5, vec3(1, 0, 1));
+		pushDebugLine(appContext, f5, f6, vec3(1, 0, 1));
+		pushDebugLine(appContext, f6, f7, vec3(1, 0, 1));
+		pushDebugLine(appContext, f7, f4, vec3(1, 0, 1));
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -409,7 +439,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	//----------------------------------------------------------------------------------------------------
 	for (int i = 0; i < 6; ++i) {
 		ldiBasicConstantBuffer constantBuffer;
-		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * glm::rotate(mat4(1.0f), glm::radians(90.0f), vec3(1, 0, 0)) * Tool->targetFaceMat[i];
+		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
 		constantBuffer.color = vec4(1, 1, 1, 1);
 
 		if (i == 5) {
@@ -438,11 +468,6 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	ldiApp* appContext = Tool->appContext;
 
-	beginDebugPrimitives(appContext);
-	/*pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(0.5f, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 0.5f, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 0.5f));*/
-
 	//----------------------------------------------------------------------------------------------------
 	// Update camera.
 	//----------------------------------------------------------------------------------------------------
@@ -450,7 +475,7 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
 	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
 
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 100.0f);
+	mat4 projMat = Tool->camera.projMat;
 	mat4 invProjMat = inverse(projMat);
 	mat4 modelMat = mat4(1.0f);
 
@@ -475,25 +500,11 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->renderViewBuffers.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	//----------------------------------------------------------------------------------------------------
-	// Render debug primitives.
-	//----------------------------------------------------------------------------------------------------
-	{
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
-		constantBuffer->color = vec4(1, 1, 1, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-	}
-
-	renderDebugPrimitives(appContext);
-
-	//----------------------------------------------------------------------------------------------------
 	// Render cube model.
 	//----------------------------------------------------------------------------------------------------
 	for (int i = 0; i < 6; ++i) {
 		ldiBasicConstantBuffer constantBuffer;
-		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * glm::rotate(mat4(1.0f), glm::radians(90.0f), vec3(1, 0, 0)) * Tool->targetFaceMat[i];
+		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
 		constantBuffer.color = vec4(1, 1, 1, 1);
 
 		if (i == 5) {
@@ -502,6 +513,70 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 
 		gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
 		gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
+	}
+}
+
+void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
+	visionSimulatorRender(Tool);
+	_visionSimulatorCopyRenderToBuffer(Tool);
+	ldiImage img = {};
+	img.data = Tool->renderViewCopy;
+	img.width = Tool->imageWidth;
+	img.height = Tool->imageHeight;
+
+	char filePath[256];
+	sprintf_s(filePath, sizeof(filePath), "../cache/calib/%d_%d_%d_%d_%d", (int)(Horse->x * 10.0f) + 100, (int)(Horse->y * 10.0f) + 100, (int)(Horse->z * 10.0f) + 100, (int)(Horse->a) + 360, (int)(Horse->b) + 360);
+
+	char fileExt[256];
+	sprintf_s(fileExt, sizeof(filePath), "%s.png", filePath);
+	imageWrite(fileExt, Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
+
+	ldiCharucoResults charucoResults;
+	findCharuco(img, Tool->appContext, &charucoResults);
+
+	// Save data file:
+	sprintf_s(fileExt, sizeof(filePath), "%s.dat", filePath);
+	FILE* f = fopen(fileExt, "wb");
+
+	int boardCount = charucoResults.boards.size();
+	fwrite(&boardCount, sizeof(int), 1, f);
+
+	for (int b = 0; b < boardCount; ++b) {
+
+	}
+
+	fclose(f);
+}
+
+void visionSimulatorLoadImageSetInfo(ldiVisionSimulator* Tool) {
+
+}
+
+void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
+	for (int iX = 0; iX <= 20; ++iX) {
+		for (int iY = 0; iY <= 20; ++iY) {
+			Tool->horse.x = iX - 10.0f;
+			Tool->horse.y = iY - 10.0f;
+			Tool->horse.z = 0;
+			Tool->horse.a = 0;
+			Tool->horse.b = 0;
+
+			horseUpdate(&Tool->horse);
+			visionSimulatorRenderAndSave(Tool, &Tool->horse);
+		}
+	}
+
+	for (int iX = 0; iX <= 20; ++iX) {
+		for (int iY = 0; iY <= 20; ++iY) {
+			Tool->horse.x = iX - 10.0f;
+			Tool->horse.y = 0.0f;
+			Tool->horse.z = iY - 10.0f;
+			Tool->horse.a = 0;
+			Tool->horse.b = 0;
+
+			horseUpdate(&Tool->horse);
+			visionSimulatorRenderAndSave(Tool, &Tool->horse);
+		}
 	}
 }
 
@@ -516,7 +591,8 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->imageCursorPos.x, Tool->imageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->imagePixelValue);
 
-		ImGui::SliderFloat("Cam X", &Tool->camera.position.x, 0.0f, 0.01f, "%.4f");
+		ImGui::DragFloat3("Cam position", (float*)&Tool->camera.position, 0.1f, -100.0f, 100.0f);
+		ImGui::DragFloat2("Cam rotation", (float*)&Tool->camera.rotation, 0.1f, -360.0f, 360.0f);
 	}
 
 	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -531,12 +607,16 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			img.height = Tool->imageHeight;
 			findCharuco(img, Tool->appContext, &Tool->charucoResults);
 		}
+
+		if (ImGui::Button("Create image set")) {
+			visionSimulatorCreateImageSet(Tool);
+		}
 	}
 
 	if (ImGui::CollapsingHeader("Machine", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("X", &Tool->horse.x, 0.0f, 20.0f);
-		ImGui::SliderFloat("Y", &Tool->horse.y, 0.0f, 20.0f);
-		ImGui::SliderFloat("Z", &Tool->horse.z, 0.0f, 20.0f);
+		ImGui::SliderFloat("X", &Tool->horse.x, -10.0f, 10.0f);
+		ImGui::SliderFloat("Y", &Tool->horse.y, -10.0f, 10.0f);
+		ImGui::SliderFloat("Z", &Tool->horse.z, -10.0f, 10.0f);
 		ImGui::SliderFloat("A", &Tool->horse.a, 0.0f, 360.0f);
 		ImGui::SliderFloat("B", &Tool->horse.b, 0.0f, 360.0f);
 	}
