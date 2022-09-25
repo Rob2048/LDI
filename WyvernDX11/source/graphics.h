@@ -733,9 +733,10 @@ bool gfxCreateDeviceD3D(ldiApp* AppContext) {
 	UINT createDeviceFlags = 0;
 	//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 	D3D_FEATURE_LEVEL featureLevel;
-	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+	//const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+	const D3D_FEATURE_LEVEL featureLevelArray[1] = { D3D_FEATURE_LEVEL_11_0 };
 
-	if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &AppContext->SwapChain, &AppContext->d3dDevice, &featureLevel, &AppContext->d3dDeviceContext) != S_OK)
+	if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 1, D3D11_SDK_VERSION, &sd, &AppContext->SwapChain, &AppContext->d3dDevice, &featureLevel, &AppContext->d3dDeviceContext) != S_OK)
 		return false;
 
 	gfxCreatePrimaryBackbuffer(AppContext);
@@ -775,8 +776,9 @@ void gfxEndPrimaryViewport(ldiApp* AppContext) {
 bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11VertexShader** Shader, D3D11_INPUT_ELEMENT_DESC* LayoutDesc, int LayoutElements, ID3D11InputLayout** InputLayout) {
 	ID3DBlob* errorBlob;
 	ID3DBlob* shaderBlob;
+	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "vs_5_0", 0, 0, &shaderBlob, &errorBlob))) {
+	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "vs_5_0", flags, 0, &shaderBlob, &errorBlob))) {
 		std::cout << "Failed to compile shader\n";
 		if (errorBlob != NULL) {
 			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
@@ -803,8 +805,9 @@ bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* Ent
 bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11PixelShader** Shader) {
 	ID3DBlob* errorBlob;
 	ID3DBlob* shaderBlob;
+	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "ps_5_0", 0, 0, &shaderBlob, &errorBlob))) {
+	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "ps_5_0", flags, 0, &shaderBlob, &errorBlob))) {
 		std::cout << "Failed to compile shader\n";
 		if (errorBlob != NULL) {
 			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
@@ -821,4 +824,79 @@ bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* Entr
 	shaderBlob->Release();
 
 	return true;
+}
+
+//https://github.com/walbourn/directx-sdk-samples/blob/main/BasicCompute11/BasicCompute11.cpp
+
+bool gfxCreateComputeShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11ComputeShader** Shader) {
+	ID3DBlob* errorBlob;
+	ID3DBlob* shaderBlob;
+	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+
+	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "cs_5_0", flags, 0, &shaderBlob, &errorBlob))) {
+		std::cout << "Failed to compile shader\n";
+		if (errorBlob != NULL) {
+			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
+			errorBlob->Release();
+		}
+		return false;
+	}
+
+	if (AppContext->d3dDevice->CreateComputeShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, Shader) != S_OK) {
+		shaderBlob->Release();
+		return false;
+	}
+
+	shaderBlob->Release();
+
+	return true;
+}
+
+bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementCount, uint8_t* Data, ID3D11Buffer** Buffer) {
+	D3D11_BUFFER_DESC desc = {};
+	desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+	desc.ByteWidth = ElementSize * ElementCount;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	desc.StructureByteStride = ElementSize;
+
+	if (Data) {
+		D3D11_SUBRESOURCE_DATA data = {};
+		data.pSysMem = Data;
+
+		if (AppContext->d3dDevice->CreateBuffer(&desc, &data, Buffer) != S_OK) {
+			return false;
+		}
+	} else {
+		if (AppContext->d3dDevice->CreateBuffer(&desc, 0, Buffer) != S_OK) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool gfxCreateBufferShaderResourceView(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11ShaderResourceView** View) {
+	// NOTE: Creates view for raw or structured buffers.
+
+	return true;
+}
+
+bool gfxCreateBufferUnorderedAccessView(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11UnorderedAccessView** View) {
+	// NOTE: Creates view for raw or structured buffers.
+
+	return true;
+}
+
+void gfxRunComputeShader(ldiApp* AppContext, ID3D11ComputeShader* Shader) {
+	AppContext->d3dDeviceContext->CSSetShader(Shader, 0, 0);
+
+	//AppContext->d3dDeviceContext->CSSetShaderResources(0, nNumViews, pShaderResourceViews);
+	//AppContext->d3dDeviceContext->CSSetUnorderedAccessViews(0, 1, &pUnorderedAccessView, 0);
+
+	//AppContext->d3dDeviceContext->Dispatch(X, Y, Z);
+		//AppContext->d3dDeviceContext->Dispatch(num, 1, 1);
+
+	AppContext->d3dDeviceContext->CSSetShader(0, 0, 0);
+
+	// TODO: Consider unbinding all resources after dispatch.
 }

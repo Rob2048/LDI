@@ -7,6 +7,46 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 
+struct ldiCharucoMarker {
+	int id;
+	vec2 corners[4];
+};
+
+struct ldiCharucoCorner {
+	int id;
+	vec2 position;
+};
+
+struct ldiCharucoBoard {
+	int id;
+	std::vector<ldiCharucoCorner> corners;
+};
+
+struct ldiCharucoResults {
+	std::vector<ldiCharucoMarker> markers;
+	std::vector<ldiCharucoBoard> boards;
+};
+
+struct ldiCalibPoint {
+	int id;
+	int boardId;
+	int fullId;
+	vec3 position;
+};
+
+struct ldiPhysicalCamera {
+	int calibrationData;
+};
+
+struct ldiCalibSample {
+	float x;
+	float y;
+	float z;
+	float a;
+	float b;
+	ldiCharucoResults charucos;
+};
+
 cv::Ptr<cv::aruco::Dictionary> _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
 std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
 
@@ -43,31 +83,6 @@ void createCharucos(bool Output) {
 	}
 }
 
-struct ldiCharucoMarker {
-	int id;
-	vec2 corners[4];
-};
-
-struct ldiCharucoCorner {
-	int id;
-	vec2 position;
-};
-
-struct ldiCharucoBoard {
-	int id;
-	std::vector<ldiCharucoMarker> markers;
-	std::vector<ldiCharucoCorner> corners;
-};
-
-struct ldiCharucoResults {
-	std::vector<ldiCharucoBoard> boards;
-	
-	/*std::vector<vec2>	markerCorners;
-	std::vector<int>	markerIds;
-	std::vector<vec2>	charucoCorners;
-	std::vector<int>	charucoIds;*/
-};
-
 void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results) {
 	int offset = 1;
 
@@ -88,44 +103,55 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 
-		std::vector<std::vector<cv::Point2f>> charucoCorners(6);
-		std::vector<std::vector<int>> charucoIds(6);
-
-		Results->markerCorners.clear();
-		Results->charucoCorners.clear();
-		Results->charucoIds.clear();
-		Results->markerIds = markerIds;
+		Results->markers.clear();
+		Results->boards.clear();
 
 		for (int i = 0; i < markerCorners.size(); ++i) {
-			for (int j = 0; j < markerCorners[i].size(); ++j) {
-				Results->markerCorners.push_back(vec2(markerCorners[i][j].x, markerCorners[i][j].y));
+			ldiCharucoMarker marker;
+			marker.id = markerIds[i];
+
+			for (int j = 0; j < 4; ++j) {
+				marker.corners[j] = vec2(markerCorners[i][j].x, markerCorners[i][j].y);
 			}
+
+			Results->markers.push_back(marker);
 		}
 
 		// Interpolate charuco corners for each possible board.
-		//t0 = _getTime(AppContext);
-		for (int i = 0; i < 6; ++i) {
-			if (markerCorners.size() > 0) {
-				cv::aruco::interpolateCornersCharuco(markerCorners, markerIds, image, _charucoBoards[i], charucoCorners[i], charucoIds[i]);
+		if (markerCorners.size() > 0) {
+			for (int i = 0; i < 6; ++i) {
+				std::vector<cv::Point2f> charucoCorners;
+				std::vector<int> charucoIds;
+				cv::aruco::interpolateCornersCharuco(markerCorners, markerIds, image, _charucoBoards[i], charucoCorners, charucoIds);
+
+				// Board is valid if it has at least one corner.
+				if (charucoIds.size() > 0) {
+					ldiCharucoBoard board;
+					board.id = i;
+
+					for (int j = 0; j < charucoIds.size(); ++j) {
+						ldiCharucoCorner corner;
+						corner.id = charucoIds[j];
+						corner.position = vec2(charucoCorners[j].x, charucoCorners[j].y);
+						board.corners.push_back(corner);
+					}
+
+					Results->boards.push_back(board);
+				}
 			}
 		}
-		//t0 = _getTime(AppContext) - t0;
-		//std::cout << "Interpolar corners: " << (t0 * 1000.0) << " ms\n";
+		
+		//for (int i = 0; i < boardCount; ++i) {
+		//	int markerCount = charucoIds[i].size();
+		//	//std::cout << "Board " << i << " markers: " << markerCount << "\n";
 
-		int boardCount = charucoIds.size();
-		//std::cout << "Boards: " << boardCount << "\n";
-
-		for (int i = 0; i < boardCount; ++i) {
-			int markerCount = charucoIds[i].size();
-			//std::cout << "Board " << i << " markers: " << markerCount << "\n";
-
-			for (int j = 0; j < markerCount; ++j) {
-				int cornerId = charucoIds[i][j];
-				Results->charucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
-				Results->charucoIds.push_back(cornerId);
-				//std::cout << cornerId << ": " << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
-			}
-		}
+		//	for (int j = 0; j < markerCount; ++j) {
+		//		int cornerId = charucoIds[i][j];
+		//		Results->charucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
+		//		Results->charucoIds.push_back(cornerId);
+		//		//std::cout << cornerId << ": " << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
+		//	}
+		//}
 
 		/*t0 = _getTime(AppContext) - t0;
 		std::cout << "Find charuco: " << (t0 * 1000.0) << " ms\n";*/
@@ -135,7 +161,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 	}
 }
 
-void _calibrateCameraCharuco(ldiApp* AppContext, uint8_t* Data, int DataSize) {
+void _calibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Samples, int ImageWidth, int ImageHeight) {
 	// Input data is:
 	// board count
 	// for each board:
@@ -144,10 +170,12 @@ void _calibrateCameraCharuco(ldiApp* AppContext, uint8_t* Data, int DataSize) {
 	//			marker id
 	//			pos x, y
 
+
+
 	std::vector<std::vector<int>> charucoIds;
 	std::vector<std::vector<cv::Point2f>> charucoCorners;
 
-	int offset = 1;
+	/*int offset = 1;
 	int boardCount = 0;
 	memcpy(&boardCount, Data + offset, 4); offset += 4;
 
@@ -171,15 +199,53 @@ void _calibrateCameraCharuco(ldiApp* AppContext, uint8_t* Data, int DataSize) {
 
 		charucoIds.push_back(ids);
 		charucoCorners.push_back(corners);
+	}*/
+
+	int boardId = 0;
+
+	for (size_t sampleIter = 0; sampleIter < Samples->size(); ++sampleIter) {
+		for (size_t boardIter = 0; boardIter < (*Samples)[sampleIter].charucos.boards.size(); ++boardIter) {
+			if ((*Samples)[sampleIter].charucos.boards[boardIter].corners.size() < 6) {
+				continue;
+			}
+
+			++boardId;
+			if (boardId == 10) {
+				continue;
+			}
+
+			std::vector<int> cornerIds;
+			std::vector<cv::Point2f> cornerPositions;
+
+			for (size_t cornerIter = 0; cornerIter < (*Samples)[sampleIter].charucos.boards[boardIter].corners.size(); ++cornerIter) {
+				ldiCharucoCorner corner = (*Samples)[sampleIter].charucos.boards[boardIter].corners[cornerIter];
+
+				cornerIds.push_back(corner.id);
+				// TODO: The corner positions are 0,0 at center pixel. What does the calibration algo expect? Does it matter?
+				//cornerPositions.push_back(cv::Point2f(corner.position.x + 0.5f, corner.position.y + 0.5f));
+				cornerPositions.push_back(cv::Point2f(corner.position.x + 0.5f, corner.position.y + 0.5f));
+
+				std::cout << sampleIter << " " << boardIter << " " << corner.id << " " << corner.position.x << ", " << corner.position.y << "\n";
+			}
+
+			charucoIds.push_back(cornerIds);
+			charucoCorners.push_back(cornerPositions);
+		}
+
+		/*if (charucoIds.size() > 40) {
+			break;
+		}*/
 	}
 
-	// TODO: Get better start params?
+	std::cout << "Calib boards: " << charucoIds.size() << "\n";
+
+	// NOTE: 1600x1300 with 42deg vertical FOV.
 	cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
-	cameraMatrix.at<double>(0, 0) = 1437.433155080189;
+	cameraMatrix.at<double>(0, 0) = 1693.30789;
 	cameraMatrix.at<double>(0, 1) = 0.0;
 	cameraMatrix.at<double>(0, 2) = 800;
 	cameraMatrix.at<double>(1, 0) = 0.0;
-	cameraMatrix.at<double>(1, 1) = 1437.433155080189;
+	cameraMatrix.at<double>(1, 1) = 1693.30789;
 	cameraMatrix.at<double>(1, 2) = 650;
 	cameraMatrix.at<double>(2, 0) = 0.0;
 	cameraMatrix.at<double>(2, 1) = 0.0;
@@ -189,15 +255,26 @@ void _calibrateCameraCharuco(ldiApp* AppContext, uint8_t* Data, int DataSize) {
 	std::vector<cv::Mat> rvecs;
 	std::vector<cv::Mat> tvecs;
 
-	double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(1600, 1300), cameraMatrix, distCoeffs, rvecs, tvecs);
+	double t0 = _getTime(AppContext);
 
-	/*std::cout << "Calibration error: " << rms << "\n";
+	cv::Mat stdDevIntrinsics;
+	cv::Mat stdDevExtrinsics;
+	cv::Mat perViewErrors;
+	//double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_FIX_K1 | cv::CALIB_FIX_K2 | cv::CALIB_FIX_K3 | cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5 | cv::CALIB_FIX_K6 | cv::CALIB_ZERO_TANGENT_DIST | cv::CALIB_FIX_FOCAL_LENGTH | cv::CALIB_USE_INTRINSIC_GUESS | cv::CALIB_FIX_PRINCIPAL_POINT);
+	double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS);
+
+	std::cout << stdDevIntrinsics.size << "\n";
+	std::cout << stdDevExtrinsics.size << "\n";
+	std::cout << perViewErrors.size << "\n";
+	std::cout << stdDevIntrinsics << "\n\n";
+	std::cout << perViewErrors << "\n\n";
+
+	t0 = _getTime(AppContext) - t0;
+	std::cout << t0 * 1000.0f << " ms\n";
+
+	std::cout << "Calibration error: " << rms << "\n";
 	std::cout << "Camera matrix: " << cameraMatrix << "\n";
-	std::cout << "Dist coeffs: " << distCoeffs << "\n" << std::flush;*/
-
-	//send(Client, (const char*)&rms, 8, 0);
-	//send(Client, (const char*)cameraMatrix.data, 9 * 8, 0);
-	//send(Client, (const char*)distCoeffs.data, 8 * 8, 0);
+	std::cout << "Dist coeffs: " << distCoeffs << "\n";
 
 	//int validBoardCount = tvecs.size();
 	//send(Client, (const char*)&validBoardCount, 4, 0);
@@ -219,19 +296,4 @@ void _calibrateCameraCharuco(ldiApp* AppContext, uint8_t* Data, int DataSize) {
 	//	send(Client, (const char*)tvecs[i].data, 8 * 3, 0);
 	//	send(Client, (const char*)rotMat.data, 8 * 9, 0);
 	//}
-}
-
-struct ldiCalibPoint {
-	int id;
-	int boardId;
-	int fullId;
-	vec3 position;
-};
-
-struct ldiPhysicalCamera {
-	int calibrationData;
-};
-
-void calibGenerateTargetCalibPoints() {
-
 }

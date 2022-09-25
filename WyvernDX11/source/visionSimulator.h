@@ -30,6 +30,9 @@ struct ldiVisionSimulator {
 	ID3D11Texture2D*			renderViewCopyStaging;
 	uint8_t*					renderViewCopy;
 
+	ID3D11ShaderResourceView*	inspectResourceView;
+	ID3D11Texture2D*			inspectTex;
+
 	ldiRenderViewBuffers		mainViewBuffers;
 	int							mainViewWidth;
 	int							mainViewHeight;
@@ -59,8 +62,14 @@ struct ldiVisionSimulator {
 	ldiRenderModel				targetModel;
 	mat4						targetFaceMat[6];
 	ldiTransform				targetModelMat;
-
+	
 	ldiCharucoResults			charucoResults = {};
+	ldiCharucoResults			charucoTruth = {};
+	double						charucoRms = 0.0;
+
+	std::vector<ldiCalibSample>	calibSamples;
+	int							calibSampleSelectId = -1;
+	int							calibSampleLoadedImage = -1;
 
 	ldiHorse					horse;
 };
@@ -196,6 +205,9 @@ void _visionSimulatorCopyRenderToBuffer(ldiVisionSimulator* Tool) {
 	// Convert to greyscale.
 	for (int i = 0; i < Tool->imageHeight * Tool->imageWidth; ++i) {
 		Tool->renderViewCopy[i] = Tool->renderViewCopy[i * 4];
+
+		//float v = (float)Tool->renderViewCopy[i * 4] / 255.0f;
+		//Tool->renderViewCopy[i] = (uint8_t)(GammaToLinear(v) * 255.0f);
 	}
 
 	//imageWrite("Copy test.png", Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
@@ -221,6 +233,12 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 
 	gfxCreateRenderView(AppContext, &Tool->renderViewBuffers, Tool->imageWidth, Tool->imageHeight);
 
+	Tool->mainCamera.position = vec3(40, 60, -20);
+	Tool->mainCamera.rotation = vec3(-125, 40, 0);
+
+	//----------------------------------------------------------------------------------------------------
+	// Renderview staging texture.
+	//----------------------------------------------------------------------------------------------------
 	{
 		D3D11_TEXTURE2D_DESC texDesc = {};
 		texDesc.Width = Tool->imageWidth;
@@ -233,16 +251,51 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 		texDesc.BindFlags = 0;
 		texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 		texDesc.MiscFlags = 0;
-		AppContext->d3dDevice->CreateTexture2D(&texDesc, NULL, &Tool->renderViewCopyStaging);
+
+		if (AppContext->d3dDevice->CreateTexture2D(&texDesc, NULL, &Tool->renderViewCopyStaging) != S_OK) {
+			std::cout << "Texture failed to create\n";
+			return 1;
+		}
 	}
 
-	const int boardSize = 512;
+	//----------------------------------------------------------------------------------------------------
+	// Prime inspect texture.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = Tool->imageWidth;
+		tex2dDesc.Height = Tool->imageHeight;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DYNAMIC;
+		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		tex2dDesc.MiscFlags = 0;
+
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->inspectTex) != S_OK) {
+			std::cout << "Texture failed to create\n";
+			return 1;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(Tool->inspectTex, NULL, &Tool->inspectResourceView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
+	}
+
+	// NOTE: Board size must allow number of squares to evenly divide.
+	const int boardSize = 600;
 	static uint8_t boardBuffer[boardSize * boardSize * 4];
 
 	// NOTE: Load charucos as textures from cv engine.
 	for (int i = 0; i < 6; ++i) {
 		cv::Mat markerImage;
 		_charucoBoards[i]->draw(cv::Size(boardSize, boardSize), markerImage, 0, 1);
+
+		//imageWrite("chrtestbrd.png", boardSize, boardSize, 1, boardSize, markerImage.data);
 
 		for (int p = 0; p < boardSize * boardSize; ++p) {
 			uint8_t v = markerImage.data[p];
@@ -260,7 +313,9 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 
 	{
 		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC; //D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC; 
+		//samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		//samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
 		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
 		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -310,6 +365,13 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	return 0;
 }
 
+void displayTextAtPoint(ldiVisionSimulator* Tool, vec3 Position, std::string Text, vec4 Color, std::vector<ldiTextInfo>* TextBuffer) {
+	vec3 projPos = projectPoint(&Tool->mainCamera, Tool->mainViewWidth, Tool->mainViewHeight, Position);
+	if (projPos.z > 0) {
+		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
+	}
+}
+
 void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = Tool->appContext;
 	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
@@ -318,10 +380,7 @@ void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, s
 	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
 	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
 
-	vec3 projPos = projectPoint(&Tool->mainCamera, Tool->mainViewWidth, Tool->mainViewHeight, root);
-	if (projPos.z > 0) {
-		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text });
-	}
+	displayTextAtPoint(Tool, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 }
 
 void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -437,10 +496,37 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	//----------------------------------------------------------------------------------------------------
 	// Render cube model.
 	//----------------------------------------------------------------------------------------------------
+	vec3 targetFaceColorBright[] = {
+		{1.0f, 1.0f, 1.0f},
+		{1.0f, 0.5f, 0.5f},
+		{0.5f, 1.0f, 0.5f},
+		{0.5f, 0.5f, 1.0f},
+		{1.0f, 1.0f, 0.5f},
+		{1.0f, 0.5f, 1.0f},
+	};
+
+	vec3 targetFaceColorDim[] = {
+		{0.5f, 0.5f, 0.5f},
+		{0.5f, 0.0f, 0.0f},
+		{0.0f, 0.5f, 0.0f},
+		{0.0f, 0.0f, 0.5f},
+		{0.5f, 0.5f, 0.0f},
+		{0.5f, 0.0f, 0.5f},
+	};
+
+	vec3 targetFaceColor[] = {
+		{1.0f, 1.0f, 1.0f},
+		{1.0f, 0.0f, 0.0f},
+		{0.0f, 1.0f, 0.0f},
+		{0.0f, 0.0f, 1.0f},
+		{1.0f, 1.0f, 0.0f},
+		{1.0f, 0.0f, 1.0f},
+	};
+
 	for (int i = 0; i < 6; ++i) {
 		ldiBasicConstantBuffer constantBuffer;
 		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
-		constantBuffer.color = vec4(1, 1, 1, 1);
+		constantBuffer.color = vec4(targetFaceColorDim[i], 1);
 
 		if (i == 5) {
 			constantBuffer.color = vec4(0, 0, 0, 1);
@@ -448,6 +534,38 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 		gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
 		gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
+	}
+
+	const float cubeSize = 5.0f;
+	const float chs = cubeSize * 0.5f;
+	const float squareCount = 6.0f;
+	const float oneCellSize = cubeSize / squareCount;
+
+	//vec3 camForward = vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+
+	for (int b = 0; b < 6; ++b) {
+		if (b == 5) {
+			continue;
+		}
+
+		vec3 faceOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, chs, 0, 1);
+		vec3 faceWorldNormal = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, 1, 0, 0);
+
+		float fdc = glm::dot((Tool->mainCamera.position - faceOrigin), faceWorldNormal);
+
+		if (fdc < 0) {
+			continue;
+		}
+
+		for (size_t i = 0; i < _charucoBoards[b]->chessboardCorners.size(); ++i) {
+			cv::Point3f p = _charucoBoards[b]->chessboardCorners[i];
+
+			vec3 offset(-chs, chs, chs);
+			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+
+			pushDebugBox(appContext, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
+			displayTextAtPoint(Tool, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -516,6 +634,57 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	}
 }
 
+vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int CornerId) {
+	const float cubeSize = 5.0f;
+	const float chs = cubeSize * 0.5f;
+	const float squareCount = 6.0f;
+	const float oneCellSize = cubeSize / squareCount;
+
+	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
+
+	vec3 offset(-chs, chs, chs);
+	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+
+	// TODO: Camera should really be updated only once.
+	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+	mat4 projMat = Tool->camera.projMat;
+	mat4 projViewModelMat = projMat * camViewMat;
+
+	vec4 clipPos = projViewModelMat * vec4(worldPos, 1);
+	clipPos.x /= clipPos.w;
+	clipPos.y /= clipPos.w;
+
+	vec3 screenPos;
+	screenPos.x = (clipPos.x * 0.5 + 0.5) * Tool->imageWidth;
+	screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * Tool->imageHeight;
+	screenPos.z = clipPos.z;
+
+	return screenPos;
+}
+
+vec3 visionSimulatorGetTargetCamPos(ldiVisionSimulator* Tool, int BoardId, int CornerId) {
+	const float cubeSize = 5.0f;
+	const float chs = cubeSize * 0.5f;
+	const float squareCount = 6.0f;
+	const float oneCellSize = cubeSize / squareCount;
+
+	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
+
+	vec3 offset(-chs, chs, chs);
+	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+
+	// TODO: Camera should really be updated only once.
+	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+	
+	vec3 camPos = camViewMat * vec4(worldPos, 1);
+	
+	return camPos;
+}
+
 void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	visionSimulatorRender(Tool);
 	_visionSimulatorCopyRenderToBuffer(Tool);
@@ -525,27 +694,39 @@ void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	img.height = Tool->imageHeight;
 
 	char filePath[256];
-	sprintf_s(filePath, sizeof(filePath), "../cache/calib/%d_%d_%d_%d_%d", (int)(Horse->x * 10.0f) + 100, (int)(Horse->y * 10.0f) + 100, (int)(Horse->z * 10.0f) + 100, (int)(Horse->a) + 360, (int)(Horse->b) + 360);
+	sprintf_s(filePath, sizeof(filePath), "../cache/calib/%d", Tool->calibSamples.size());
 
 	char fileExt[256];
 	sprintf_s(fileExt, sizeof(filePath), "%s.png", filePath);
 	imageWrite(fileExt, Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
 
-	ldiCharucoResults charucoResults;
-	findCharuco(img, Tool->appContext, &charucoResults);
+	ldiCalibSample calibSample;
+	calibSample.x = Horse->x;
+	calibSample.y = Horse->y;
+	calibSample.z = Horse->z;
+	calibSample.a = Horse->a;
+	calibSample.b = Horse->b;
+	
+	findCharuco(img, Tool->appContext, &calibSample.charucos);
+	
+	Tool->calibSamples.push_back(calibSample);
 
 	// Save data file:
-	sprintf_s(fileExt, sizeof(filePath), "%s.dat", filePath);
-	FILE* f = fopen(fileExt, "wb");
+	/*sprintf_s(fileExt, sizeof(filePath), "%s.dat", filePath);
+	
+	FILE* f;
+	if (fopen_s(&f, fileExt, "wb") == 0) {
+		int boardCount = charucoResults.boards.size();
+		fwrite(&boardCount, sizeof(int), 1, f);
 
-	int boardCount = charucoResults.boards.size();
-	fwrite(&boardCount, sizeof(int), 1, f);
+		for (int b = 0; b < boardCount; ++b) {
 
-	for (int b = 0; b < boardCount; ++b) {
+		}
 
-	}
-
-	fclose(f);
+		fclose(f);
+	} else {
+		std::cout << "Failed to save file\n";
+	}*/
 }
 
 void visionSimulatorLoadImageSetInfo(ldiVisionSimulator* Tool) {
@@ -553,7 +734,35 @@ void visionSimulatorLoadImageSetInfo(ldiVisionSimulator* Tool) {
 }
 
 void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
-	for (int iX = 0; iX <= 20; ++iX) {
+	Tool->calibSamples.clear();
+
+	for (int iX = 0; iX <= 4; ++iX) {
+		for (int iY = 0; iY <= 4; ++iY) {
+			Tool->horse.x = iX * 4 - 8.0f;
+			Tool->horse.y = iY * 4 - 8.0f;
+			Tool->horse.z = 0;
+			Tool->horse.a = 0;
+			Tool->horse.b = 0;
+
+			horseUpdate(&Tool->horse);
+			visionSimulatorRenderAndSave(Tool, &Tool->horse);
+		}
+	}
+
+	/*for (int iX = 0; iX <= 10; ++iX) {
+		for (int iY = 0; iY <= 10; ++iY) {
+			Tool->horse.x = iX * 2 - 10.0f;
+			Tool->horse.y = iY * 2 - 10.0f;
+			Tool->horse.z = 0;
+			Tool->horse.a = 0;
+			Tool->horse.b = 0;
+
+			horseUpdate(&Tool->horse);
+			visionSimulatorRenderAndSave(Tool, &Tool->horse);
+		}
+	}*/
+
+	/*for (int iX = 0; iX <= 20; ++iX) {
 		for (int iY = 0; iY <= 20; ++iY) {
 			Tool->horse.x = iX - 10.0f;
 			Tool->horse.y = iY - 10.0f;
@@ -564,9 +773,9 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
-	}
+	}*/
 
-	for (int iX = 0; iX <= 20; ++iX) {
+	/*for (int iX = 0; iX <= 20; ++iX) {
 		for (int iY = 0; iY <= 20; ++iY) {
 			Tool->horse.x = iX - 10.0f;
 			Tool->horse.y = 0.0f;
@@ -577,48 +786,188 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
+	}*/
+}
+
+void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {
+	if (Tool->calibSampleLoadedImage == Tool->calibSampleSelectId) {
+		return;
 	}
+
+	Tool->calibSampleLoadedImage = Tool->calibSampleSelectId;
+
+	if (Tool->calibSampleLoadedImage == -1) {
+		return;
+	}
+
+	double t0 = _getTime(Tool->appContext);
+	
+	char filename[256];
+	sprintf_s(filename, sizeof(filename), "../cache/calib/%d.png", Tool->calibSampleLoadedImage);
+	int w, h, c;
+	uint8_t* imgData = imageLoadRgba(filename, &w, &h, &c);
+	
+	if (w != Tool->imageWidth || h != Tool->imageHeight) {
+		std::cout << "Load image size error\n";
+		imageFree(imgData);
+		return;
+	}
+
+	D3D11_MAPPED_SUBRESOURCE ms;
+	Tool->appContext->d3dDeviceContext->Map(Tool->inspectTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	uint8_t* pixelData = (uint8_t*)ms.pData;
+
+	for (int i = 0; i < Tool->imageHeight; ++i) {
+		memcpy(pixelData + i * ms.RowPitch, imgData + i * Tool->imageWidth * 4, Tool->imageWidth * 4);
+	}
+
+	Tool->appContext->d3dDeviceContext->Unmap(Tool->inspectTex, 0);
+
+	imageFree(imgData);
+
+	t0 = _getTime(Tool->appContext) - t0;
+	std::cout << "Load image: " << filename << " in " << t0 * 1000.0f << " ms\n";
 }
 
 void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
+	//std::cout << Tool->mainCamera.position.x << "," << Tool->mainCamera.position.y << "," << Tool->mainCamera.position.z << " " << Tool->mainCamera.rotation.x << "," << Tool->mainCamera.rotation.y << "\n";
 	//----------------------------------------------------------------------------------------------------
 	// Vision simulator controls.
 	//----------------------------------------------------------------------------------------------------
 	ImGui::Begin("Vision simulator controls");
 	
 	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("Scale", &Tool->imageScale, 0.1f, 10.0f);
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->imageCursorPos.x, Tool->imageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->imagePixelValue);
-
-		ImGui::DragFloat3("Cam position", (float*)&Tool->camera.position, 0.1f, -100.0f, 100.0f);
-		ImGui::DragFloat2("Cam rotation", (float*)&Tool->camera.rotation, 0.1f, -360.0f, 360.0f);
+		ImGui::SliderFloat("Scale", &Tool->imageScale, 0.1f, 10.0f);
 	}
 
-	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
-		//ImGui::Checkbox("Process", &appContext->camImageProcess);
+	if (ImGui::CollapsingHeader("Machine", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::DragFloat("X", &Tool->horse.x, 0.1f, -10.0f, 10.0f);
+		ImGui::DragFloat("Y", &Tool->horse.y, 0.1f, -10.0f, 10.0f);
+		ImGui::DragFloat("Z", &Tool->horse.z, 0.1f, -10.0f, 10.0f);
+		ImGui::DragFloat("A", &Tool->horse.a, 1.0f, 0.0f, 360.0f);
+		ImGui::DragFloat("B", &Tool->horse.b, 1.0f, 0.0f, 360.0f);
+		ImGui::DragFloat3("Cam position", (float*)&Tool->camera.position, 0.1f, -100.0f, 100.0f);
+		ImGui::DragFloat2("Cam rotation", (float*)&Tool->camera.rotation, 0.1f, -360.0f, 360.0f);
+		ImGui::SliderFloat("Main camera speed", &Tool->mainCameraSpeed, 0.0f, 1.0f);
+	}
 
+	char strbuf[256];
+
+	if (ImGui::CollapsingHeader("Calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
 		if (ImGui::Button("Find Charuco")) {
-			// Get pixels from VRAM.
+			double rms = 0.0;
+			int rmsCount = 0;
+
 			_visionSimulatorCopyRenderToBuffer(Tool);
 			ldiImage img = {};
 			img.data = Tool->renderViewCopy;
 			img.width = Tool->imageWidth;
 			img.height = Tool->imageHeight;
 			findCharuco(img, Tool->appContext, &Tool->charucoResults);
+
+			Tool->charucoTruth.boards.clear();
+
+			cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
+			/*cameraMatrix.at<double>(0, 0) = 1693.30789;
+			cameraMatrix.at<double>(0, 1) = 0.0;
+			cameraMatrix.at<double>(0, 2) = 800;
+			cameraMatrix.at<double>(1, 0) = 0.0;
+			cameraMatrix.at<double>(1, 1) = 1693.30789;
+			cameraMatrix.at<double>(1, 2) = 650;
+			cameraMatrix.at<double>(2, 0) = 0.0;
+			cameraMatrix.at<double>(2, 1) = 0.0;
+			cameraMatrix.at<double>(2, 2) = 1.0;*/
+			cameraMatrix.at<double>(0, 0) = 1704.9145;
+			cameraMatrix.at<double>(0, 1) = 0.0;
+			cameraMatrix.at<double>(0, 2) = 778.374;
+			cameraMatrix.at<double>(1, 0) = 0.0;
+			cameraMatrix.at<double>(1, 1) = 1712.9383;
+			cameraMatrix.at<double>(1, 2) = 650.446;
+			cameraMatrix.at<double>(2, 0) = 0.0;
+			cameraMatrix.at<double>(2, 1) = 0.0;
+			cameraMatrix.at<double>(2, 2) = 1.0;
+			
+			cv::Mat distCoeffs = cv::Mat::zeros(8, 1, CV_64F);
+			/*distCoeffs.at<double>(0) = 0.00399;
+			distCoeffs.at<double>(1) = 0.0631;
+			distCoeffs.at<double>(2) = -0.00143;
+			distCoeffs.at<double>(3) = -0.00472;
+			distCoeffs.at<double>(4) = -0.1915;*/
+
+			cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
+			cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
+			
+			// Compare each found point with the ground truth.
+			for (size_t b = 0; b < Tool->charucoResults.boards.size(); ++b) {
+				ldiCharucoBoard board;
+				board.id = Tool->charucoResults.boards[b].id;
+
+				for (size_t c = 0; c < Tool->charucoResults.boards[b].corners.size(); ++c) {
+					ldiCharucoCorner corner;
+					corner.id = Tool->charucoResults.boards[b].corners[c].id;
+					vec3 camSpacePos = visionSimulatorGetTargetCamPos(Tool, board.id, corner.id);
+					vec2 gtPos = visionSimulatorGetTargetImagePos(Tool, board.id, corner.id);
+
+					// Get ground truth reprojection.
+					std::vector<cv::Point3f> points;
+					std::vector<cv::Point2f> imagePoints;
+					points.push_back(cv::Point3f(-camSpacePos.x, camSpacePos.y, camSpacePos.z));
+					cv::projectPoints(points, rvec, tvec, cameraMatrix, distCoeffs, imagePoints);
+
+					corner.position = vec2(imagePoints[0].x, imagePoints[0].y);
+
+					double d = glm::distance(corner.position, Tool->charucoResults.boards[b].corners[c].position + vec2(0.5, 0.5));
+					//double d = glm::distance(corner.position, gtPos);
+					
+					rms += d * d;
+					rmsCount++;
+
+					board.corners.push_back(corner);
+				}
+
+				Tool->charucoTruth.boards.push_back(board);
+			}
+
+			if (rmsCount != 0) {
+				Tool->charucoRms = sqrt(rms / rmsCount);
+			} else {
+				Tool->charucoRms = 1000000;
+			}
 		}
+
+		ImGui::Text("RMS: %f", Tool->charucoRms);
 
 		if (ImGui::Button("Create image set")) {
 			visionSimulatorCreateImageSet(Tool);
 		}
-	}
 
-	if (ImGui::CollapsingHeader("Machine", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("X", &Tool->horse.x, -10.0f, 10.0f);
-		ImGui::SliderFloat("Y", &Tool->horse.y, -10.0f, 10.0f);
-		ImGui::SliderFloat("Z", &Tool->horse.z, -10.0f, 10.0f);
-		ImGui::SliderFloat("A", &Tool->horse.a, 0.0f, 360.0f);
-		ImGui::SliderFloat("B", &Tool->horse.b, 0.0f, 360.0f);
+		if (ImGui::Button("Calibrate camera")) {
+			_calibrateCameraCharuco(Tool->appContext, &Tool->calibSamples, Tool->imageWidth, Tool->imageHeight);
+		}
+
+		if (ImGui::Button("Show live")) {
+			Tool->calibSampleSelectId = -1;
+		}
+
+		ImGui::Text("Samples");
+		if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
+			for (int n = 0; n <  Tool->calibSamples.size(); ++n) {
+				const bool is_selected = (Tool->calibSampleSelectId == n);
+
+				sprintf_s(strbuf, sizeof(strbuf), "%d", n);
+				if (ImGui::Selectable(strbuf, is_selected)) {
+					Tool->calibSampleSelectId = n;
+				}
+
+				// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+				if (is_selected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndListBox();
+		}
 	}
 
 	ImGui::End();
@@ -633,168 +982,218 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	//ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(700, 600));
-	ImGui::Begin("Vision simulator", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar);
+	if (ImGui::Begin("Vision simulator", 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar)) {
+		ImVec2 viewSize = ImGui::GetContentRegionAvail();
+		ImVec2 startPos = ImGui::GetCursorPos();
+		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
-	ImVec2 viewSize = ImGui::GetContentRegionAvail();
-	ImVec2 startPos = ImGui::GetCursorPos();
-	ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+		// This will catch our interactions.
+		ImGui::InvisibleButton("__visSimViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+		const bool isHovered = ImGui::IsItemHovered(); // Hovered
+		const bool isActive = ImGui::IsItemActive();   // Held
+		ImVec2 mousePos = ImGui::GetIO().MousePos;
+		const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
 
-	// This will catch our interactions.
-	ImGui::InvisibleButton("__visSimViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-	const bool isHovered = ImGui::IsItemHovered(); // Hovered
-	const bool isActive = ImGui::IsItemActive();   // Held
-	ImVec2 mousePos = ImGui::GetIO().MousePos;
-	const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+		// Convert canvas pos to world pos.
+		vec2 worldPos;
+		worldPos.x = mouseCanvasPos.x;
+		worldPos.y = mouseCanvasPos.y;
+		worldPos *= (1.0 / Tool->imageScale);
+		worldPos -= Tool->imageOffset;
 
-	// Convert canvas pos to world pos.
-	vec2 worldPos;
-	worldPos.x = mouseCanvasPos.x;
-	worldPos.y = mouseCanvasPos.y;
-	worldPos *= (1.0 / Tool->imageScale);
-	worldPos -= Tool->imageOffset;
+		if (isHovered) {
+			float wheel = ImGui::GetIO().MouseWheel;
 
-	if (isHovered) {
-		float wheel = ImGui::GetIO().MouseWheel;
+			if (wheel) {
+				Tool->imageScale += wheel * 0.2f * Tool->imageScale;
 
-		if (wheel) {
-			Tool->imageScale += wheel * 0.2f * Tool->imageScale;
+				vec2 newWorldPos;
+				newWorldPos.x = mouseCanvasPos.x;
+				newWorldPos.y = mouseCanvasPos.y;
+				newWorldPos *= (1.0 / Tool->imageScale);
+				newWorldPos -= Tool->imageOffset;
 
-			vec2 newWorldPos;
-			newWorldPos.x = mouseCanvasPos.x;
-			newWorldPos.y = mouseCanvasPos.y;
-			newWorldPos *= (1.0 / Tool->imageScale);
-			newWorldPos -= Tool->imageOffset;
+				vec2 deltaWorldPos = newWorldPos - worldPos;
 
-			vec2 deltaWorldPos = newWorldPos - worldPos;
-
-			Tool->imageOffset.x += deltaWorldPos.x;
-			Tool->imageOffset.y += deltaWorldPos.y;
-		}
-	}
-
-	if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
-		vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-		mouseDelta *= (1.0 / Tool->imageScale);
-
-		Tool->imageOffset += vec2(mouseDelta.x, mouseDelta.y);
-	}
-
-	ImVec2 pos = ImGui::GetCursorScreenPos();
-	ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
-	ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
-	ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
-	ImVec4 border_col = ImVec4(0.5f, 0.5f, 0.5f, 0.0f); // 50% opaque white
-
-	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-	ImVec2 imgMin;
-	imgMin.x = screenStartPos.x + Tool->imageOffset.x * Tool->imageScale;
-	imgMin.y = screenStartPos.y + Tool->imageOffset.y * Tool->imageScale;
-
-	ImVec2 imgMax;
-	imgMax.x = imgMin.x + Tool->imageWidth * Tool->imageScale;
-	imgMax.y = imgMin.y + Tool->imageHeight * Tool->imageScale;
-
-	visionSimulatorRender(Tool);
-	draw_list->AddCallback(_visionSimulatorSetStateCallback, Tool->appContext);
-	draw_list->AddImage(Tool->renderViewBuffers.mainViewResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
-	draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
-
-	//----------------------------------------------------------------------------------------------------
-	// Draw charuco results.
-	//----------------------------------------------------------------------------------------------------
-	std::vector<vec2> markerCentroids;
-
-	const ldiCharucoResults* charucos = &Tool->charucoResults;
-
-	for (int i = 0; i < charucos->markerCorners.size() / 4; ++i) {
-		/*ImVec2 offset = pos;
-		offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
-		offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;*/
-
-		ImVec2 points[5];
-
-		vec2 markerCentroid(0.0f, 0.0f);
-
-		for (int j = 0; j < 4; ++j) {
-			vec2 o = charucos->markerCorners[i * 4 + j];
-
-			points[j] = pos;
-			points[j].x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
-			points[j].y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
-
-			markerCentroid.x += points[j].x;
-			markerCentroid.y += points[j].y;
-		}
-		points[4] = points[0];
-
-		markerCentroid /= 4.0f;
-		markerCentroids.push_back(markerCentroid);
-
-		draw_list->AddPolyline(points, 5, ImColor(0, 0, 255, 200), 0, 6.0f);
-		//draw_list->AddCircle(offset, 4.0f, ImColor(0, 0, 255));
-	}
-
-	//std::cout << appContext->camImageMarkerIds.size() << "\n";
-
-	for (int i = 0; i < charucos->markerIds.size(); ++i) {
-		char strBuff[32];
-		sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markerIds[i]);
-		draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
-	}
-
-	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
-		vec2 o = charucos->charucoCorners[i];
-
-		// TODO: Do we need half pixel offset? Check debug drawing commands.
-		ImVec2 offset = pos;
-		offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
-		offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
-
-		draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0, 200), 0, 3.0f);
-	}
-
-	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
-		vec2 o = charucos->charucoCorners[i];
-		int cornerId = charucos->charucoIds[i];
-
-		ImVec2 offset = pos;
-		offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale + 5;
-		offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale - 15;
-
-		char strBuf[256];
-		// NOTE: Half pixel offsets added to position values.
-		sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x + 0.5f, o.y + 0.5f);
-
-		draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Draw cursor.
-	//----------------------------------------------------------------------------------------------------
-	if (isHovered) {
-		vec2 pixelPos;
-		pixelPos.x = (int)worldPos.x;
-		pixelPos.y = (int)worldPos.y;
-
-		Tool->imageCursorPos = worldPos;
-
-		if (pixelPos.x >= 0 && pixelPos.x < Tool->imageWidth) {
-			if (pixelPos.y >= 0 && pixelPos.y < Tool->imageHeight) {
-				Tool->imagePixelValue = 69;
-				//tool->imagePixelValue = _pixelsFinal[(int)pixelPos.y * tool->imageWidth + (int)pixelPos.x];
+				Tool->imageOffset.x += deltaWorldPos.x;
+				Tool->imageOffset.y += deltaWorldPos.y;
 			}
 		}
 
-		ImVec2 rMin;
-		rMin.x = screenStartPos.x + (Tool->imageOffset.x + pixelPos.x) * Tool->imageScale;
-		rMin.y = screenStartPos.y + (Tool->imageOffset.y + pixelPos.y) * Tool->imageScale;
+		if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+			mouseDelta *= (1.0 / Tool->imageScale);
 
-		ImVec2 rMax = rMin;
-		rMax.x += Tool->imageScale;
-		rMax.y += Tool->imageScale;
+			Tool->imageOffset += vec2(mouseDelta.x, mouseDelta.y);
+		}
 
-		draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
+		ImVec2 pos = ImGui::GetCursorScreenPos();
+		ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
+		ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
+		ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
+		ImVec4 border_col = ImVec4(0.5f, 0.5f, 0.5f, 0.0f); // 50% opaque white
+
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+		ImVec2 imgMin;
+		imgMin.x = screenStartPos.x + Tool->imageOffset.x * Tool->imageScale;
+		imgMin.y = screenStartPos.y + Tool->imageOffset.y * Tool->imageScale;
+
+		ImVec2 imgMax;
+		imgMax.x = imgMin.x + Tool->imageWidth * Tool->imageScale;
+		imgMax.y = imgMin.y + Tool->imageHeight * Tool->imageScale;
+
+		visionSimulatorRender(Tool);
+		draw_list->AddCallback(_visionSimulatorSetStateCallback, Tool->appContext);
+
+		if (Tool->calibSampleSelectId == -1) {
+			draw_list->AddImage(Tool->renderViewBuffers.mainViewResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+		} else {
+			visionSimulatorLoadCalibImage(Tool);
+			draw_list->AddImage(Tool->inspectResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+		}
+
+		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw charuco results.
+		//----------------------------------------------------------------------------------------------------
+		std::vector<vec2> markerCentroids;
+
+		const ldiCharucoResults* charucos = &Tool->charucoResults;
+
+		if (Tool->calibSampleSelectId != -1) {
+			charucos = &Tool->calibSamples[Tool->calibSampleSelectId].charucos;
+		}
+
+		for (int i = 0; i < charucos->markers.size(); ++i) {
+			/*ImVec2 offset = pos;
+			offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+			offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;*/
+
+			ImVec2 points[5];
+
+			vec2 markerCentroid(0.0f, 0.0f);
+
+			for (int j = 0; j < 4; ++j) {
+				vec2 o = charucos->markers[i].corners[j];
+
+				points[j] = pos;
+				points[j].x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+				points[j].y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
+
+				markerCentroid.x += points[j].x;
+				markerCentroid.y += points[j].y;
+			}
+			points[4] = points[0];
+
+			markerCentroid /= 4.0f;
+			markerCentroids.push_back(markerCentroid);
+
+			draw_list->AddPolyline(points, 5, ImColor(0, 0, 255, 200), 0, 6.0f);
+			//draw_list->AddCircle(offset, 4.0f, ImColor(0, 0, 255));
+		}
+
+		//std::cout << appContext->camImageMarkerIds.size() << "\n";
+
+		for (int i = 0; i < charucos->markers.size(); ++i) {
+			char strBuff[32];
+			sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markers[i].id);
+			draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
+		}
+
+		for (int b = 0; b < charucos->boards.size(); ++b) {
+			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+				vec2 o = charucos->boards[b].corners[i].position;
+
+				// TODO: Do we need half pixel offset? Check debug drawing commands.
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
+
+				draw_list->AddCircleFilled(offset, 4.0f, ImColor(0, 255, 0, 200));
+			}
+		}
+
+		for (int b = 0; b < charucos->boards.size(); ++b) {
+			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+				vec2 o = charucos->boards[b].corners[i].position;
+				int cornerId = charucos->boards[b].corners[i].id;
+
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale + 5;
+				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale - 15;
+
+				char strBuf[256];
+				// NOTE: Half pixel offsets added to position values.
+				sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x + 0.5f, o.y + 0.5f);
+
+				draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Ground truth points.
+		//----------------------------------------------------------------------------------------------------
+		charucos = &Tool->charucoTruth;
+
+		for (int b = 0; b < charucos->boards.size(); ++b) {
+			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+				vec2 o = charucos->boards[b].corners[i].position;
+
+				// TODO: Do we need half pixel offset? Check debug drawing commands.
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x) * Tool->imageScale;
+				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y) * Tool->imageScale;
+
+				draw_list->AddCircleFilled(offset, 4.0f, ImColor(255, 0, 0, 200));
+			}
+		}
+
+		for (int b = 0; b < charucos->boards.size(); ++b) {
+			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+				vec2 o = charucos->boards[b].corners[i].position;
+				int cornerId = charucos->boards[b].corners[i].id;
+
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x) * Tool->imageScale + 5;
+				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y) * Tool->imageScale + 0;
+
+				char strBuf[256];
+				// NOTE: Half pixel offsets added to position values.
+				sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+
+				draw_list->AddText(offset, ImColor(255, 0, 0), strBuf);
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw cursor.
+		//----------------------------------------------------------------------------------------------------
+		if (isHovered) {
+			vec2 pixelPos;
+			pixelPos.x = (int)worldPos.x;
+			pixelPos.y = (int)worldPos.y;
+
+			Tool->imageCursorPos = worldPos;
+
+			if (pixelPos.x >= 0 && pixelPos.x < Tool->imageWidth) {
+				if (pixelPos.y >= 0 && pixelPos.y < Tool->imageHeight) {
+					Tool->imagePixelValue = 69;
+					//tool->imagePixelValue = _pixelsFinal[(int)pixelPos.y * tool->imageWidth + (int)pixelPos.x];
+				}
+			}
+
+			ImVec2 rMin;
+			rMin.x = screenStartPos.x + (Tool->imageOffset.x + pixelPos.x) * Tool->imageScale;
+			rMin.y = screenStartPos.y + (Tool->imageOffset.y + pixelPos.y) * Tool->imageScale;
+
+			ImVec2 rMax = rMin;
+			rMax.x += Tool->imageScale;
+			rMax.y += Tool->imageScale;
+
+			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
+		}
 	}
 
 	ImGui::End();
@@ -803,11 +1202,9 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Vision simulator 3D view.
 	//----------------------------------------------------------------------------------------------------
-	{
-		ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		ImGui::Begin("Visual simulator 3D view", 0, ImGuiWindowFlags_NoCollapse);
-
+	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	if (ImGui::Begin("Visual simulator 3D view", 0, ImGuiWindowFlags_NoCollapse)) {
 		ImVec2 viewSize = ImGui::GetContentRegionAvail();
 		ImVec2 startPos = ImGui::GetCursorPos();
 		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
@@ -884,7 +1281,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		for (int i = 0; i < textBuffer.size(); ++i) {
 			ldiTextInfo* info = &textBuffer[i];
-			drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), IM_COL32(255, 255, 255, 255), info->text.c_str());
+			drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), ImColor(info->color.r, info->color.g, info->color.b, info->color.a), info->text.c_str());
 		}
 
 		// Viewport overlay widgets.
@@ -897,7 +1294,8 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			ImGui::EndChild();
 		}
 
-		ImGui::End();
-		ImGui::PopStyleVar();
 	}
+	
+	ImGui::End();
+	ImGui::PopStyleVar();
 }

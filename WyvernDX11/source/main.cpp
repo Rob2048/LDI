@@ -59,6 +59,15 @@ struct ldiCamera {
 struct ldiTextInfo {
 	vec2 position;
 	std::string text;
+	vec4 color;
+};
+
+struct ldiPlatformTransform {
+	float x;
+	float y;
+	float z;
+	float a;
+	float b;
 };
 
 struct ldiPhysics;
@@ -102,6 +111,8 @@ struct ldiApp {
 	ID3D11VertexShader*			imgCamVertexShader;
 	ID3D11PixelShader*			imgCamPixelShader;
 	ID3D11InputLayout*			imgCamInputLayout;
+
+	ID3D11ComputeShader*		simImgComputeShader;
 
 	ID3D11Buffer*				mvpConstantBuffer;
 	ID3D11Buffer*				pointcloudConstantBuffer;
@@ -432,6 +443,13 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Test compute shader.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateComputeShader(AppContext, L"../../assets/shaders/computeTest.hlsl", "mainCs", &AppContext->simImgComputeShader)) {
 		return false;
 	}
 

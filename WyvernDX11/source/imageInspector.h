@@ -276,7 +276,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 	const ldiCharucoResults* charucos = &Tool->camImageCharucoResults;
 
-	for (int i = 0; i < charucos->markerCorners.size() / 4; ++i) {
+	for (int i = 0; i < charucos->markers.size(); ++i) {
 		/*ImVec2 offset = pos;
 		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
 		offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;*/
@@ -286,7 +286,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		vec2 markerCentroid(0.0f, 0.0f);
 
 		for (int j = 0; j < 4; ++j) {
-			vec2 o = charucos->markerCorners[i * 4 + j];
+			vec2 o = charucos->markers[i].corners[j];
 
 			points[j] = pos;
 			points[j].x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
@@ -306,35 +306,39 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 	//std::cout << appContext->camImageMarkerIds.size() << "\n";
 
-	for (int i = 0; i < charucos->markerIds.size(); ++i) {
+	for (int i = 0; i < charucos->markers.size(); ++i) {
 		char strBuff[32];
-		sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markerIds[i]);
+		sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markers[i].id);
 		draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
 	}
 
-	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
-		vec2 o = charucos->charucoCorners[i];
+	for (int b = 0; b < charucos->boards.size(); ++b) {
+		for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+			vec2 o = charucos->boards[b].corners[i].position;
 
-		// TODO: Do we need half pixel offset? Check debug drawing commands.
-		ImVec2 offset = pos;
-		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
-		offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
+			// TODO: Do we need half pixel offset? Check debug drawing commands.
+			ImVec2 offset = pos;
+			offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+			offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
 
-		draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+			draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+		}
 	}
 
-	for (int i = 0; i < charucos->charucoCorners.size(); ++i) {
-		vec2 o = charucos->charucoCorners[i];
-		int cornerId = charucos->charucoIds[i];
+	for (int b = 0; b < charucos->boards.size(); ++b) {
+		for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+			vec2 o = charucos->boards[b].corners[i].position;
+			int cornerId = charucos->boards[b].corners[i].id;
 
-		ImVec2 offset = pos;
-		offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale + 5;
-		offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale - 15;
+			ImVec2 offset = pos;
+			offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale + 5;
+			offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale - 15;
 
-		char strBuf[256];
-		sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+			char strBuf[256];
+			sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
 
-		draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+			draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
