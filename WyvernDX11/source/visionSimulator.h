@@ -24,7 +24,6 @@ struct ldiHorse {
 struct ldiVisionSimulator {
 	ldiApp*						appContext;
 
-	// Need this??
 	ldiRenderViewBuffers		renderViewBuffers;
 	ldiCamera					camera;
 	ID3D11Texture2D*			renderViewCopyStaging;
@@ -62,6 +61,9 @@ struct ldiVisionSimulator {
 	ldiRenderModel				targetModel;
 	mat4						targetFaceMat[6];
 	ldiTransform				targetModelMat;
+	std::vector<vec3>			targetLocalPoints;
+	
+	bool						showTargetMain = true;
 	
 	ldiCharucoResults			charucoResults = {};
 	ldiCharucoResults			charucoTruth = {};
@@ -70,6 +72,9 @@ struct ldiVisionSimulator {
 	std::vector<ldiCalibSample>	calibSamples;
 	int							calibSampleSelectId = -1;
 	int							calibSampleLoadedImage = -1;
+
+	cv::Mat						calibCameraMatrix;
+	cv::Mat						calibCameraDist;
 
 	ldiHorse					horse;
 };
@@ -213,6 +218,32 @@ void _visionSimulatorCopyRenderToBuffer(ldiVisionSimulator* Tool) {
 	//imageWrite("Copy test.png", Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
 }
 
+void _visionSimulatorBuildTargetLocalPoints(ldiVisionSimulator* Tool) {
+	const float cubeSize = 5.0f;
+	const float chs = cubeSize * 0.5f;
+	const float squareCount = 6.0f;
+	const float oneCellSize = cubeSize / squareCount;
+
+	Tool->targetLocalPoints.clear();
+
+	for (int boardIter = 0; boardIter < 6; ++boardIter) {
+		if (boardIter == 5) {
+			continue;
+		}
+
+		int cornerCount = (int)_charucoBoards[boardIter]->chessboardCorners.size();
+
+		for (int cornerIter = 0; cornerIter < cornerCount; ++cornerIter) {
+			cv::Point3f p = _charucoBoards[boardIter]->chessboardCorners[cornerIter];
+
+			vec3 offset(-chs, chs, chs);
+			vec3 localPos = Tool->targetFaceMat[boardIter] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
+
+			Tool->targetLocalPoints.push_back(localPos);
+		}
+	}
+}
+
 int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	Tool->appContext = AppContext;
 
@@ -235,6 +266,19 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 
 	Tool->mainCamera.position = vec3(40, 60, -20);
 	Tool->mainCamera.rotation = vec3(-125, 40, 0);
+
+	Tool->calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
+	Tool->calibCameraMatrix.at<double>(0, 0) = 1693.30789;
+	Tool->calibCameraMatrix.at<double>(0, 1) = 0.0;
+	Tool->calibCameraMatrix.at<double>(0, 2) = 800;
+	Tool->calibCameraMatrix.at<double>(1, 0) = 0.0;
+	Tool->calibCameraMatrix.at<double>(1, 1) = 1693.30789;
+	Tool->calibCameraMatrix.at<double>(1, 2) = 650;
+	Tool->calibCameraMatrix.at<double>(2, 0) = 0.0;
+	Tool->calibCameraMatrix.at<double>(2, 1) = 0.0;
+	Tool->calibCameraMatrix.at<double>(2, 2) = 1.0;
+
+	Tool->calibCameraDist = cv::Mat::zeros(8, 1, CV_64F);
 
 	//----------------------------------------------------------------------------------------------------
 	// Renderview staging texture.
@@ -358,6 +402,8 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	// Y-
 	Tool->targetFaceMat[5] = glm::rotate(mat4(1.0f), glm::radians(180.0f), vec3(1.0f, 0.0f, 0.0f));
 
+	_visionSimulatorBuildTargetLocalPoints(Tool);
+	
 	Tool->targetModelMat.localPos = vec3(0, 0, 7.5f);
 	Tool->targetModelMat.localRot = vec3(90, 0, 0);
 	transformUpdateLocal(&Tool->targetModelMat);
@@ -494,6 +540,43 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	}
 
 	//----------------------------------------------------------------------------------------------------
+	// Calibration visualilzation.
+	//----------------------------------------------------------------------------------------------------
+	const float cubeSize = 5.0f;
+	const float chs = cubeSize * 0.5f;
+	const float squareCount = 6.0f;
+	const float oneCellSize = cubeSize / squareCount;
+
+	if (Tool->calibSampleSelectId != -1) {
+
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+
+		for (int boardIter = 0; boardIter < Tool->calibSamples[Tool->calibSampleSelectId].charucos.boards.size(); ++boardIter) {
+			ldiCharucoBoard* board = &Tool->calibSamples[Tool->calibSampleSelectId].charucos.boards[boardIter];
+
+			if (!board->localMat) {
+				continue;
+			}
+			
+			mat4 world = glm::inverse(camViewMat) * board->camLocalMat;
+
+			ldiTransform boardTransform = {};
+			boardTransform.world = world;
+			_renderTransformOrigin(Tool, &boardTransform, "Board", TextBuffer);
+
+			vec3 v0 = world * vec4(0, 0, 0, 1);
+			vec3 v1 = world * vec4(0, cubeSize, 0, 1);
+			vec3 v2 = world * vec4(cubeSize, 0, 0, 1);
+			vec3 v3 = world * vec4(cubeSize, cubeSize, 0, 1);
+
+			pushDebugTri(Tool->appContext, v0, v1, v2, vec3(0.5f, 0.5f, 0.5f));
+			pushDebugTri(Tool->appContext, v1, v3, v2, vec3(0.5f, 0.5f, 0.5f));
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
 	// Render cube model.
 	//----------------------------------------------------------------------------------------------------
 	vec3 targetFaceColorBright[] = {
@@ -523,25 +606,20 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		{1.0f, 0.0f, 1.0f},
 	};
 
-	for (int i = 0; i < 6; ++i) {
-		ldiBasicConstantBuffer constantBuffer;
-		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
-		constantBuffer.color = vec4(targetFaceColorDim[i], 1);
+	if (Tool->showTargetMain) {
+		for (int i = 0; i < 6; ++i) {
+			ldiBasicConstantBuffer constantBuffer;
+			constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
+			constantBuffer.color = vec4(targetFaceColorDim[i], 1);
 
-		if (i == 5) {
-			constantBuffer.color = vec4(0, 0, 0, 1);
+			if (i == 5) {
+				constantBuffer.color = vec4(0, 0, 0, 1);
+			}
+
+			gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
+			gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
 		}
-
-		gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
-		gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
 	}
-
-	const float cubeSize = 5.0f;
-	const float chs = cubeSize * 0.5f;
-	const float squareCount = 6.0f;
-	const float oneCellSize = cubeSize / squareCount;
-
-	//vec3 camForward = vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
 
 	for (int b = 0; b < 6; ++b) {
 		if (b == 5) {
@@ -561,7 +639,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			cv::Point3f p = _charucoBoards[b]->chessboardCorners[i];
 
 			vec3 offset(-chs, chs, chs);
-			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 			pushDebugBox(appContext, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
 			displayTextAtPoint(Tool, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
@@ -643,7 +721,7 @@ vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
 
 	vec3 offset(-chs, chs, chs);
-	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 	// TODO: Camera should really be updated only once.
 	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
@@ -673,7 +751,7 @@ vec3 visionSimulatorGetTargetCamPos(ldiVisionSimulator* Tool, int BoardId, int C
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
 
 	vec3 offset(-chs, chs, chs);
-	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) * oneCellSize + offset, 1);
+	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 	// TODO: Camera should really be updated only once.
 	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
@@ -736,7 +814,20 @@ void visionSimulatorLoadImageSetInfo(ldiVisionSimulator* Tool) {
 void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 	Tool->calibSamples.clear();
 
-	for (int iX = 0; iX <= 4; ++iX) {
+	srand(_getTime(Tool->appContext));
+
+	for (int i = 0; i < 20; ++i) {
+		Tool->horse.x = rand() % 16 - 8.0f;
+		Tool->horse.y = rand() % 16 - 8.0f;
+		Tool->horse.z = rand() % 16 - 8.0f;
+		Tool->horse.a = rand() % 360;
+		Tool->horse.b = rand() % 360;
+
+		horseUpdate(&Tool->horse);
+		visionSimulatorRenderAndSave(Tool, &Tool->horse);
+	}
+
+	/*for (int iX = 0; iX <= 4; ++iX) {
 		for (int iY = 0; iY <= 4; ++iY) {
 			Tool->horse.x = iX * 4 - 8.0f;
 			Tool->horse.y = iY * 4 - 8.0f;
@@ -747,7 +838,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
-	}
+	}*/
 
 	/*for (int iX = 0; iX <= 10; ++iX) {
 		for (int iY = 0; iY <= 10; ++iY) {
@@ -787,6 +878,84 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
 	}*/
+}
+
+void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
+	int cornerSize = (int)_charucoBoards[0]->chessboardCorners.size();
+	
+	// Bundle adjust needs:
+	// Pose estimation for each sample.
+	// Image points for each sample.
+	// Corner global IDs for each sample.
+	// Sample ID.
+
+	//std::vector<
+	//std::vector<int> viewId;
+
+	int targetPointCount = (int)Tool->targetLocalPoints.size();
+	int totalImagePointCount = 0;
+	int totalViewCount = 0; // For each recovered pose.
+	
+	// Find a pose for each calibration sample.
+	for (size_t sampleIter = 0; sampleIter < Tool->calibSamples.size(); ++sampleIter) {
+		//std::cout << "Sample " << sampleIter << ":\n";
+
+		// Combine all boards into a set of image points and 3d target local points.
+		std::vector<cv::Point2f> imagePoints;
+		std::vector<cv::Point3f> worldPoints;
+
+		std::vector<ldiCharucoBoard>* boards = &Tool->calibSamples[sampleIter].charucos.boards;
+
+		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
+			ldiCharucoBoard* board = &(*boards)[boardIter];
+
+			//std::cout << "    Board " << boardIter << " (" << board->id << "):\n";
+
+			for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
+				ldiCharucoCorner* corner = &board->corners[cornerIter];
+
+				int cornerGlobalId = (board->id * 25) + corner->id;
+				vec3 targetPoint = Tool->targetLocalPoints[cornerGlobalId];
+
+				imagePoints.push_back(cv::Point2f(corner->position.x, corner->position.y));
+				worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
+
+				//std::cout << "        Corner " << cornerIter << " (" << cornerGlobalId << ") " << corner->position.x << ", " << corner->position.y << " " << targetPoint.x << ", " << targetPoint.y << ", " << targetPoint.z << "\n";
+			}
+		}
+
+		computerVisionFindGeneralPose(&Tool->calibCameraMatrix, &Tool->calibCameraDist, &imagePoints, &worldPoints);
+	}
+
+	// Write SSBA input file.
+	FILE* f;
+	fopen_s(&f, "../cache/ssba_input.txt", "w");
+
+	if (f == 0) {
+		std::cout << "Could not open bundle adjust input file for writing\n";
+		return;
+	}
+
+	// Header.
+	fprintf(f, "%d %d %d\n", targetPointCount, totalViewCount, totalImagePointCount);
+
+	// Camera intrinsics.
+	fprintf(f, "%f %f %f %f %f %f %f %f %f\n",
+		Tool->calibCameraMatrix.at<double>(0), Tool->calibCameraMatrix.at<double>(1), Tool->calibCameraMatrix.at<double>(2), Tool->calibCameraMatrix.at<double>(4), Tool->calibCameraMatrix.at<double>(5),
+		Tool->calibCameraDist.at<double>(0), Tool->calibCameraDist.at<double>(1), Tool->calibCameraDist.at<double>(2), Tool->calibCameraDist.at<double>(3));
+
+	// 3D points.
+	for (size_t pointIter = 0; pointIter < Tool->targetLocalPoints.size(); ++pointIter) {
+		vec3 point = Tool->targetLocalPoints[pointIter];
+		fprintf(f, "%d %f %f %f\n", pointIter, point.x, point.y, point.z);
+	}
+
+	// View poses.
+
+	// Image points.
+
+
+	fclose(f);
 }
 
 void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {
@@ -836,21 +1005,19 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	ImGui::Begin("Vision simulator controls");
 	
-	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth)) {
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->imageCursorPos.x, Tool->imageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->imagePixelValue);
 		ImGui::SliderFloat("Scale", &Tool->imageScale, 0.1f, 10.0f);
 	}
 
 	if (ImGui::CollapsingHeader("Machine", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::DragFloat("X", &Tool->horse.x, 0.1f, -10.0f, 10.0f);
-		ImGui::DragFloat("Y", &Tool->horse.y, 0.1f, -10.0f, 10.0f);
-		ImGui::DragFloat("Z", &Tool->horse.z, 0.1f, -10.0f, 10.0f);
-		ImGui::DragFloat("A", &Tool->horse.a, 1.0f, 0.0f, 360.0f);
-		ImGui::DragFloat("B", &Tool->horse.b, 1.0f, 0.0f, 360.0f);
+		ImGui::DragFloat3("XYZ", &Tool->horse.x, 0.1f, -10.0f, 10.0f);
+		ImGui::DragFloat2("AB", &Tool->horse.a, 1.0f, 0.0f, 360.0f);
 		ImGui::DragFloat3("Cam position", (float*)&Tool->camera.position, 0.1f, -100.0f, 100.0f);
 		ImGui::DragFloat2("Cam rotation", (float*)&Tool->camera.rotation, 0.1f, -360.0f, 360.0f);
 		ImGui::SliderFloat("Main camera speed", &Tool->mainCameraSpeed, 0.0f, 1.0f);
+		ImGui::Checkbox("Show target cube", &Tool->showTargetMain);
 	}
 
 	char strbuf[256];
@@ -868,34 +1035,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			findCharuco(img, Tool->appContext, &Tool->charucoResults);
 
 			Tool->charucoTruth.boards.clear();
-
-			cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
-			/*cameraMatrix.at<double>(0, 0) = 1693.30789;
-			cameraMatrix.at<double>(0, 1) = 0.0;
-			cameraMatrix.at<double>(0, 2) = 800;
-			cameraMatrix.at<double>(1, 0) = 0.0;
-			cameraMatrix.at<double>(1, 1) = 1693.30789;
-			cameraMatrix.at<double>(1, 2) = 650;
-			cameraMatrix.at<double>(2, 0) = 0.0;
-			cameraMatrix.at<double>(2, 1) = 0.0;
-			cameraMatrix.at<double>(2, 2) = 1.0;*/
-			cameraMatrix.at<double>(0, 0) = 1704.9145;
-			cameraMatrix.at<double>(0, 1) = 0.0;
-			cameraMatrix.at<double>(0, 2) = 778.374;
-			cameraMatrix.at<double>(1, 0) = 0.0;
-			cameraMatrix.at<double>(1, 1) = 1712.9383;
-			cameraMatrix.at<double>(1, 2) = 650.446;
-			cameraMatrix.at<double>(2, 0) = 0.0;
-			cameraMatrix.at<double>(2, 1) = 0.0;
-			cameraMatrix.at<double>(2, 2) = 1.0;
 			
-			cv::Mat distCoeffs = cv::Mat::zeros(8, 1, CV_64F);
-			/*distCoeffs.at<double>(0) = 0.00399;
-			distCoeffs.at<double>(1) = 0.0631;
-			distCoeffs.at<double>(2) = -0.00143;
-			distCoeffs.at<double>(3) = -0.00472;
-			distCoeffs.at<double>(4) = -0.1915;*/
-
 			cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
 			cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
 			
@@ -914,7 +1054,8 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 					std::vector<cv::Point3f> points;
 					std::vector<cv::Point2f> imagePoints;
 					points.push_back(cv::Point3f(-camSpacePos.x, camSpacePos.y, camSpacePos.z));
-					cv::projectPoints(points, rvec, tvec, cameraMatrix, distCoeffs, imagePoints);
+					//cv::projectPoints(points, rvec, tvec, cameraMatrix, distCoeffs, imagePoints);
+					cv::projectPoints(points, rvec, tvec, Tool->calibCameraMatrix, Tool->calibCameraDist, imagePoints);
 
 					corner.position = vec2(imagePoints[0].x, imagePoints[0].y);
 
@@ -944,7 +1085,11 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 		}
 
 		if (ImGui::Button("Calibrate camera")) {
-			_calibrateCameraCharuco(Tool->appContext, &Tool->calibSamples, Tool->imageWidth, Tool->imageHeight);
+			computerVisionCalibrateCameraCharuco(Tool->appContext, &Tool->calibSamples, Tool->imageWidth, Tool->imageHeight, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
+		}
+
+		if (ImGui::Button("Bundle adjust")) {
+			visionSimulatorBundleAdjust(Tool);
 		}
 
 		if (ImGui::Button("Show live")) {
@@ -975,6 +1120,14 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Sim updates.
 	//----------------------------------------------------------------------------------------------------
+	if (Tool->calibSampleSelectId != -1) {
+		Tool->horse.x = Tool->calibSamples[Tool->calibSampleSelectId].x;
+		Tool->horse.y = Tool->calibSamples[Tool->calibSampleSelectId].y;
+		Tool->horse.z = Tool->calibSamples[Tool->calibSampleSelectId].z;
+		Tool->horse.a = Tool->calibSamples[Tool->calibSampleSelectId].a;
+		Tool->horse.b = Tool->calibSamples[Tool->calibSampleSelectId].b;
+	}
+
 	horseUpdate(&Tool->horse);
 
 	//----------------------------------------------------------------------------------------------------

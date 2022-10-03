@@ -29,8 +29,8 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-#define max(a,b)            (((a) > (b)) ? (a) : (b))
-#define min(a,b)            (((a) < (b)) ? (a) : (b))
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#define min(a,b) (((a) < (b)) ? (a) : (b))
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -238,7 +238,8 @@ void _initImgui(ldiApp* AppContext) {
 	ImGui_ImplWin32_Init(AppContext->hWnd);
 	ImGui_ImplDX11_Init(AppContext->d3dDevice, AppContext->d3dDeviceContext);
 
-	ImFont* font = io.Fonts->AddFontFromFileTTF("../../assets/fonts/roboto/Roboto-Medium.ttf", 15.0f);
+	ImFont* font = io.Fonts->AddFontFromFileTTF("../../assets/fonts/roboto/Roboto-Regular.ttf", 14.0f);
+	//ImFont* font = io.Fonts->AddFontFromFileTTF("../../assets/fonts/inter/Inter-Medium.ttf", 15.0f);
 	IM_ASSERT(font != NULL);
 
 	AppContext->fontBig = io.Fonts->AddFontFromFileTTF("../../assets/fonts/roboto/Roboto-Bold.ttf", 24.0f);
@@ -732,6 +733,42 @@ int main() {
 		return 1;
 	}
 
+	// Create main style.
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.DisplaySafeAreaPadding = ImVec2(0, 0);
+	style.TabRounding = 0.0f;
+	style.ScrollbarRounding = 0.0f;
+	style.ScrollbarSize = 16.0f;
+
+	ImVec4* colors = ImGui::GetStyle().Colors;
+	colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
+	colors[ImGuiCol_WindowBg] = ImVec4(0.13f, 0.13f, 0.15f, 1.00f);
+	colors[ImGuiCol_Border] = ImVec4(0.21f, 0.21f, 0.25f, 0.50f);
+	colors[ImGuiCol_FrameBgHovered] = ImVec4(0.41f, 0.26f, 0.98f, 0.40f);
+	colors[ImGuiCol_FrameBgActive] = ImVec4(0.47f, 0.26f, 0.98f, 0.67f);
+	colors[ImGuiCol_TitleBg] = ImVec4(0.12f, 0.12f, 0.13f, 1.00f);
+	colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.13f, 0.14f, 1.00f);
+	colors[ImGuiCol_ScrollbarBg] = ImVec4(0.19f, 0.19f, 0.21f, 0.53f);
+	colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.27f, 0.28f, 0.32f, 1.00f);
+	colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.36f, 0.37f, 0.43f, 1.00f);
+	colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.36f, 0.41f, 0.51f, 1.00f);
+	colors[ImGuiCol_CheckMark] = ImVec4(0.39f, 0.26f, 0.98f, 1.00f);
+	colors[ImGuiCol_SliderGrab] = ImVec4(0.43f, 0.24f, 0.88f, 1.00f);
+	colors[ImGuiCol_SliderGrabActive] = ImVec4(0.45f, 0.36f, 0.53f, 1.00f);
+	colors[ImGuiCol_Button] = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
+	colors[ImGuiCol_ButtonHovered] = ImVec4(0.41f, 0.26f, 0.98f, 0.40f);
+	colors[ImGuiCol_ButtonActive] = ImVec4(0.47f, 0.26f, 0.98f, 0.67f);
+	colors[ImGuiCol_Header] = ImVec4(0.16f, 0.17f, 0.20f, 1.00f);
+	colors[ImGuiCol_HeaderHovered] = ImVec4(0.29f, 0.28f, 0.32f, 0.80f);
+	colors[ImGuiCol_HeaderActive] = ImVec4(0.30f, 0.28f, 0.43f, 1.00f);
+	colors[ImGuiCol_Tab] = ImVec4(0.11f, 0.11f, 0.12f, 0.00f);
+	colors[ImGuiCol_TabHovered] = ImVec4(0.38f, 0.34f, 0.57f, 0.80f);
+	colors[ImGuiCol_TabActive] = ImVec4(0.34f, 0.35f, 0.53f, 1.00f);
+	colors[ImGuiCol_TabUnfocused] = ImVec4(0.07f, 0.10f, 0.15f, 0.00f);
+	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.21f, 0.21f, 0.24f, 1.00f);
+	colors[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.40f, 0.98f, 0.70f);
+	colors[ImGuiCol_NavHighlight] = ImVec4(0.41f, 0.26f, 0.98f, 1.00f);
+
 	// Main loop
 	bool running = true;
 	while (running) {
@@ -761,7 +798,7 @@ int main() {
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
-
+		
 		if (ImGui::BeginMainMenuBar()) {
 
 			if (ImGui::BeginMenu("File")) {

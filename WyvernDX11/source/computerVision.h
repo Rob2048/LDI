@@ -20,6 +20,8 @@ struct ldiCharucoCorner {
 struct ldiCharucoBoard {
 	int id;
 	std::vector<ldiCharucoCorner> corners;
+	bool localMat;
+	mat4 camLocalMat;
 };
 
 struct ldiCharucoResults {
@@ -57,7 +59,8 @@ void createCharucos(bool Output) {
 			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(10, 10, 0.9f, 0.6f, _dictionary);
 			
 			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
-			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(6, 6, 1.0f, 0.7f, _dictionary);
+			double newScale = 5.0 / 6.0;
+			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(6, 6, 1.0 * newScale, 0.7 * newScale, _dictionary);
 			_charucoBoards.push_back(board);
 
 			// NOTE: Shift ids.
@@ -126,8 +129,9 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 
 				// Board is valid if it has at least one corner.
 				if (charucoIds.size() > 0) {
-					ldiCharucoBoard board;
+					ldiCharucoBoard board = {};
 					board.id = i;
+					board.localMat = false;
 
 					for (int j = 0; j < charucoIds.size(); ++j) {
 						ldiCharucoCorner corner;
@@ -161,56 +165,20 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 	}
 }
 
-void _calibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Samples, int ImageWidth, int ImageHeight) {
-	// Input data is:
-	// board count
-	// for each board:
-	//		marker count
-	//		for each marker:
-	//			marker id
-	//			pos x, y
-
-
-
+void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Samples, int ImageWidth, int ImageHeight, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
 	std::vector<std::vector<int>> charucoIds;
 	std::vector<std::vector<cv::Point2f>> charucoCorners;
+	
+	struct ldiSampleTracker {
+		int sampleId;
+		int boardId;
+	};
 
-	/*int offset = 1;
-	int boardCount = 0;
-	memcpy(&boardCount, Data + offset, 4); offset += 4;
-
-	for (int i = 0; i < boardCount; ++i) {
-		std::vector<int> ids;
-		std::vector<cv::Point2f> corners;
-
-		int markerCount = 0;
-		memcpy(&markerCount, Data + offset, 4); offset += 4;
-
-		for (int j = 0; j < markerCount; ++j) {
-			int markerId;
-			cv::Point2f markerPos;
-
-			memcpy(&markerId, Data + offset, 4); offset += 4;
-			memcpy(&markerPos, Data + offset, 8); offset += 8;
-
-			ids.push_back(markerId);
-			corners.push_back(markerPos);
-		}
-
-		charucoIds.push_back(ids);
-		charucoCorners.push_back(corners);
-	}*/
-
-	int boardId = 0;
+	std::vector<ldiSampleTracker> boardMap;
 
 	for (size_t sampleIter = 0; sampleIter < Samples->size(); ++sampleIter) {
 		for (size_t boardIter = 0; boardIter < (*Samples)[sampleIter].charucos.boards.size(); ++boardIter) {
 			if ((*Samples)[sampleIter].charucos.boards[boardIter].corners.size() < 6) {
-				continue;
-			}
-
-			++boardId;
-			if (boardId == 10) {
 				continue;
 			}
 
@@ -222,14 +190,17 @@ void _calibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Sa
 
 				cornerIds.push_back(corner.id);
 				// TODO: The corner positions are 0,0 at center pixel. What does the calibration algo expect? Does it matter?
-				//cornerPositions.push_back(cv::Point2f(corner.position.x + 0.5f, corner.position.y + 0.5f));
 				cornerPositions.push_back(cv::Point2f(corner.position.x + 0.5f, corner.position.y + 0.5f));
+				//cornerPositions.push_back(cv::Point2f(corner.position.x, corner.position.y));
 
-				std::cout << sampleIter << " " << boardIter << " " << corner.id << " " << corner.position.x << ", " << corner.position.y << "\n";
+				//std::cout << sampleIter << " " << boardIter << " " << corner.id << " " << corner.position.x << ", " << corner.position.y << "\n";
 			}
 
 			charucoIds.push_back(cornerIds);
 			charucoCorners.push_back(cornerPositions);
+
+			ldiSampleTracker tracker = { sampleIter, boardIter };
+			boardMap.push_back(tracker);
 		}
 
 		/*if (charucoIds.size() > 40) {
@@ -261,7 +232,8 @@ void _calibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Sa
 	cv::Mat stdDevExtrinsics;
 	cv::Mat perViewErrors;
 	//double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_FIX_K1 | cv::CALIB_FIX_K2 | cv::CALIB_FIX_K3 | cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5 | cv::CALIB_FIX_K6 | cv::CALIB_ZERO_TANGENT_DIST | cv::CALIB_FIX_FOCAL_LENGTH | cv::CALIB_USE_INTRINSIC_GUESS | cv::CALIB_FIX_PRINCIPAL_POINT);
-	double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS);
+	double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS,
+		cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, DBL_EPSILON));
 
 	std::cout << stdDevIntrinsics.size << "\n";
 	std::cout << stdDevExtrinsics.size << "\n";
@@ -273,27 +245,82 @@ void _calibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Sa
 	std::cout << t0 * 1000.0f << " ms\n";
 
 	std::cout << "Calibration error: " << rms << "\n";
-	std::cout << "Camera matrix: " << cameraMatrix << "\n";
-	std::cout << "Dist coeffs: " << distCoeffs << "\n";
+	//std::cout << "Camera matrix: " << cameraMatrix << "\n";
+	//std::cout << "Dist coeffs: " << distCoeffs << "\n";
 
-	//int validBoardCount = tvecs.size();
-	//send(Client, (const char*)&validBoardCount, 4, 0);
+	*CameraMatrix = cameraMatrix;
+	*CameraDist = distCoeffs;
 
-	//for (int i = 0; i < tvecs.size(); ++i) {
-	//	//std::cerr << "TVec[" << i << "]: " << tvecs[i].at<double>(0) << ", " << tvecs[i].at<double>(1) << ", " << tvecs[i].at<double>(2) << "\n";
-	//	//std::cerr << "RVec[" << i << "]: " << rvecs[i].at<double>(0) << ", " << rvecs[i].at<double>(1) << ", " << rvecs[i].at<double>(2) << "\n";
+	for (int iX = 0; iX <= 2; ++iX) {
+		for (int iY = 0; iY <= 2; ++iY) {
+			std::cout << "cameraMatrix.at<double>(" << iX << ", " << iY << ") = " << cameraMatrix.at<double>(iX, iY) << ";\n";
+		}
+	}
 
-	//	Mat rotMat = Mat::zeros(3, 3, CV_64F);
-	//	Rodrigues(rvecs[i], rotMat);
+	for (int i = 0; i < 5; ++i) {
+		std::cout << "distCoeffs.at<double>(" << i << ") = " << distCoeffs.at<double>(i) << ";\n";
+	}
 
-	//	//std::cerr << rotMat.at<double>(0, 0) << ", " << rotMat.at<double>(0, 1) << ", " << rotMat.at<double>(0, 2) << "\n";
-	//	//std::cerr << rotMat.at<double>(1, 0) << ", " << rotMat.at<double>(1, 1) << ", " << rotMat.at<double>(1, 2) << "\n";
-	//	//std::cerr << rotMat.at<double>(2, 0) << ", " << rotMat.at<double>(2, 1) << ", " << rotMat.at<double>(2, 2) << "\n";
+	for (int i = 0; i < tvecs.size(); ++i) {
+		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rvecs[i], cvRotMat);
 
-	//	//fwrite(tvecs[i].data, 8, 3, outF);
-	//	//fwrite(rotMat.data, 8, 3 * 3, outF);
+		//std::cout << "TVec: " << tvecs[i] << "\n";
+		//std::cout << "cvRotMat: " << cvRotMat << "\n";
+		
+		// NOTE: OpenCV coords are flipped on Y and Z relative to our cam transform.
 
-	//	send(Client, (const char*)tvecs[i].data, 8 * 3, 0);
-	//	send(Client, (const char*)rotMat.data, 8 * 9, 0);
-	//}
+		mat4 rotMat(1.0f);
+		rotMat[0][0] = cvRotMat.at<double>(0, 0);
+		rotMat[0][1] = -cvRotMat.at<double>(1, 0);
+		rotMat[0][2] = -cvRotMat.at<double>(2, 0);
+
+		rotMat[1][0] = cvRotMat.at<double>(0, 1);
+		rotMat[1][1] = -cvRotMat.at<double>(1, 1);
+		rotMat[1][2] = -cvRotMat.at<double>(2, 1);
+
+		rotMat[2][0] = cvRotMat.at<double>(0, 2);
+		rotMat[2][1] = -cvRotMat.at<double>(1, 2);
+		rotMat[2][2] = -cvRotMat.at<double>(2, 2);
+
+		mat4 transMat = glm::translate(mat4(1.0f), vec3(tvecs[i].at<double>(0), -tvecs[i].at<double>(1), -tvecs[i].at<double>(2)));
+		(*Samples)[boardMap[i].sampleId].charucos.boards[boardMap[i].boardId].camLocalMat = transMat * rotMat;
+		(*Samples)[boardMap[i].sampleId].charucos.boards[boardMap[i].boardId].localMat = true;
+	}
+}
+
+void computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, std::vector<cv::Point2f>* ImagePoints, std::vector<cv::Point3f>* WorldPoints) {
+	//Mat rvec;
+	//Mat tvec;
+	//bool found = aruco::estimatePoseCharucoBoard(markerPos, markerIds, _charucoBoards[0], cameraMatrix, distCoeffs, rvec, tvec);
+
+	// Calculate pose
+	//std::vector<cv::Point2d> imagePoints;
+	//bool found = solvePnP(worldPoints, markerPos, cameraMatrix, distCoeffs, rvec, tvec);
+
+	std::cout << "Find pose\n";
+
+	std::vector<cv::Mat> rvecs;
+	std::vector<cv::Mat> tvecs;
+	std::vector<float> rms;
+
+	int solutionCount = cv::solvePnPGeneric(*WorldPoints, *ImagePoints, *CameraMatrix, *DistCoeffs, rvecs, tvecs, false, cv::SOLVEPNP_ITERATIVE, cv::noArray(), cv::noArray(), rms);
+	std::cout << "  Solutions: " << solutionCount << "\n";
+	// TODO: Why do we set solutionCount to this?
+	solutionCount = rvecs.size();
+
+	std::cout << "  Solutions: " << solutionCount << "\n";
+
+	for (int i = 0; i < solutionCount; ++i) {
+		// TODO: How does this compare with the reprojection error from the solvePnPGeneric function?
+		std::vector<cv::Point2f> projectedImagePoints;
+		projectPoints(*WorldPoints, rvecs[i], tvecs[i], *CameraMatrix, *DistCoeffs, projectedImagePoints);
+
+		cv::Mat rotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rvecs[i], rotMat);
+
+		int projectedPointCount = projectedImagePoints.size();
+
+		std::cout << "  " << rms[i] << "\n";
+	}
 }
