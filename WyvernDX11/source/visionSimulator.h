@@ -816,7 +816,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 
 	srand(_getTime(Tool->appContext));
 
-	for (int i = 0; i < 20; ++i) {
+	/*for (int i = 0; i < 20; ++i) {
 		Tool->horse.x = rand() % 16 - 8.0f;
 		Tool->horse.y = rand() % 16 - 8.0f;
 		Tool->horse.z = rand() % 16 - 8.0f;
@@ -825,7 +825,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 
 		horseUpdate(&Tool->horse);
 		visionSimulatorRenderAndSave(Tool, &Tool->horse);
-	}
+	}*/
 
 	/*for (int iX = 0; iX <= 4; ++iX) {
 		for (int iY = 0; iY <= 4; ++iY) {
@@ -853,7 +853,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 		}
 	}*/
 
-	/*for (int iX = 0; iX <= 20; ++iX) {
+	for (int iX = 0; iX <= 20; ++iX) {
 		for (int iY = 0; iY <= 20; ++iY) {
 			Tool->horse.x = iX - 10.0f;
 			Tool->horse.y = iY - 10.0f;
@@ -864,9 +864,9 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
-	}*/
+	}
 
-	/*for (int iX = 0; iX <= 20; ++iX) {
+	for (int iX = 0; iX <= 20; ++iX) {
 		for (int iY = 0; iY <= 20; ++iY) {
 			Tool->horse.x = iX - 10.0f;
 			Tool->horse.y = 0.0f;
@@ -877,7 +877,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
-	}*/
+	}
 }
 
 void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
@@ -889,12 +889,13 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 	// Corner global IDs for each sample.
 	// Sample ID.
 
-	//std::vector<
-	//std::vector<int> viewId;
+	std::vector<mat4> poses;
+	std::vector<int> viewImageIds;
+	std::vector<std::vector<cv::Point2f>> viewImagePoints;
+	std::vector<std::vector<int>> viewImagePointIds;
 
 	int targetPointCount = (int)Tool->targetLocalPoints.size();
 	int totalImagePointCount = 0;
-	int totalViewCount = 0; // For each recovered pose.
 	
 	// Find a pose for each calibration sample.
 	for (size_t sampleIter = 0; sampleIter < Tool->calibSamples.size(); ++sampleIter) {
@@ -903,6 +904,7 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 		// Combine all boards into a set of image points and 3d target local points.
 		std::vector<cv::Point2f> imagePoints;
 		std::vector<cv::Point3f> worldPoints;
+		std::vector<int> imagePointIds;
 
 		std::vector<ldiCharucoBoard>* boards = &Tool->calibSamples[sampleIter].charucos.boards;
 
@@ -917,14 +919,25 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 				int cornerGlobalId = (board->id * 25) + corner->id;
 				vec3 targetPoint = Tool->targetLocalPoints[cornerGlobalId];
 
-				imagePoints.push_back(cv::Point2f(corner->position.x, corner->position.y));
+				imagePoints.push_back(cv::Point2f(corner->position.x + 0.5f, corner->position.y + 0.5f));
 				worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
+				imagePointIds.push_back(cornerGlobalId);
 
 				//std::cout << "        Corner " << cornerIter << " (" << cornerGlobalId << ") " << corner->position.x << ", " << corner->position.y << " " << targetPoint.x << ", " << targetPoint.y << ", " << targetPoint.z << "\n";
 			}
 		}
 
-		computerVisionFindGeneralPose(&Tool->calibCameraMatrix, &Tool->calibCameraDist, &imagePoints, &worldPoints);
+		if (imagePoints.size() >= 6) {
+			mat4 pose;
+
+			if (computerVisionFindGeneralPose(&Tool->calibCameraMatrix, &Tool->calibCameraDist, &imagePoints, &worldPoints, &pose)) {
+				poses.push_back(pose);
+				viewImageIds.push_back(sampleIter);
+				viewImagePoints.push_back(imagePoints);
+				viewImagePointIds.push_back(imagePointIds);
+				totalImagePointCount += (int)imagePoints.size();
+			}
+		}
 	}
 
 	// Write SSBA input file.
@@ -937,7 +950,7 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d %d\n", targetPointCount, totalViewCount, totalImagePointCount);
+	fprintf(f, "%d %d %d\n", targetPointCount, poses.size(), totalImagePointCount);
 
 	// Camera intrinsics.
 	fprintf(f, "%f %f %f %f %f %f %f %f %f\n",
@@ -951,11 +964,79 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 	}
 
 	// View poses.
+	for (size_t poseIter = 0; poseIter < poses.size(); ++poseIter) {
+		mat4 camRt = poses[poseIter];
+		fprintf(f, "%d ", viewImageIds[poseIter]);
+
+		// ViewPointImageId 12 value camRT matrix.
+		//for (int j = 0; j < 12; ++j) {
+			// NOTE: Index column major, output as row major.
+			//fprintf(f, " %f", camRt[(j % 4) * 4 + (j / 4)]);
+		//}
+
+		// NOTE: Index column major, output as row major.
+		fprintf(f, "%f ", camRt[0][0]);
+		fprintf(f, "%f ", camRt[1][0]);
+		fprintf(f, "%f ", camRt[2][0]);
+		fprintf(f, "%f ", camRt[3][0]);
+
+		fprintf(f, "%f ", camRt[0][1]);
+		fprintf(f, "%f ", camRt[1][1]);
+		fprintf(f, "%f ", camRt[2][1]);
+		fprintf(f, "%f ", camRt[3][1]);
+
+		fprintf(f, "%f ", camRt[0][2]);
+		fprintf(f, "%f ", camRt[1][2]);
+		fprintf(f, "%f ", camRt[2][2]);
+		fprintf(f, "%f",  camRt[3][2]);
+
+		fprintf(f, "\n");
+	}
 
 	// Image points.
+	for (size_t viewIter = 0; viewIter < viewImagePoints.size(); ++viewIter) {
+		std::vector<cv::Point2f>* viewPoints = &viewImagePoints[viewIter];
 
+		for (size_t pointIter = 0; pointIter < viewImagePoints[viewIter].size(); ++pointIter) {
+			cv::Point2f point = viewImagePoints[viewIter][pointIter];
+			int pointId = viewImagePointIds[viewIter][pointIter];
+
+			fprintf(f, "%d %d %f %f 1\n", viewImageIds[viewIter], pointId, point.x, point.y);
+		}
+	}
 
 	fclose(f);
+
+	//----------------------------------------------------------------------------------------------------
+	// Run bundle adjuster.
+	//----------------------------------------------------------------------------------------------------
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	// 100um sides and smoothing.
+	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.02 --smooth 2";
+	// 75um sides.
+	char args[] = "\"BundleCommon.exe\" ../../bin/cache/ssba_input.txt tangential";
+
+	CreateProcessA(
+		"../../assets/bin/BundleCommon.exe",
+		args,
+		NULL,
+		NULL,
+		FALSE,
+		0, //CREATE_NEW_CONSOLE,
+		NULL,
+		//"../../assets/bin",
+		"../cache",
+		&si,
+		&pi
+	);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
 }
 
 void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {

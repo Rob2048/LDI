@@ -289,7 +289,7 @@ void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCal
 	}
 }
 
-void computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, std::vector<cv::Point2f>* ImagePoints, std::vector<cv::Point3f>* WorldPoints) {
+bool computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, std::vector<cv::Point2f>* ImagePoints, std::vector<cv::Point3f>* WorldPoints, mat4* Pose) {
 	//Mat rvec;
 	//Mat tvec;
 	//bool found = aruco::estimatePoseCharucoBoard(markerPos, markerIds, _charucoBoards[0], cameraMatrix, distCoeffs, rvec, tvec);
@@ -313,14 +313,36 @@ void computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, s
 
 	for (int i = 0; i < solutionCount; ++i) {
 		// TODO: How does this compare with the reprojection error from the solvePnPGeneric function?
-		std::vector<cv::Point2f> projectedImagePoints;
-		projectPoints(*WorldPoints, rvecs[i], tvecs[i], *CameraMatrix, *DistCoeffs, projectedImagePoints);
+		//std::vector<cv::Point2f> projectedImagePoints;
+		//projectPoints(*WorldPoints, rvecs[i], tvecs[i], *CameraMatrix, *DistCoeffs, projectedImagePoints);
 
-		cv::Mat rotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rvecs[i], rotMat);
+		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rvecs[i], cvRotMat);
 
-		int projectedPointCount = projectedImagePoints.size();
+		mat4 rotMat(1.0f);
+		rotMat[0][0] = cvRotMat.at<double>(0, 0);
+		rotMat[0][1] = cvRotMat.at<double>(1, 0);
+		rotMat[0][2] = cvRotMat.at<double>(2, 0);
+
+		rotMat[1][0] = cvRotMat.at<double>(0, 1);
+		rotMat[1][1] = cvRotMat.at<double>(1, 1);
+		rotMat[1][2] = cvRotMat.at<double>(2, 1);
+
+		rotMat[2][0] = cvRotMat.at<double>(0, 2);
+		rotMat[2][1] = cvRotMat.at<double>(1, 2);
+		rotMat[2][2] = cvRotMat.at<double>(2, 2);
+
+		// NOTE: This builds the camera RT matrix.
+		mat4 transMat = glm::translate(mat4(1.0f), vec3(tvecs[i].at<double>(0), tvecs[i].at<double>(1), tvecs[i].at<double>(2)));
+
+		*Pose = transMat * rotMat;
 
 		std::cout << "  " << rms[i] << "\n";
 	}
+
+	if (solutionCount > 0) {
+		return true;
+	}
+
+	return false;
 }
