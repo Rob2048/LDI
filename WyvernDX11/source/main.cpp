@@ -123,6 +123,7 @@ struct ldiApp {
 	ID3D11RasterizerState*		wireframeRasterizerState;
 	ID3D11DepthStencilState*	defaultDepthStencilState;
 	ID3D11DepthStencilState*	wireframeDepthStencilState;
+	ID3D11DepthStencilState*	nowriteDepthStencilState;
 
 	ID3D11SamplerState*			defaultPointSamplerState;
 
@@ -147,7 +148,8 @@ struct ldiApp {
 	bool						showImageInspector = false;
 	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
-	bool						showVisionSimulator = true;
+	bool						showVisionSimulator = false;
+	bool						showModelEditor = true;
 
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
@@ -172,6 +174,7 @@ double _getTime(ldiApp* AppContext) {
 #include "samplerTester.h"
 #include "platform.h"
 #include "visionSimulator.h"
+#include "modelEditor.h"
 
 #include "imageInspector.h"
 
@@ -182,6 +185,7 @@ ldiSamplerTester	_samplerTester = {};
 ldiPlatform			_platform = {};
 ldiVisionSimulator	_visionSimulator = {};
 ldiImageInspector	_imageInspector = {};
+ldiModelEditor		_modelEditor = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -347,7 +351,7 @@ bool _handleWindowLoop() {
 // Application.
 //----------------------------------------------------------------------------------------------------
 bool _initResources(ldiApp* AppContext) {
-	std::cout << "Compiling shaders\n";
+	std::cout << "Initializing resources\n";
 
 	//----------------------------------------------------------------------------------------------------
 	// Layouts.
@@ -531,6 +535,25 @@ bool _initResources(ldiApp* AppContext) {
 		desc.DepthBiasClamp = 1.0f;
 		desc.SlopeScaledDepthBias = -1.0f;*/
 		AppContext->d3dDevice->CreateRasterizerState(&desc, &AppContext->wireframeRasterizerState);
+	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = true;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.StencilEnable = false;
+		desc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+		desc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+		desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;
+		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;*/
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->nowriteDepthStencilState);
 	}
 
 	{
@@ -724,6 +747,19 @@ int main() {
 		return 1;
 	}
 
+	ldiModelEditor* modelEditor = &_modelEditor;
+	if (modelEditorInit(appContext, modelEditor) != 0) {
+		std::cout << "Could not init model editor\n";
+		return 1;
+	}
+
+	if (modelEditorLoad(appContext, modelEditor) != 0) {
+		std::cout << "Could not load model editor\n";
+		// TODO: Platform should be detroyed properly when ANY system failed to load.
+		platformDestroy(platform);
+		return 1;
+	}
+
 	/*ImGui::GetID
 	ImGui::DockBuilderDockWindow();
 	ImGui::DockBuilderFinish();*/
@@ -862,6 +898,10 @@ int main() {
 				if (ImGui::MenuItem("Vision simulator", NULL, appContext->showVisionSimulator)) {
 					appContext->showVisionSimulator = !appContext->showVisionSimulator;
 				}
+
+				if (ImGui::MenuItem("Model editor", NULL, appContext->showModelEditor)) {
+					appContext->showModelEditor = !appContext->showModelEditor;
+				}
 				
 				ImGui::EndMenu();
 			}
@@ -893,6 +933,10 @@ int main() {
 
 		if (appContext->showVisionSimulator) {
 			visionSimulatorShowUi(visionSimulator);
+		}
+
+		if (appContext->showModelEditor) {
+			modelEditorShowUi(modelEditor);
 		}
 
 		_renderImgui(&_appContext);

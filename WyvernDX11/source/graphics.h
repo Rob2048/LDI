@@ -498,6 +498,37 @@ ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	return result;
 }
 
+ldiRenderModel gfxCreateRenderModelBasic(ldiApp* AppContext, std::vector<ldiBasicVertex>* Verts, std::vector<uint32_t>* Indices) {
+	ldiRenderModel result = {};
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * Verts->size();
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = Verts->data();
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * Indices->size();
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = Indices->data();
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = Verts->size();
+	result.indexCount = Indices->size();
+
+	return result;
+}
+
 void gfxMapConstantBuffer(ldiApp* AppContext, ID3D11Buffer* Dst, void* Src, int Size) {
 	D3D11_MAPPED_SUBRESOURCE ms;
 	AppContext->d3dDeviceContext->Map(Dst, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -561,6 +592,25 @@ void gfxRenderBasicModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11Shader
 		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
 	}
 
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
+void gfxRenderBasicModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11InputLayout* InputLayout, ID3D11VertexShader* VertexShader, ID3D11PixelShader* PixelShader, ID3D11DepthStencilState* DepthState) {
+	UINT lgStride = sizeof(ldiBasicVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(InputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(VertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(PixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(DepthState, 0);
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }
 
@@ -852,7 +902,7 @@ bool gfxCreateComputeShader(ldiApp* AppContext, LPCWSTR Filename, const char* En
 	return true;
 }
 
-bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementCount, uint8_t* Data, ID3D11Buffer** Buffer) {
+bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementCount, void* Data, ID3D11Buffer** Buffer) {
 	D3D11_BUFFER_DESC desc = {};
 	desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 	desc.ByteWidth = ElementSize * ElementCount;
@@ -875,14 +925,72 @@ bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementC
 	return true;
 }
 
-bool gfxCreateBufferShaderResourceView(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11ShaderResourceView** View) {
+bool gfxCreateBufferShaderResourceView(ldiApp* AppContext, ID3D11Buffer* Resource, ID3D11ShaderResourceView** View) {
 	// NOTE: Creates view for raw or structured buffers.
+	
+	HRESULT result = AppContext->d3dDevice->CreateShaderResourceView(Resource, 0, View);
+
+	if (result != S_OK) {
+		return false;
+	}
+
+	return true;
+}
+
+bool gfxCreateTexture3DUav(ldiApp* AppContext, ID3D11Texture3D* Resource, ID3D11UnorderedAccessView** View) {
+	D3D11_TEXTURE3D_DESC texDesc = {};
+	Resource->GetDesc(&texDesc);
+
+	D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
+	desc.Format = texDesc.Format;
+	desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
+	desc.Texture3D.MipSlice = 0;
+	desc.Texture3D.FirstWSlice = 0;
+	desc.Texture3D.WSize = texDesc.Depth;
+
+	HRESULT result = AppContext->d3dDevice->CreateUnorderedAccessView(Resource, &desc, View);
+
+	if (result != S_OK) {
+		return false;
+	}
 
 	return true;
 }
 
 bool gfxCreateBufferUnorderedAccessView(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11UnorderedAccessView** View) {
 	// NOTE: Creates view for raw or structured buffers.
+
+	
+
+	//D3D11_BUFFER_DESC descBuf = {};
+	//Buffer->GetDesc(&descBuf);
+
+	//D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
+	//desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+	//desc.Buffer.FirstElement = 0;
+
+	//if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)
+	//{
+	//	// This is a Raw Buffer
+
+	//	desc.Format = DXGI_FORMAT_R32_TYPELESS; // Format must be DXGI_FORMAT_R32_TYPELESS, when creating Raw Unordered Access View
+	//	desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+	//	desc.Buffer.NumElements = descBuf.ByteWidth / 4;
+	//}
+	//else
+	//	if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED)
+	//	{
+	//		// This is a Structured Buffer
+
+	//		desc.Format = DXGI_FORMAT_UNKNOWN;      // Format must be must be DXGI_FORMAT_UNKNOWN, when creating a View of a Structured Buffer
+	//		desc.Buffer.NumElements = descBuf.ByteWidth / descBuf.StructureByteStride;
+	//	}
+	//	else
+	//	{
+	//		return E_INVALIDARG;
+	//	}
+
+	//return pDevice->CreateUnorderedAccessView(pBuffer, &desc, ppUAVOut);
 
 	return true;
 }

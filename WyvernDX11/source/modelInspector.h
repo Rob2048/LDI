@@ -431,6 +431,10 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->camera.position = vec3(0, 0, 10);
 	ModelInspector->camera.rotation = vec3(0, 0, 0);
 
+	return 0;
+}
+
+int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
