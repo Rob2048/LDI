@@ -26,6 +26,12 @@ struct ldiMeshVertex {
 	vec2 uv;
 };
 
+struct ldiCoveragePointVertex {
+	vec3 position;
+	int id;
+	vec3 normal;
+};
+
 struct ldiModel {
 	std::vector<ldiMeshVertex> verts;
 	std::vector<uint32_t> indices;
@@ -79,3 +85,56 @@ static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {
 		Dest->indices[i * 6 + 5] = v3;
 	}
 }
+
+static void modelCreateFaceNormals(ldiModel* Model) {
+	for (size_t iterVerts = 0; iterVerts < Model->verts.size(); ++iterVerts) {
+		Model->verts[iterVerts].normal = vec3(0, 0, 0);
+	}
+
+	for (size_t iterInds = 0; iterInds < Model->indices.size(); iterInds += 3) {
+		int i0 = Model->indices[iterInds + 0];
+		int i1 = Model->indices[iterInds + 1];
+		int i2 = Model->indices[iterInds + 2];
+
+		ldiMeshVertex* v0 = &Model->verts[i0];
+		ldiMeshVertex* v1 = &Model->verts[i1];
+		ldiMeshVertex* v2 = &Model->verts[i2];
+
+		vec3 e0 = v0->pos - v1->pos;
+		vec3 e1 = v2->pos - v1->pos;
+		vec3 normal = glm::cross(e0, e1);
+
+		v0->normal += normal;
+		v1->normal += normal;
+		v2->normal += normal;
+	}
+
+	for (size_t iterVerts = 0; iterVerts < Model->verts.size(); ++iterVerts) {
+		Model->verts[iterVerts].normal = glm::normalize(Model->verts[iterVerts].normal);
+	}
+}
+
+// NOTE: https://iquilezles.org/articles/normals/
+//void Mesh_normalize(Mesh* myself) {
+//	Vert* vert = myself->vert;
+//	Triangle* face = myself->face;
+//
+//	for (int i = 0; i < myself->mNumVerts; i++) vert[i].normal = vec3(0.0f);
+//
+//	for (int i = 0; i < myself->mNumFaces; i++)
+//	{
+//		const int ia = face[i].v[0];
+//		const int ib = face[i].v[1];
+//		const int ic = face[i].v[2];
+//
+//		const vec3 e1 = vert[ia].pos - vert[ib].pos;
+//		const vec3 e2 = vert[ic].pos - vert[ib].pos;
+//		const vec3 no = cross(e1, e2);
+//
+//		vert[ia].normal += no;
+//		vert[ib].normal += no;
+//		vert[ic].normal += no;
+//	}
+//
+//	for (i = 0; i < myself->mNumVerts; i++) verts[i].normal = normalize(verts[i].normal);
+//}

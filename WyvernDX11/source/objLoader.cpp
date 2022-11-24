@@ -1,8 +1,7 @@
 #include "objLoader.h"
 #include <iostream>
 
-float _ParseInt(char* Buffer, int* Index, int Length)
-{
+float _ParseInt(char* Buffer, int* Index, int Length) {
 	int part = 0;
 	bool neg = false;
 
@@ -26,8 +25,7 @@ float _ParseInt(char* Buffer, int* Index, int Length)
 	return ret;
 }
 
-float _ParseFloat(char* Buffer, int* Index, int Length)
-{
+float _ParseFloat(char* Buffer, int* Index, int Length) {
 	int part = 0;
 	bool neg = false;
 
@@ -282,6 +280,120 @@ ldiModel objLoadModel(const char* FileName) {
 	result.indexCount = triCount;*/
 
 	std::cout << "Loaded OBJ " << FileName << " Verts: " << vertCount << " Tris: " << (triCount / 3) << "\n";
+
+	return result;
+}
+
+ldiModel objLoadQuadModel(const char* FileName) {
+	ldiModel result = {};
+
+	tempVertCount = 0;
+	tempUVCount = 0;
+	tempNormalCount = 0;
+	triCount = 0;
+	vertCount = 0;
+	memset(hashMap, 0, sizeof(hashMap) * HASHMAP_SIZE);
+
+	FILE* file;
+	fopen_s(&file, FileName, "rb");
+	fseek(file, 0, SEEK_END);
+	int fileLen = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	char* fileBuffer = new char[fileLen + 1];
+	fread(fileBuffer, 1, fileLen, file);
+	fileBuffer[fileLen] = 0;
+
+	int idx = 0;
+	char c = fileBuffer[idx++];
+
+	while (c != 0)
+	{
+		if (c == 'v')
+		{
+			c = fileBuffer[idx++];
+
+			if (c == ' ')
+			{
+				vec3 attr;
+				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				attr.z = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				c = fileBuffer[idx++];
+
+				if (attr.x == 0.0f) attr.x = 0.0f;
+				if (attr.y == 0.0f) attr.y = 0.0f;
+				if (attr.z == 0.0f) attr.z = 0.0f;
+				//attr.x = -attr.x;
+
+				tempVerts[tempVertCount++] = attr;
+			}
+			else if (c == 't')
+			{
+				vec2 attr;
+				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				c = fileBuffer[idx++];
+
+				if (attr.x == 0.0f) attr.x = 0.0f;
+				if (attr.y == 0.0f) attr.y = 0.0f;
+
+				tempUVs[tempUVCount++] = attr;
+			}
+			else if (c == 'n')
+			{
+				vec3 attr;
+				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				attr.z = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
+				c = fileBuffer[idx++];
+
+				if (attr.x == 0.0f) attr.x = 0.0f;
+				if (attr.y == 0.0f) attr.y = 0.0f;
+				if (attr.z == 0.0f) attr.z = 0.0f;
+
+				tempNormals[tempNormalCount++] = attr;
+			}
+		}
+		else if (c == 'f')
+		{
+			c = fileBuffer[idx++];
+			int vertCount = 0;
+
+			int v0 = _GetUniqueVert(fileBuffer, &idx, fileLen);
+			int v1 = _GetUniqueVert(fileBuffer, &idx, fileLen);
+			int v2 = _GetUniqueVert(fileBuffer, &idx, fileLen);
+			int v3 = _GetUniqueVert(fileBuffer, &idx, fileLen);
+			c = fileBuffer[idx++];
+
+			tris[triCount++] = v0;
+			tris[triCount++] = v1;
+			tris[triCount++] = v2;
+			tris[triCount++] = v3;
+		}
+		else
+		{
+			while (c != '\n' && c != 0)
+				c = fileBuffer[idx++];
+
+			if (c == '\n')
+				c = fileBuffer[idx++];
+		}
+	}
+
+	delete[] fileBuffer;
+	fclose(file);
+
+	result.verts.resize(vertCount);
+	memcpy(result.verts.data(), verts, sizeof(ldiMeshVertex) * vertCount);
+	result.indices.resize(triCount);
+	memcpy(result.indices.data(), tris, sizeof(uint32_t) * triCount);
+
+	/*result.verts = verts;
+	result.indices = tris;
+	result.vertCount = vertCount;
+	result.indexCount = triCount;*/
+
+	std::cout << "Loaded OBJ Quads:" << FileName << " Verts: " << vertCount << " Quads: " << (triCount / 4) << "\n";
 
 	return result;
 }

@@ -54,6 +54,7 @@ struct ldiCamera {
 	vec3 rotation;
 	mat4 viewMat;
 	mat4 projMat;
+	float fov;
 };
 
 struct ldiTextInfo {
@@ -92,6 +93,10 @@ struct ldiApp {
 	ID3D11PixelShader*			basicPixelShader;
 	ID3D11InputLayout*			basicInputLayout;	
 
+	ID3D11VertexShader*			dotVertexShader;
+	ID3D11PixelShader*			dotPixelShader;
+	ID3D11InputLayout*			dotInputLayout;
+
 	ID3D11VertexShader*			simpleVertexShader;
 	ID3D11PixelShader*			simplePixelShader;
 	ID3D11InputLayout*			simpleInputLayout;
@@ -120,12 +125,16 @@ struct ldiApp {
 	ID3D11BlendState*			defaultBlendState;
 	ID3D11BlendState*			alphaBlendState;
 	ID3D11RasterizerState*		defaultRasterizerState;
+	ID3D11RasterizerState*		doubleSidedRasterizerState;
 	ID3D11RasterizerState*		wireframeRasterizerState;
 	ID3D11DepthStencilState*	defaultDepthStencilState;
+	ID3D11DepthStencilState*	noDepthState;
 	ID3D11DepthStencilState*	wireframeDepthStencilState;
 	ID3D11DepthStencilState*	nowriteDepthStencilState;
 
 	ID3D11SamplerState*			defaultPointSamplerState;
+	ID3D11SamplerState*			defaultLinearSamplerState;
+	ID3D11SamplerState*			wrapLinearSamplerState;
 
 	ID3D11Texture2D*			dotTexture;
 	ID3D11ShaderResourceView*	dotShaderResourceView;
@@ -146,10 +155,10 @@ struct ldiApp {
 	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = false;
-	bool						showModelInspector = false;
+	bool						showModelInspector = true;
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
-	bool						showModelEditor = true;
+	bool						showModelEditor = false;
 
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
@@ -323,7 +332,7 @@ void _createWindow(ldiApp* AppContext) {
 
 	RegisterClassEx(&AppContext->wc);
 
-	AppContext->hWnd = CreateWindow(AppContext->wc.lpszClassName, _T("Wyvern DX11"), WS_OVERLAPPEDWINDOW, 100, 100, 1600, 900, NULL, NULL, AppContext->wc.hInstance, NULL);
+	AppContext->hWnd = CreateWindow(AppContext->wc.lpszClassName, _T("Wyvern DX11"), WS_OVERLAPPEDWINDOW, 100, 100, 1920, 1080, NULL, NULL, AppContext->wc.hInstance, NULL);
 }
 
 void _unregisterWindow(ldiApp* AppContext) {
@@ -393,6 +402,17 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/basic.hlsl", "mainPs", &AppContext->basicPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Dot shader.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/dot.hlsl", "mainVs", &AppContext->dotVertexShader, basicLayout, 3, &AppContext->dotInputLayout)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/dot.hlsl", "mainPs", &AppContext->dotPixelShader)) {
 		return false;
 	}
 
@@ -526,6 +546,15 @@ bool _initResources(ldiApp* AppContext) {
 
 	{
 		D3D11_RASTERIZER_DESC desc = {};
+		desc.FillMode = D3D11_FILL_SOLID;
+		desc.CullMode = D3D11_CULL_NONE;
+		desc.ScissorEnable = false;
+		desc.DepthClipEnable = true;
+		AppContext->d3dDevice->CreateRasterizerState(&desc, &AppContext->doubleSidedRasterizerState);
+	}
+
+	{
+		D3D11_RASTERIZER_DESC desc = {};
 		desc.FillMode = D3D11_FILL_WIREFRAME;
 		desc.CullMode = D3D11_CULL_BACK;
 		desc.ScissorEnable = false;
@@ -579,6 +608,18 @@ bool _initResources(ldiApp* AppContext) {
 		desc.BackFace = desc.FrontFace;*/
 		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->defaultDepthStencilState);
 	}
+	
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = false;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS;
+		desc.StencilEnable = false;
+		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;*/
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->noDepthState);
+	}
 
 	// Default point sampler.
 	{
@@ -592,6 +633,33 @@ bool _initResources(ldiApp* AppContext) {
 		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->defaultPointSamplerState);
+	}
+
+	// Default linear sampler.
+	{
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.MipLODBias = 0;
+		samplerDesc.MaxAnisotropy = 16;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->defaultLinearSamplerState);
+	}
+
+	{
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		samplerDesc.MipLODBias = 0;
+		samplerDesc.MaxAnisotropy = 16;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->wrapLinearSamplerState);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -723,6 +791,11 @@ int main() {
 		return 1;
 	}
 
+	if (modelInspectorLoad(appContext, modelInspector) != 0) {
+		std::cout << "Could not load model inspector\n";
+		return 1;
+	}
+
 	ldiSamplerTester* samplerTester = &_samplerTester;
 	if (samplerTesterInit(appContext, samplerTester) != 0) {
 		std::cout << "Could not init sampler tester\n";
@@ -753,12 +826,12 @@ int main() {
 		return 1;
 	}
 
-	if (modelEditorLoad(appContext, modelEditor) != 0) {
-		std::cout << "Could not load model editor\n";
-		// TODO: Platform should be detroyed properly when ANY system failed to load.
-		platformDestroy(platform);
-		return 1;
-	}
+	//if (modelEditorLoad(appContext, modelEditor) != 0) {
+	//	std::cout << "Could not load model editor\n";
+	//	// TODO: Platform should be detroyed properly when ANY system failed to load.
+	//	platformDestroy(platform);
+	//	return 1;
+	//}
 
 	/*ImGui::GetID
 	ImGui::DockBuilderDockWindow();

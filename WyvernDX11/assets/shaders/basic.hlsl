@@ -6,7 +6,7 @@ struct PS_INPUT {
 	float4 pos : SV_POSITION;
 	float4 col : COLOR0;
 	float2 uv  : TEXCOORD0;
-	float4 dist : TEXCOORD1;
+	// float4 dist : TEXCOORD1;
 };
 
 PS_INPUT mainVs(vertexInputBasic input) {
@@ -16,9 +16,9 @@ PS_INPUT mainVs(vertexInputBasic input) {
 	output.uv = input.uv;
 
 
-	output.dist.x = length(input.pos - ObjectColor.xyz);
+	// output.dist.x = length(input.pos - ObjectColor.xyz);
 	float3 normal = input.col * 2.0 - 1.0;
-	output.dist.y = dot(normal, normalize(ObjectColor.xyz - input.pos));
+	// output.dist.y = dot(normal, normalize(ObjectColor.xyz - input.pos));
 
 	return output;
 }

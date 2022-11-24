@@ -90,6 +90,24 @@ float4 smoothUnionColor(float4 surface1, float4 surface2, float smoothness) {
 					lerp(sdf2, sdf1, interpolation) - smoothness * interpolation * (1.0 - interpolation));
 }
 
+float4 smoothSubtractColor(float4 surface1, float4 surface2, float smoothness) {
+	float sdf1 = surface1.w;
+	float sdf2 = surface2.w;
+
+	float interpolation = clamp(0.5 - 0.5 * (sdf2 + sdf1) / smoothness, 0.0, 1.0);
+	return float4(lerp(surface2.rgb, surface1.rgb, interpolation),
+					lerp(sdf2, -sdf1, interpolation) + smoothness * interpolation * (1.0 - interpolation));
+}
+
+float4 smoothSubtractColorOnly(float4 surface1, float4 surface2, float smoothness) {
+	float sdf1 = surface1.w;
+	float sdf2 = surface2.w;
+
+	float interpolation = clamp(0.5 - 0.5 * (sdf2 + sdf1) / smoothness, 0.0, 1.0);
+	return float4(lerp(surface2.rgb, surface1.rgb, interpolation),
+					sdf2);
+}
+
 float4 map(float3 pos) {
 	float time = ObjectColor.w;
 	float4 t = 0;
@@ -111,7 +129,9 @@ float4 map(float3 pos) {
 		float3 volPos = saturate((pos - volCorner) / volSize);
 		float4 volTex = texture0.Sample(sampler0, volPos);
 
-		t = float4(0.8, 0.3, 0.8, volTex.r / 20.0);
+		// NOTE: For precomupted field / 2.
+		// NOTE: For 128 grid: 20
+		t = float4(0.8, 0.3, 0.8, volTex.r / 10.0);
 	} else {
 		t = float4(0, 0, 0, volDist);
 	}
@@ -122,9 +142,29 @@ float4 map(float3 pos) {
 	// 	1.0);	
 
 	// t = smoothUnionColor(
-	// 	float4(1, 0.5, 0.2, sphereSdf(pos, float3(sin(time), 1, cos(time)), 1)),
+	// 	float4(0.2, 0.7, 1.0, sphereSdf(pos, float3(sin(time) * 1.5, 4, cos(time) * 1.5), 1)),
 	// 	t,
-	// 	1.0);
+	// 	0.2);
+
+	// t = smoothUnionColor(
+	// 	float4(0.8, 0.3, 0.8, sphereSdf(pos, float3(-1.35, 2.3, -0.5), 0.15)),
+	// 	t,
+	// 	0.15);
+
+	// t = smoothUnionColor(
+	// 	float4(0.2, 0.7, 1.0, sdTorus(pos, float3(-1.35, 3.0 + sin(time * 0.5) * 2.0, -1), float2(1, 0.7))),
+	// 	t,
+	// 	0.3);
+
+	// t = smoothSubtractColorOnly(
+	// 	float4(1.0, 0.01, 0.1, sphereSdf(pos, float3(-1.5, sin(time) + 3, -1.0), 1)),
+	// 	t,
+	// 	0.5);
+
+	// t = smoothUnionColor(
+	// 	float4(0.2, 0.7, 1.0, sphereSdf(pos, float3(sin(time) * 1.5, 4, cos(time) * 1.5), 1)),
+	// 	t,
+	// 	0.2);
 	
 	// t = opS(t, float4(0.2, 1, 0.2, -sphereSdf(pos, float3(sin(time * 2), 2, cos(time * 2)), 1.0)));
 	
@@ -135,7 +175,7 @@ float4 map(float3 pos) {
 	// t = smoothUnionColor(
 	// 		float4(1, 0, 0, sdTorus(pos, float3(3, 0.5 + sin(time), 0), float2(1, 0.3))),
 	// 		t,
-	// 		0.1);
+	// 		0.01);
 
 
 	// float dist = t.w;
@@ -153,9 +193,9 @@ float3 getNormal(float3 pos) {
 	float d = map(pos).w;
 
 	float3 normal = d - float3(
-		map(pos - float3(0.001, 0.00, 0.00)).w,
-		map(pos - float3(0.00, 0.001, 0.00)).w,
-		map(pos - float3(0.00, 0.00, 0.001)).w
+		map(pos - float3(0.02, 0.00, 0.00)).w,
+		map(pos - float3(0.00, 0.02, 0.00)).w,
+		map(pos - float3(0.00, 0.00, 0.02)).w
 	);
 
 	return normalize(normal);
@@ -223,7 +263,9 @@ float4 rayMarch(float3 rO, float3 rD) {
 			if (lightTrace >= lightDist) {
 				
 			} else {
-				lightI = 0.0;
+				// lightI = 0.0;
+				lightD = normalize(-lightPos - rayWorldPos);
+				lightI = saturate(dot(lightD, normal)) * 0.1;
 			}
 
 			// float occ = calcAO(rayWorldPos, normal);

@@ -3,7 +3,7 @@
 //----------------------------------------------------------------------------------------------------
 void initDebugPrimitives(ldiApp* AppContext) {
 	{
-		AppContext->triGeometryVertMax = 256000;
+		AppContext->triGeometryVertMax = 2000000;
 
 		D3D11_BUFFER_DESC vbDesc;
 		ZeroMemory(&vbDesc, sizeof(vbDesc));
@@ -15,7 +15,7 @@ void initDebugPrimitives(ldiApp* AppContext) {
 	}
 
 	{
-		AppContext->lineGeometryVertMax = 512000;
+		AppContext->lineGeometryVertMax = 2000000;
 
 		D3D11_BUFFER_DESC vbDesc;
 		ZeroMemory(&vbDesc, sizeof(vbDesc));
@@ -63,6 +63,33 @@ inline void pushDebugQuad(ldiApp* AppContext, vec3 Min, vec3 Max, vec3 Color) {
 	AppContext->triGeometryVertData.push_back({ v0, Color });
 	AppContext->triGeometryVertData.push_back({ v2, Color });
 	AppContext->triGeometryVertData.push_back({ v3, Color });
+}
+
+inline void pushDebugCirlcle(ldiApp* AppContext, vec3 Origin, float Radius, vec3 Color, int Segs, vec3 XAxis, vec3 YAxis) {
+	float divInc = glm::radians(360.0f / Segs);
+
+	vec3 lastPoint = XAxis * (float)sin(0) * Radius + YAxis * (float)cos(0) * Radius + Origin;
+
+	for (int i = 0; i < Segs; ++i) {
+		float rad = divInc * (i + 1);
+		vec3 newPoint = XAxis * (float)sin(rad) * Radius + YAxis * (float)cos(rad) * Radius + Origin;
+		pushDebugLine(AppContext, lastPoint, newPoint, Color);
+		lastPoint = newPoint;
+	}
+}
+
+inline void pushDebugCircleHorz(ldiApp* AppContext, vec3 Origin, float Radius, vec3 Color, int Segs) {
+	pushDebugCirlcle(AppContext, Origin, Radius, Color, Segs, vec3Right, vec3Forward);
+}
+
+inline void pushDebugCircleVert(ldiApp* AppContext, vec3 Origin, float Radius, vec3 Color, int Segs) {
+	pushDebugCirlcle(AppContext, Origin, Radius, Color, Segs, vec3Right, vec3Up);
+}
+
+inline void pushDebugSphere(ldiApp* AppContext, vec3 Origin, float Radius, vec3 Color, int Segs) {
+	pushDebugCirlcle(AppContext, Origin, Radius, Color, Segs, vec3Right, vec3Up);
+	pushDebugCirlcle(AppContext, Origin, Radius, Color, Segs, vec3Forward, vec3Up);
+	pushDebugCirlcle(AppContext, Origin, Radius, Color, Segs, vec3Right, vec3Forward);
 }
 
 inline void pushDebugBox(ldiApp* AppContext, vec3 Origin, vec3 Size, vec3 Color) {

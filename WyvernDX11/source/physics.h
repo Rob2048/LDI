@@ -120,9 +120,11 @@ struct ldiRaycastResult {
 	int faceIdx;
 	vec3 pos;
 	vec2 barry;
+	vec3 normal;
+	float dist;
 };
 
-ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 RayOrigin, vec3 RayDir) {
+ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 RayOrigin, vec3 RayDir, float MaxDist = 0.02f) {
 	ldiRaycastResult hit{};
 	hit.hit = false;
 
@@ -132,13 +134,15 @@ ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 
 	PxTransform geomPose(0, 0, 0);
 
 	PxRaycastHit rayHit;
-	int hitCount = PxGeometryQuery::raycast(rayOrigin, rayDir, Mesh->cookedMesh, geomPose, 0.02f, PxHitFlag::ePOSITION | PxHitFlag::eUV | PxHitFlag::eFACE_INDEX | PxHitFlag::eMESH_BOTH_SIDES, 1, &rayHit);
+	int hitCount = PxGeometryQuery::raycast(rayOrigin, rayDir, Mesh->cookedMesh, geomPose, MaxDist, PxHitFlag::ePOSITION | PxHitFlag::eUV | PxHitFlag::eFACE_INDEX | PxHitFlag::eMESH_BOTH_SIDES | PxHitFlag::eNORMAL, 1, &rayHit);
 
 	if (hitCount > 0) {
 		hit.hit = true;
 		hit.faceIdx = Mesh->cookedMesh.triangleMesh->getTrianglesRemap()[rayHit.faceIndex];
 		hit.pos = vec3(rayHit.position.x, rayHit.position.y, rayHit.position.z);
 		hit.barry = vec2(rayHit.u, rayHit.v);
+		hit.dist = rayHit.distance;
+		hit.normal = vec3(rayHit.normal.x, rayHit.normal.y, rayHit.normal.z);
 	}
 
 	return hit;

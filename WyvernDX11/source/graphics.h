@@ -198,10 +198,10 @@ void gfxReleaseSurfelRenderModel(ldiRenderModel* Model) {
 	}
 }
 
-ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel> Surfels) {
+ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels) {
 	ldiRenderModel result = {};
 
-	int quadCount = (int)Surfels.size();
+	int quadCount = (int)Surfels->size();
 	int vertCount = quadCount * 4;
 	int triCount = quadCount * 2;
 	int indexCount = triCount * 3;
@@ -211,10 +211,11 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 
 	float surfelSize = 0.0075f;
 	float hSize = surfelSize / 2.0f;
+	//float hSize = surfelSize * 4.0f;
 	float normalAdjust = 0.001f;
 	
 	for (int i = 0; i < quadCount; ++i) {
-		ldiSurfel* s = &Surfels[i];
+		ldiSurfel* s = &(*Surfels)[i];
 
 		vec3 upVec(0, 1, 0);
 
@@ -227,6 +228,8 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 
 		vec3 bitangent = glm::cross(s->normal, tangent);
 		bitangent = glm::normalize(bitangent);
+
+		//s->position += s->normal * 20.0f;
 
 		vec3 p0 = s->position - tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
 		vec3 p1 = s->position + tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
@@ -268,6 +271,102 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
 	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+
+ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels) {
+	ldiRenderModel result = {};
+
+	int quadCount = (int)Surfels->size();
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiCoveragePointVertex* verts = new ldiCoveragePointVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	float surfelSize = 0.0075f;
+	float hSize = surfelSize / 2.0f;
+	//float hSize = surfelSize * 4.0f;
+	float normalAdjust = 0.001f;
+
+	for (int i = 0; i < quadCount; ++i) {
+		ldiSurfel* s = &(*Surfels)[i];
+
+		vec3 upVec(0, 1, 0);
+
+		if (s->normal == upVec || s->normal == -upVec) {
+			upVec = vec3(1, 0, 0);
+		}
+
+		vec3 tangent = glm::cross(s->normal, upVec);
+		tangent = glm::normalize(tangent);
+
+		vec3 bitangent = glm::cross(s->normal, tangent);
+		bitangent = glm::normalize(bitangent);
+
+		vec3 p0 = s->position - tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p1 = s->position + tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p2 = s->position + tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
+		vec3 p3 = s->position - tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
+
+		ldiCoveragePointVertex* v0 = &verts[i * 4 + 0];
+		ldiCoveragePointVertex* v1 = &verts[i * 4 + 1];
+		ldiCoveragePointVertex* v2 = &verts[i * 4 + 2];
+		ldiCoveragePointVertex* v3 = &verts[i * 4 + 3];
+
+		v0->position = p0;
+		v0->id = i;
+		v0->normal = s->normal;
+
+		v1->position = p1;
+		v1->id = i;
+		v1->normal = s->normal;
+		
+		v2->position = p2;
+		v2->id = i;
+		v2->normal = s->normal;
+		
+		v3->position = p3;
+		v3->id = i;
+		v3->normal = s->normal;
+		
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiCoveragePointVertex) * vertCount;
 	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vbDesc.CPUAccessFlags = 0;
 
@@ -349,9 +448,22 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		color.y = normal.y * 0.5 + 0.5;
 		color.z = normal.z * 0.5 + 0.5;
 
-		color.x *= colErr;
-		color.y *= colErr;
-		color.z *= colErr;
+		vec3 centerPoint = vec3(0.0f, 7.5f, 0.0f);
+		float maxDist = 7.5f;
+		float dist0 = glm::length(p0 - centerPoint);
+		float dist1 = glm::length(p1 - centerPoint);
+		float dist2 = glm::length(p2 - centerPoint);
+		float dist3 = glm::length(p3 - centerPoint);
+
+		if (dist0 > maxDist || dist1 > maxDist || dist2 > maxDist || dist3 > maxDist) {
+			color.x = 1.0f;
+			color.y = 0;
+			color.z = 0;
+		}
+
+		//color.x *= colErr;
+		//color.y *= colErr;
+		//color.z *= colErr;
 
 		// NOTE: Unique color for each quad.		
 		/*int scaledIdx = i * (0xFFFFFF / quadCount);
@@ -434,8 +546,6 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 
 	std::cout << "Total area: " << totalArea << " cm3 Dots: " << (int)dotsInArea << "\n";
 
-	
-
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
 	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * vertCount;
@@ -467,6 +577,60 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 	return result;
 }
 
+ldiRenderModel gfxCreateRenderQuadModel(ldiApp* AppContext, ldiModel* ModelSource) {
+	ldiRenderModel result = {};
+
+	int quadCount = (int)(ModelSource->indices.size() / 4);
+	int vertCount = (int)ModelSource->verts.size();
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	uint32_t* indices = new uint32_t[indexCount];
+
+	for (int i = 0; i < quadCount; ++i) {
+		int i0 = ModelSource->indices[i * 4 + 0];
+		int i1 = ModelSource->indices[i * 4 + 1];
+		int i2 = ModelSource->indices[i * 4 + 2];
+		int i3 = ModelSource->indices[i * 4 + 3];
+
+		indices[i * 6 + 0] = i2;
+		indices[i * 6 + 1] = i1;
+		indices[i * 6 + 2] = i0;
+		indices[i * 6 + 3] = i2;
+		indices[i * 6 + 4] = i0;
+		indices[i * 6 + 5] = i3;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiMeshVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = ModelSource->verts.data();
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] indices;
+
+	return result;
+}
+
 ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	ldiRenderModel result = {};
 
@@ -490,6 +654,37 @@ ldiRenderModel gfxCreateRenderModel(ldiApp* AppContext, ldiModel* ModelSource) {
 	D3D11_SUBRESOURCE_DATA ibData = {};
 	ibData.pSysMem = ModelSource->indices.data();
 	
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = ModelSource->verts.size();
+	result.indexCount = ModelSource->indices.size();
+
+	return result;
+}
+
+ldiRenderModel gfxCreateRenderModelMutableVerts(ldiApp* AppContext, ldiModel* ModelSource) {
+	ldiRenderModel result = {};
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+	vbDesc.ByteWidth = sizeof(ldiMeshVertex) * ModelSource->verts.size();
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = ModelSource->verts.data();
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * ModelSource->indices.size();
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = ModelSource->indices.data();
+
 	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
 
 	result.vertCount = ModelSource->verts.size();
@@ -557,6 +752,34 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = 
 	} else {
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 	}
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
+void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11RasterizerState* RasterizerState, ID3D11VertexShader* VertexShader, ID3D11PixelShader* PixelShader, ID3D11InputLayout* InputLayout, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
+	UINT lgStride = sizeof(ldiMeshVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(InputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(VertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(PixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+
+	AppContext->d3dDeviceContext->RSSetState(RasterizerState);
 
 	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
 
@@ -823,17 +1046,35 @@ void gfxEndPrimaryViewport(ldiApp* AppContext) {
 	AppContext->SwapChain->Present(1, 0);
 }
 
-bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11VertexShader** Shader, D3D11_INPUT_ELEMENT_DESC* LayoutDesc, int LayoutElements, ID3D11InputLayout** InputLayout) {
-	ID3DBlob* errorBlob;
-	ID3DBlob* shaderBlob;
+ID3DBlob* gfxCompileShader(LPCWSTR Filename, const char* EntryPoint, LPCSTR Target) {
+	ID3DBlob* errorBlob = NULL;
+	ID3DBlob* shaderBlob = NULL;
 	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "vs_5_0", flags, 0, &shaderBlob, &errorBlob))) {
-		std::cout << "Failed to compile shader\n";
+	HRESULT result = D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, Target, flags, 0, &shaderBlob, &errorBlob);
+
+	if (result < 0) {
+		std::cout << "Failed to compile shader: " << std::hex << "0x" << (uint32_t)result << " " << std::dec << "\n";
+		
+		if (result == 0x80070002) {
+			std::cout << "File not found\n";
+		}
+
 		if (errorBlob != NULL) {
 			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
 			errorBlob->Release();
 		}
+
+		return 0;
+	}
+
+	return shaderBlob;
+}
+
+bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11VertexShader** Shader, D3D11_INPUT_ELEMENT_DESC* LayoutDesc, int LayoutElements, ID3D11InputLayout** InputLayout) {
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "vs_5_0");
+	
+	if (!shaderBlob) {
 		return false;
 	}
 
@@ -852,17 +1093,27 @@ bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* Ent
 	return true;
 }
 
-bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11PixelShader** Shader) {
-	ID3DBlob* errorBlob;
-	ID3DBlob* shaderBlob;
-	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+bool gfxCreateVertexShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11VertexShader** Shader) {
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "vs_5_0");
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "ps_5_0", flags, 0, &shaderBlob, &errorBlob))) {
-		std::cout << "Failed to compile shader\n";
-		if (errorBlob != NULL) {
-			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
-			errorBlob->Release();
-		}
+	if (!shaderBlob) {
+		return false;
+	}
+
+	if (AppContext->d3dDevice->CreateVertexShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, Shader) != S_OK) {
+		shaderBlob->Release();
+		return false;
+	}
+
+	shaderBlob->Release();
+
+	return true;
+}
+
+bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11PixelShader** Shader) {
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "ps_5_0");
+
+	if (!shaderBlob) {
 		return false;
 	}
 
@@ -876,19 +1127,44 @@ bool gfxCreatePixelShader(ldiApp* AppContext, LPCWSTR Filename, const char* Entr
 	return true;
 }
 
-//https://github.com/walbourn/directx-sdk-samples/blob/main/BasicCompute11/BasicCompute11.cpp
+bool gfxCreateHullShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11HullShader** Shader) {
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "hs_5_0");
+
+	if (!shaderBlob) {
+		return false;
+	}
+
+	if (AppContext->d3dDevice->CreateHullShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, Shader) != S_OK) {
+		shaderBlob->Release();
+		return false;
+	}
+
+	shaderBlob->Release();
+
+	return true;
+}
+
+bool gfxCreateDomainShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11DomainShader** Shader) {
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "ds_5_0");
+	
+	if (!shaderBlob) {
+		return false;
+	}
+
+	if (AppContext->d3dDevice->CreateDomainShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), NULL, Shader) != S_OK) {
+		shaderBlob->Release();
+		return false;
+	}
+
+	shaderBlob->Release();
+
+	return true;
+}
 
 bool gfxCreateComputeShader(ldiApp* AppContext, LPCWSTR Filename, const char* EntryPoint, ID3D11ComputeShader** Shader) {
-	ID3DBlob* errorBlob;
-	ID3DBlob* shaderBlob;
-	UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+	ID3DBlob* shaderBlob = gfxCompileShader(Filename, EntryPoint, "cs_5_0");
 
-	if (FAILED(D3DCompileFromFile(Filename, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, "cs_5_0", flags, 0, &shaderBlob, &errorBlob))) {
-		std::cout << "Failed to compile shader\n";
-		if (errorBlob != NULL) {
-			std::cout << (const char*)errorBlob->GetBufferPointer() << "\n";
-			errorBlob->Release();
-		}
+	if (!shaderBlob) {
 		return false;
 	}
 
@@ -937,6 +1213,24 @@ bool gfxCreateBufferShaderResourceView(ldiApp* AppContext, ID3D11Buffer* Resourc
 	return true;
 }
 
+bool gfxCreateTexture2DUav(ldiApp* AppContext, ID3D11Texture2D* Resource, ID3D11UnorderedAccessView** View) {
+	D3D11_TEXTURE2D_DESC texDesc = {};
+	Resource->GetDesc(&texDesc);
+
+	D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
+	desc.Format = texDesc.Format;
+	desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+	desc.Texture2D.MipSlice = 0;
+	
+	HRESULT result = AppContext->d3dDevice->CreateUnorderedAccessView(Resource, &desc, View);
+
+	if (result != S_OK) {
+		return false;
+	}
+
+	return true;
+}
+
 bool gfxCreateTexture3DUav(ldiApp* AppContext, ID3D11Texture3D* Resource, ID3D11UnorderedAccessView** View) {
 	D3D11_TEXTURE3D_DESC texDesc = {};
 	Resource->GetDesc(&texDesc);
@@ -957,40 +1251,35 @@ bool gfxCreateTexture3DUav(ldiApp* AppContext, ID3D11Texture3D* Resource, ID3D11
 	return true;
 }
 
-bool gfxCreateBufferUnorderedAccessView(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11UnorderedAccessView** View) {
+bool gfxCreateBufferUav(ldiApp* AppContext, ID3D11Buffer* Buffer, ID3D11UnorderedAccessView** View) {
 	// NOTE: Creates view for raw or structured buffers.
 
-	
+	D3D11_BUFFER_DESC descBuf = {};
+	Buffer->GetDesc(&descBuf);
 
-	//D3D11_BUFFER_DESC descBuf = {};
-	//Buffer->GetDesc(&descBuf);
+	D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
+	desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+	desc.Buffer.FirstElement = 0;
 
-	//D3D11_UNORDERED_ACCESS_VIEW_DESC desc = {};
-	//desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-	//desc.Buffer.FirstElement = 0;
+	if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS) {
+		// This is a Raw Buffer.
+		desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+		desc.Buffer.NumElements = descBuf.ByteWidth / 4;
 
-	//if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)
-	//{
-	//	// This is a Raw Buffer
+	} else if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) {
+		// This is a Structured Buffer.
+		desc.Format = DXGI_FORMAT_UNKNOWN;
+		desc.Buffer.NumElements = descBuf.ByteWidth / descBuf.StructureByteStride;
+	} else {
+		return false;
+	}
 
-	//	desc.Format = DXGI_FORMAT_R32_TYPELESS; // Format must be DXGI_FORMAT_R32_TYPELESS, when creating Raw Unordered Access View
-	//	desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
-	//	desc.Buffer.NumElements = descBuf.ByteWidth / 4;
-	//}
-	//else
-	//	if (descBuf.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED)
-	//	{
-	//		// This is a Structured Buffer
+	HRESULT result = AppContext->d3dDevice->CreateUnorderedAccessView(Buffer, &desc, View);
 
-	//		desc.Format = DXGI_FORMAT_UNKNOWN;      // Format must be must be DXGI_FORMAT_UNKNOWN, when creating a View of a Structured Buffer
-	//		desc.Buffer.NumElements = descBuf.ByteWidth / descBuf.StructureByteStride;
-	//	}
-	//	else
-	//	{
-	//		return E_INVALIDARG;
-	//	}
-
-	//return pDevice->CreateUnorderedAccessView(pBuffer, &desc, ppUAVOut);
+	if (result != S_OK) {
+		return false;
+	}
 
 	return true;
 }

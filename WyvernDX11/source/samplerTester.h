@@ -60,6 +60,10 @@ inline int clamp(int Value, int Min, int Max) {
 	return min(max(Value, Min), Max);
 }
 
+inline float clampf(float Value, float Min, float Max) {
+	return min(max(Value, Min), Max);
+}
+
 void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel* Model, std::vector<ldiSamplePoint>* SamplePoints) {
 	ldiApp* appContext = SamplerTester->appContext;
 
@@ -177,7 +181,8 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		//uint8_t g = sourcePixels[i * sourceChannels + 1];
 		//uint8_t b = sourcePixels[i * sourceChannels + 2];
 
-		float lum = r / 255.0f;// (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
+		//float lum = r / 255.0f;// (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
+		float lum = 0.0f;
 		//float lum = (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
 
 		//sourceIntensity[i] = GammaToLinear(lum);
@@ -234,7 +239,8 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 
 			radius *= radiusMul;
 
-			s->scale = singlePixelScale * 0.5f * 1.7f;
+			s->scale = singlePixelScale * 0.5f * 1.5f;
+			//s->scale = singlePixelScale * 0.5f * 0.1f;
 			s->radius = singlePixelScale * 0.5f * radius;
 		}
 	}
@@ -291,7 +297,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	//int* pointList = new int[candidateCount];
 	//int pointCount = 0;
 	std::vector<ldiSamplePoint> samplePoints;
-
+	
 	for (int i = 0; i < candidateCount; ++i) {
 		int candidateId = orderList[i];
 
@@ -451,18 +457,21 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 		UINT lgStride = sizeof(ldiMeshVertex);
 		UINT lgOffset = 0;
 
-		appContext->d3dDeviceContext->IASetInputLayout(appContext->basicInputLayout);
+		appContext->d3dDeviceContext->IASetInputLayout(appContext->dotInputLayout);
 		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &SamplerTester->samplePointModel.vertexBuffer, &lgStride, &lgOffset);
 		appContext->d3dDeviceContext->IASetIndexBuffer(SamplerTester->samplePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		appContext->d3dDeviceContext->VSSetShader(appContext->basicVertexShader, 0, 0);
+		appContext->d3dDeviceContext->VSSetShader(appContext->dotVertexShader, 0, 0);
 		appContext->d3dDeviceContext->VSSetConstantBuffers(0, 2, &appContext->mvpConstantBuffer);
-		appContext->d3dDeviceContext->PSSetShader(appContext->basicPixelShader, 0, 0);
+		appContext->d3dDeviceContext->PSSetShader(appContext->dotPixelShader, 0, 0);
 		appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
 		appContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
-		appContext->d3dDeviceContext->OMSetBlendState(appContext->defaultBlendState, NULL, 0xffffffff);
+		appContext->d3dDeviceContext->OMSetBlendState(appContext->alphaBlendState, NULL, 0xffffffff);
 		appContext->d3dDeviceContext->RSSetState(appContext->defaultRasterizerState);
-		appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->defaultDepthStencilState, 0);
+		appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->noDepthState, 0);
+
+		appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &appContext->dotShaderResourceView);
+		appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->dotSamplerState);
 
 		appContext->d3dDeviceContext->DrawIndexed(SamplerTester->samplePointModel.indexCount, 0, 0);
 	}
@@ -470,13 +479,13 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 
 void samplerTesterShowUi(ldiSamplerTester* tool) {
 	ImGui::Begin("Sampler tester controls");
-	if (ImGui::CollapsingHeader("Viewport")) {
+	if (ImGui::CollapsingHeader("Viewport", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::ColorEdit3("Background", (float*)&tool->viewBackgroundColor);
 		ImGui::ColorEdit3("Grid color", (float*)&tool->gridColor);
 		ImGui::Checkbox("Grid", &tool->showGrid);
 	}
 
-	if (ImGui::CollapsingHeader("Processing", ImGuiTreeNodeFlags_DefaultOpen) ) {
+	if (ImGui::CollapsingHeader("Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
 		if (ImGui::Button("Run sample test")) {
 			samplerTesterRunTest(tool);
 		}

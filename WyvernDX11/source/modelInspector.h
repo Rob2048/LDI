@@ -17,6 +17,17 @@ struct ldiSpatialGrid {
 	int* data;
 };
 
+struct ldiProbabilityGrid {
+	vec3 min;
+	vec3 max;
+	vec3 origin;
+	vec3 size;
+	int totalCells;
+	float cellSize;
+	int cellCount;
+	float* data;
+};
+
 void spatialGridDestroy(ldiSpatialGrid* Grid) {
 	if (Grid->index) {
 		delete[] Grid->index;
@@ -52,6 +63,8 @@ void spatialGridInit(ldiSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float
 	assert(Grid->countTotal > 0);
 	Grid->index = new int[Grid->countTotal];
 	memset(Grid->index, 0, sizeof(int) * Grid->countTotal);
+
+	std::cout << "Spatial grid cells: " << ((Grid->countTotal * 4) / 1024.0 / 1024.0) << " MB\n";
 }
 
 vec3 spatialGridGetCellFromWorldPosition(ldiSpatialGrid* Grid, vec3 Position) {
@@ -97,6 +110,8 @@ void spatialGridCompile(ldiSpatialGrid* Grid) {
 	}
 
 	Grid->data = new int[totalOccupedCells + totalEntries];
+
+	std::cout << "Spatial grid data: " << ((totalOccupedCells + totalEntries * 4) / 1024.0 / 1024.0) << " MB\n";
 
 	int currentOffset = 0;
 
@@ -217,6 +232,14 @@ struct ldiModelInspector {
 	ID3D11ShaderResourceView*	shaderResourceViewTest;
 	ID3D11SamplerState*			texSamplerState;
 
+	ID3D11Texture2D*			occRenderTex;
+	ID3D11ShaderResourceView*	occRenderTexView;
+	ID3D11RenderTargetView*		occRenderTexRtView;
+	ID3D11Texture2D*			occDepthStencil;
+	ID3D11DepthStencilView*		occDepthStencilView;
+
+	int							occSize = 1024;
+	
 	ldiRenderLines				quadMeshWire;
 	ldiRenderModel				surfelRenderModel;
 
@@ -228,6 +251,27 @@ struct ldiModelInspector {
 	ldiImage					baseTexture;
 
 	ldiSpatialGrid				spatialGrid;
+
+	ldiProbabilityGrid			occlusionGrid;
+	ldiRenderPointCloud			occlusionCloud;
+	ldiPointCloud				pointDistrib;
+	ldiRenderPointCloud			pointDistribCloud;
+	vec3						laserViewRot;
+	vec3						laserViewPos;
+
+	int							selectedSurfel = 0;
+
+	ID3D11ComputeShader*		calcPointScoreComputeShader;
+	ID3D11ComputeShader*		accumulatePointScoreComputeShader;
+	ID3D11Buffer*				coverageBuffer;
+	ID3D11UnorderedAccessView*	coverageBufferUav;
+	ID3D11ShaderResourceView*	coverageBufferSrv;
+	ldiRenderModel				coveragePointModel;
+	ID3D11VertexShader*			coveragePointVertexShader;
+	ID3D11PixelShader*			coveragePointPixelShader;
+	ID3D11InputLayout*			coveragePointInputLayout;
+	ID3D11VertexShader*			coveragePointWriteVertexShader;
+	ID3D11PixelShader*			coveragePointWritePixelShader;
 };
 
 void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
@@ -280,8 +324,7 @@ std::vector<ldiSurfel> geoCreateSurfels(ldiQuadModel* Model) {
 
 void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
 	float normalAdjust = 0.01;
-	int triCount = SrcModel->indices.size() / 3;
-
+	
 	for (size_t i = 0; i < Surfels->size(); ++i) {
 		ldiSurfel* s = &(*Surfels)[i];
 		ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, s->position + s->normal * normalAdjust, -s->normal);
@@ -422,6 +465,74 @@ void surfelsSmoothNormalsThreadBatch(ldiSmoothNormalsThreadContext Context) {
 	}
 }
 
+void surfelsCreateDistribution(ldiSpatialGrid* Grid, std::vector<ldiSurfel>* Surfels, ldiPointCloud* Result) {
+	bool* mask = new bool[Surfels->size()];
+	memset(mask, 0, Surfels->size() * sizeof(bool));
+
+	for (size_t i = 0; i < Surfels->size(); ++i) {
+	//for (size_t i = 10000; i < 10001; ++i) {
+		if (mask[i] == true) {
+			continue;
+		}
+
+		ldiSurfel* srcSurfel = &(*Surfels)[i];
+
+		vec3 avgNorm = srcSurfel->normal;
+
+		vec3 cell = spatialGridGetCellFromWorldPosition(Grid, srcSurfel->position);
+
+		int sX = (int)(cell.x - 0.5f) - 2;
+		int eX = sX + 5;
+
+		int sY = (int)(cell.y - 0.5f) - 2;
+		int eY = sY + 5;
+
+		int sZ = (int)(cell.z - 0.5f) - 2;
+		int eZ = sZ + 5;
+
+		sX = max(0, sX);
+		eX = min(Grid->countX - 1, eX);
+
+		sY = max(0, sY);
+		eY = min(Grid->countY - 1, eY);
+
+		sZ = max(0, sZ);
+		eZ = min(Grid->countZ - 1, eZ);
+
+		float distVal = 0.2f + 0.5f + 0.5f;
+
+		for (int iZ = sZ; iZ <= eZ; ++iZ) {
+			for (int iY = sY; iY <= eY; ++iY) {
+				for (int iX = sX; iX <= eX; ++iX) {
+					ldiSpatialCellResult cellResult = spatialGridGetCell(Grid, iX, iY, iZ);
+					for (int s = 0; s < cellResult.count; ++s) {
+						int surfelId = cellResult.data[s];
+
+						if (surfelId != i) {
+							ldiSurfel* dstSurfel = &(*Surfels)[surfelId];
+
+							float dist = glm::length(dstSurfel->position - srcSurfel->position);
+
+							if (dist < distVal) {
+								mask[surfelId] = true;
+								avgNorm += dstSurfel->normal * (1.0f - (dist / distVal));
+							}
+						}
+					}
+				}
+			}
+		}
+
+		ldiPointCloudVertex newPoint = {};
+		newPoint.normal = glm::normalize(avgNorm);
+		newPoint.position = srcSurfel->position;// + newPoint.normal * 20.0f;
+		newPoint.color = newPoint.normal * 0.5f + 0.5f;
+		Result->points.push_back(newPoint);
+	}
+
+	delete[] mask;
+}
+
 int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->appContext = AppContext;
 	ModelInspector->mainViewWidth = 0;
@@ -430,20 +541,205 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->camera = {};
 	ModelInspector->camera.position = vec3(0, 0, 10);
 	ModelInspector->camera.rotation = vec3(0, 0, 0);
+	ModelInspector->camera.fov = 60.0f;
 
 	return 0;
+}
+
+bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* Tool) {
+	ID3D11Buffer* perViewBuffer;
+	ID3D11UnorderedAccessView* perViewBufferUav;
+
+	int numSurfels = (int)Tool->surfels.size();
+	
+	// TODO: These local buffers never need to be read back to CPU, and should marked dynamic.
+	if (!gfxCreateStructuredBuffer(AppContext, 4, numSurfels, 0, &perViewBuffer)) {
+		return false;
+	}
+
+	if (!gfxCreateBufferUav(AppContext, perViewBuffer, &perViewBufferUav)) {
+		perViewBuffer->Release();
+		return false;
+	}
+
+	// Final coverage score buffer.
+
+	// Per render coverage buffer.
+
+	// Render per view:
+		// Render depth map.
+		// Determine per point score.
+		// Update coverage buffer
+
+	//modelInspectorRenderLaserView(AppContext, Tool);
+
+	perViewBuffer->Release();
+	perViewBufferUav->Release();
+
+	return true;
+}
+
+void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	ID3D11RenderTargetView* renderTargets[] = {
+			ModelInspector->occRenderTexRtView
+	};
+
+	//AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, ModelInspector->occDepthStencilView);
+	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, ModelInspector->occDepthStencilView, 1, 1, &ModelInspector->coverageBufferUav, 0);
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = ModelInspector->occSize;
+	viewport.Height = ModelInspector->occSize;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+
+	vec4 bkgColor(0.5f, 0.5f, 0.5f, 1);
+	AppContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->occRenderTexRtView, (float*)&bkgColor);
+	AppContext->d3dDeviceContext->ClearDepthStencilView(ModelInspector->occDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(11.478f), (float)ModelInspector->occSize, (float)ModelInspector->occSize, 0.01f, 100.0f);
+
+	// Convert world transform to machine movement.
+	ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
+	vec3 modelLocalTargetPos = vert->position;// + vert->normal * -20.0f;
+
+	vec3 actualModelLocalCamPos = vert->position + vert->normal * 20.0f;
+	//std::cout << actualModelLocalCamPos.x << ", " << actualModelLocalCamPos.y << ", " << actualModelLocalCamPos.z << "\n";
+
+	vec3 viewDir = glm::normalize(-vert->normal);
+
+	// Convert Y axis to laserY. 1.0 to -1.0 to -90.0f to 90.0f;
+	ModelInspector->laserViewRot.y = viewDir.y * -90.0f;
+	ModelInspector->laserViewRot.x = glm::degrees(atan2(-viewDir.z, -viewDir.x));
+
+	mat4 modelLocalMat = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.x), vec3Up);
+	vec3 modelWorldTargetPos = modelLocalMat * vec4(vec3(0.0f, 7.5, 0.0f) - modelLocalTargetPos, 1.0f);
+
+	//std::cout << modelWorldTargetPos.x << ", " << modelWorldTargetPos.y << ", " << modelWorldTargetPos.z << "\n";
+
+	// Laser tool head movement.
+	mat4 laserHeadMat = glm::translate(mat4(1.0f), vec3(0, 7.5f, 0.0f));
+	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(ModelInspector->laserViewRot.y), -vec3Forward);
+	laserHeadMat = glm::translate(laserHeadMat, vec3(20.0f, 0, 0.0f));
+	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(90.0f), vec3Up);
+
+	/*vec3 laserWorldPos = laserHeadMat * vec4(0, 0, 0, 1);
+	vec3 diff = modelWorldTargetPos;*/
+
+	ModelInspector->laserViewPos = modelWorldTargetPos;
+
+	// Model movement.
+	mat4 modelMat = glm::translate(mat4(1.0f), ModelInspector->laserViewPos);
+	/*modelMat = glm::rotate(modelMat, glm::radians(ModelInspector->laserViewRot.x), vec3Up);*/
+	modelMat = glm::rotate(modelMat, glm::radians(ModelInspector->laserViewRot.x), vec3Up);
+
+	/*mat4 viewRotX = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.x), vec3Right);
+	mat4 viewRotY = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.y), vec3Up);*/
+	//mat4 camViewMat = glm::translate(mat4(1.0f), -vec3(0, 0.0f, 20)) * viewRotX * viewRotY * glm::translate(mat4(1.0f), -ModelInspector->laserViewPos);
+
+	mat4 camViewMat = glm::inverse(laserHeadMat);
+	mat4 camViewModelMat = camViewMat * modelMat;
+	vec3 camModelLocaPos = vec4(0, 0, 0, 1) * camViewModelMat;
+	mat4 projViewModelMat = projMat * camViewModelMat;
+
+	//std::cout << camModelLocaPos.x << ", " << camModelLocaPos.y << ", " << camModelLocaPos.z << "\n";
+
+	// Render model.
+	D3D11_MAPPED_SUBRESOURCE ms;
+	AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	constantBuffer->mvp = projViewModelMat;
+	constantBuffer->color = vec4(0, 0, 0, 1);
+	AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+	{
+		ldiRenderModel* Model = &ModelInspector->dergnDebugModel;
+		UINT lgStride = sizeof(ldiSimpleVertex);
+		UINT lgOffset = 0;
+
+		AppContext->d3dDeviceContext->IASetInputLayout(AppContext->simpleInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		AppContext->d3dDeviceContext->VSSetShader(AppContext->simpleVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShader(AppContext->simplePixelShader, 0, 0);
+		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+		AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+	}
+
+	AppContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->occRenderTexRtView, (float*)&bkgColor);
+
+	//{
+	//	D3D11_MAPPED_SUBRESOURCE ms;
+	//	AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	//	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	//	constantBuffer->mvp = projViewModelMat;
+	//	// Camera position in local model space.
+	//	constantBuffer->color = vec4(actualModelLocalCamPos, 1);
+	//	AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+	//	gfxRenderSurfelModel(AppContext, &ModelInspector->surfelRenderModel, AppContext->dotShaderResourceView, AppContext->dotSamplerState);
+	//}
+
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(actualModelLocalCamPos, 1);
+		AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+		UINT lgStride = sizeof(ldiCoveragePointVertex);
+		UINT lgOffset = 0;
+
+		AppContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &ModelInspector->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(ModelInspector->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		AppContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointWriteVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->VSSetShaderResources(0, 1, &ModelInspector->coverageBufferSrv);
+
+		AppContext->d3dDeviceContext->PSSetShader(ModelInspector->coveragePointWritePixelShader, 0, 0);
+		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+		AppContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+	}
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
+	float globalScale = 2.0f;
+	vec3 globalTranslate(0.0f, 3.0f, 0.0f);
+	
 	// Scale model.
 	//float scale = 12.0 / 11.0;
-	float scale = 5.0 / 11.0;
+	float scale = 5.0 / 11.0 * globalScale;
 	for (int i = 0; i < ModelInspector->dergnModel.verts.size(); ++i) {
 		ldiMeshVertex* vert = &ModelInspector->dergnModel.verts[i];
-		vert->pos = vert->pos * scale;
+		vert->pos = vert->pos * scale + globalTranslate;
 	}
 
 	physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
@@ -462,6 +758,11 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	int totalSideCount = 0;
 	float maxSide = FLT_MIN;
 	float minSide = FLT_MAX;
+
+	for (size_t i = 0; i < quadModel.verts.size(); ++i) {
+		vec3* vert = &quadModel.verts[i];
+		*vert = *vert * globalScale + globalTranslate;
+	}
 
 	// Side lengths.
 	for (int i = 0; i < quadCount; ++i) {
@@ -585,15 +886,28 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
+	
+	
+	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
 
-	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, ModelInspector->surfels);
-
+	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels);
+	
 	//ldiModel quadMeshTriModel;
 	//convertQuadToTriModel(&quadModel, &quadMeshTriModel);
 
 	//std::cout << "Quad tri mesh stats: " << quadMeshTriModel.verts.size() << 
 
 	//ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &quadMeshTriModel);
+
+	{
+		t0 = _getTime(AppContext);
+		surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib);
+		t0 = _getTime(AppContext) - t0;
+		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
+		
+		ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
+	}
+
 
 	ldiPointCloud pointCloud;
 	if (!plyLoadPoints("../../assets/models/dergnScan.ply", &pointCloud)) {
@@ -646,6 +960,192 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &ModelInspector->texSamplerState);
 	}
 
+	{
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = ModelInspector->occSize;
+		tex2dDesc.Height = ModelInspector->occSize;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DEFAULT;
+		tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = 0;
+		tex2dDesc.MiscFlags = 0;
+
+		if (FAILED(AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &ModelInspector->occRenderTex))) {
+			std::cout << "Texture failed to create\n";
+			return false;
+		}
+
+		if (AppContext->d3dDevice->CreateRenderTargetView(ModelInspector->occRenderTex, NULL, &ModelInspector->occRenderTexRtView) != S_OK) {
+			std::cout << "CreateRenderTargetView failed\n";
+			return 1;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->occRenderTex, NULL, &ModelInspector->occRenderTexView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
+
+		D3D11_TEXTURE2D_DESC depthStencilDesc;
+		depthStencilDesc.Width = ModelInspector->occSize;
+		depthStencilDesc.Height = ModelInspector->occSize;
+		depthStencilDesc.MipLevels = 1;
+		depthStencilDesc.ArraySize = 1;
+		depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthStencilDesc.SampleDesc.Count = 1;
+		depthStencilDesc.SampleDesc.Quality = 0;
+		depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
+		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthStencilDesc.CPUAccessFlags = 0;
+		depthStencilDesc.MiscFlags = 0;
+
+		AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &ModelInspector->occDepthStencil);
+		AppContext->d3dDevice->CreateDepthStencilView(ModelInspector->occDepthStencil, NULL, &ModelInspector->occDepthStencilView);
+	}
+
+	// Create occlusion grid render model.
+	if (false) {
+		ModelInspector->occlusionGrid.origin = vec3(0.0f, 7.5f, 0.0f);
+		ModelInspector->occlusionGrid.cellCount = 256;
+		ModelInspector->occlusionGrid.totalCells = ModelInspector->occlusionGrid.cellCount * ModelInspector->occlusionGrid.cellCount * ModelInspector->occlusionGrid.cellCount;
+		ModelInspector->occlusionGrid.size = vec3(55.0f, 55.0f, 55.0f);
+		ModelInspector->occlusionGrid.cellSize = ModelInspector->occlusionGrid.size.x / ModelInspector->occlusionGrid.cellCount;
+
+		ModelInspector->occlusionGrid.data = new float[ModelInspector->occlusionGrid.totalCells];
+		memset(ModelInspector->occlusionGrid.data, 0, ModelInspector->occlusionGrid.totalCells * sizeof(float));
+
+		ldiPointCloud occlusionCloud;
+		ldiProbabilityGrid* occ = &ModelInspector->occlusionGrid;
+
+		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+			ldiSurfel* s = &ModelInspector->surfels[i];
+
+			vec3 start = s->position + s->normal * 20.0f;
+
+			vec3 pos = (start + occ->size / 2.0f - occ->origin) / occ->cellSize;
+			int x = pos.x;
+			int y = pos.y;
+			int z = pos.z;
+
+			/*if (x < 0 || x >= occ->cellCount ||
+				y < 0 || y >= occ->cellCount ||
+				z < 0 || z >= occ->cellCount) {
+				continue;
+			}
+
+			int idx = x + y * occ->cellCount + z * occ->cellCount * occ->cellCount;
+			occ->data[idx] = 1.0f;*/
+
+
+			int radius = 4;
+
+			for (int iZ = z - radius; iZ <= z + radius; ++iZ) {
+				for (int iY = y - radius; iY <= y + radius; ++iY) {
+					for (int iX = x - radius; iX <= x + radius; ++iX) {
+						
+						if (iX < 0 || iX >= occ->cellCount ||
+							iY < 0 || iY >= occ->cellCount ||
+							iZ < 0 || iZ >= occ->cellCount) {
+							continue;
+						}
+
+						int idx = iX + iY * occ->cellCount + iZ * occ->cellCount * occ->cellCount;
+						occ->data[idx] += 0.01f;
+					}
+				}
+			}
+		}
+
+		for (int iZ = 0; iZ < occ->cellCount; ++iZ) {
+			for (int iY = 0; iY < occ->cellCount; ++iY) {
+				for (int iX = 0; iX < occ->cellCount; ++iX) {
+					int idx = iX + iY * occ->cellCount + iZ * occ->cellCount * occ->cellCount;
+
+					float d = occ->data[idx];
+
+					if (d > 0.25f) {
+						ldiPointCloudVertex v = {};
+						v.position = vec3(iX * occ->cellSize, iY * occ->cellSize, iZ * occ->cellSize) + occ->origin - occ->size / 2.0f;
+						v.color = vec3(d, d, d);
+						
+						occlusionCloud.points.push_back(v);
+					}
+				}
+			}
+		}
+
+		ModelInspector->occlusionCloud = gfxCreateRenderPointCloud(AppContext, &occlusionCloud);
+
+		std::cout << "Occlusion grid points: " << occlusionCloud.points.size() << "\n";
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Coverage buffer compute shaders.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateComputeShader(AppContext, L"../../assets/shaders/calcPointScore.hlsl", "mainCs", &ModelInspector->calcPointScoreComputeShader)) {
+		return 1;
+	}
+
+	if (!gfxCreateComputeShader(AppContext, L"../../assets/shaders/accumulatePointScore.hlsl", "mainCs", &ModelInspector->accumulatePointScoreComputeShader)) {
+		return 1;
+	}
+
+	int numSurfels = (int)ModelInspector->surfels.size();
+	std::cout << "Create coverage buffer: " << numSurfels << "\n";
+
+	int* covBuf = new int[numSurfels];
+
+	for (int i = 0; i < numSurfels; ++i) {
+		//covBuf[i] = (i % 255) / 255.0f;
+		covBuf[i] = 0;
+	}
+
+	if (!gfxCreateStructuredBuffer(AppContext, 4, numSurfels, covBuf, &ModelInspector->coverageBuffer)) {
+		return 1;
+	}
+
+	delete[] covBuf;
+
+	if (!gfxCreateBufferUav(AppContext, ModelInspector->coverageBuffer, &ModelInspector->coverageBufferUav)) {
+		return 1;
+	}
+
+	if (!gfxCreateBufferShaderResourceView(AppContext, ModelInspector->coverageBuffer, &ModelInspector->coverageBufferSrv)) {
+		return 1;
+	}
+
+	//if (!modelInspectorCalculateLaserViewCoverage(AppContext, ModelInspector)) {
+	//	return 1;
+	//}
+
+	//----------------------------------------------------------------------------------------------------
+	// Coverage point shaders.
+	//----------------------------------------------------------------------------------------------------
+	D3D11_INPUT_ELEMENT_DESC coveragePointLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32_UINT,			0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	16,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoverageVs", &ModelInspector->coveragePointVertexShader, coveragePointLayout, 3, &ModelInspector->coveragePointInputLayout)) {
+		return 1;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoveragePs", &ModelInspector->coveragePointPixelShader)) {
+		return 1;
+	}
+
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoverageVs", &ModelInspector->coveragePointWriteVertexShader)) {
+		return 1;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoveragePs", &ModelInspector->coveragePointWritePixelShader)) {
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -655,7 +1155,7 @@ vec3 projectPoint(ldiCamera* Camera, int ViewWidth, int ViewHeight, vec3 Pos) {
 	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
 	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
 
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)ViewWidth, (float)ViewHeight, 0.01f, 100.0f);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Camera->fov), (float)ViewWidth, (float)ViewHeight, 0.01f, 100.0f);
 	
 	mat4 projViewModelMat = projMat * camViewMat;
 	
@@ -746,7 +1246,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	}*/
 	
 	// Grid.
-	int gridCount = 10;
+	int gridCount = 60;
 	float gridCellWidth = 1.0f;
 	vec3 gridColor = ModelInspector->gridColor;
 	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
@@ -754,6 +1254,13 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
 		pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
+
+	pushDebugSphere(appContext, vec3(0, 7.5f, 0), 7.5f, vec3(0.8f, 0.8f, 0.0f), 64);
+
+	pushDebugSphere(appContext, vec3(0, 7.5f, 0), 7.5f + 5.0f, vec3(0.5f, 0.8f, 0.0f), 64);
+	pushDebugSphere(appContext, vec3(0, 7.5f, 0), 27.5f, vec3(0.0f, 0.8f, 0.0f), 64);
+
+	pushDebugBox(appContext, ModelInspector->occlusionGrid.origin, ModelInspector->occlusionGrid.size, vec3(0, 1, 1));
 
 	//----------------------------------------------------------------------------------------------------
 	// Spatial accel structure.
@@ -774,7 +1281,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	viewRotMat = glm::rotate(viewRotMat, glm::radians(ModelInspector->camera.rotation.x), vec3Up);
 	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -ModelInspector->camera.position);
 
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)ModelInspector->mainViewWidth, (float)ModelInspector->mainViewHeight, 0.01f, 100.0f);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(ModelInspector->camera.fov), (float)ModelInspector->mainViewWidth, (float)ModelInspector->mainViewHeight, 0.01f, 100.0f);
 	mat4 invProjMat = inverse(projMat);
 	mat4 modelMat = mat4(1.0f);
 
@@ -798,6 +1305,13 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	appContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->renderViewBuffers.mainViewRtView, (float*)&ModelInspector->viewBackgroundColor);
 	appContext->d3dDeviceContext->ClearDepthStencilView(ModelInspector->renderViewBuffers.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
+	//for (size_t i = 0; i < ModelInspector->pointDistrib.points.size(); ++i) {
+	{
+		ldiPointCloudVertex* v = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
+
+		pushDebugLine(appContext, v->position, v->position + v->normal * 20.0f, vec3(1.0f, 0, 0));
+	}
+
 	//----------------------------------------------------------------------------------------------------
 	// Render debug primitives.
 	//----------------------------------------------------------------------------------------------------
@@ -815,6 +1329,58 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	//----------------------------------------------------------------------------------------------------
 	// Render models.
 	//----------------------------------------------------------------------------------------------------
+	// Occlusion cloud.
+	if (false) {
+		{
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
+			constantBuffer->mvp = projViewModelMat;
+			constantBuffer->color = vec4(0, 0, 0, 1);
+			constantBuffer->view = camViewMat;
+			constantBuffer->proj = projMat;
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+		}
+		{
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+			//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
+			//constantBuffer->size = vec4(16, 16, 1, 0);
+			constantBuffer->size = vec4(ModelInspector->pointWorldSize, ModelInspector->pointScreenSize, ModelInspector->pointScreenSpaceBlend, 0);
+			appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+		}
+
+		gfxRenderPointCloud(appContext, &ModelInspector->occlusionCloud);
+	}
+
+	// Surfel distribution.
+	if (true) {
+		{
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
+			constantBuffer->mvp = projViewModelMat;
+			constantBuffer->color = vec4(0, 0, 0, 1);
+			constantBuffer->view = camViewMat;
+			constantBuffer->proj = projMat;
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+		}
+		{
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+			//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
+			//constantBuffer->size = vec4(16, 16, 1, 0);
+			constantBuffer->size = vec4(ModelInspector->pointWorldSize, ModelInspector->pointScreenSize, ModelInspector->pointScreenSpaceBlend, 0);
+			appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+		}
+
+		gfxRenderPointCloud(appContext, &ModelInspector->pointDistribCloud);
+	}
+
 	if (ModelInspector->primaryModelShowShaded) {
 		gfxRenderModel(appContext, &ModelInspector->dergnRenderModel, false, ModelInspector->shaderResourceViewTest, ModelInspector->texSamplerState);
 	}
@@ -887,6 +1453,42 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 
 		gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 	}
+
+	//if (ModelInspector->showSurfels) {
+	if (true) {
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+		UINT lgStride = sizeof(ldiCoveragePointVertex);
+		UINT lgOffset = 0;
+
+		appContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
+		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &ModelInspector->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		appContext->d3dDeviceContext->IASetIndexBuffer(ModelInspector->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		
+		appContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointVertexShader, 0, 0);
+		appContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
+		appContext->d3dDeviceContext->VSSetShaderResources(0, 1, &ModelInspector->coverageBufferSrv);
+
+		appContext->d3dDeviceContext->PSSetShader(ModelInspector->coveragePointPixelShader, 0, 0);
+		appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
+		appContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+		appContext->d3dDeviceContext->OMSetBlendState(appContext->defaultBlendState, NULL, 0xffffffff);
+		appContext->d3dDeviceContext->RSSetState(appContext->defaultRasterizerState);
+
+		appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->defaultDepthStencilState, 0);
+
+		/*appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		appContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);*/
+		
+		appContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+	}
 }
 
 void modelInspectorShowUi(ldiModelInspector* tool) {
@@ -894,7 +1496,8 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	if (ImGui::CollapsingHeader("Viewport", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::ColorEdit3("Background", (float*)&tool->viewBackgroundColor);
 		ImGui::ColorEdit3("Grid", (float*)&tool->gridColor);
-		ImGui::SliderFloat("Camera speed", &tool->cameraSpeed, 0.0f, 1.0f);
+		ImGui::SliderFloat("Camera speed", &tool->cameraSpeed, 0.0f, 4.0f);
+		ImGui::SliderFloat("Camera FOV", &tool->camera.fov, 1.0f, 180.0f);
 		
 		ImGui::Separator();
 		ImGui::Text("Primary model");
@@ -915,6 +1518,14 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
 		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
 		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+
+		ImGui::Separator();
+		ImGui::Text("Laser view");
+		ImGui::DragFloat3("Cam position", (float*)&tool->laserViewPos, 0.1f, -100.0f, 100.0f);
+		ImGui::DragFloat2("Cam rotation", (float*)&tool->laserViewRot, 0.1f, -360.0f, 360.0f);
+		ImGui::SliderInt("Surfel", &tool->selectedSurfel, 0, tool->pointDistrib.points.size() - 1);
+		
+		ImGui::Image(tool->occRenderTexView, ImVec2(512, 512));
 	}
 		
 	if (ImGui::CollapsingHeader("Processing")) {
@@ -933,6 +1544,16 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	}
 
 	ImGui::End();
+
+	modelInspectorRenderLaserView(tool->appContext, tool);
+
+	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	if (ImGui::Begin("Laser view", 0, ImGuiWindowFlags_NoCollapse)) {
+		ImGui::Image(tool->occRenderTexView, ImVec2(tool->occSize, tool->occSize));
+	}
+	ImGui::End();
+	ImGui::PopStyleVar();
 
 
 	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
@@ -1058,9 +1679,10 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 			//ImGui::End();
 		
 			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 25), false, ImGuiWindowFlags_NoScrollbar);
+			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 35), false, ImGuiWindowFlags_NoScrollbar);
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			ImGui::Text("%.3f %.3f %.3f", tool->camera.position.x, tool->camera.position.y, tool->camera.position.z);
 
 			ImGui::EndChild();
 		}
