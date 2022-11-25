@@ -237,7 +237,8 @@ struct ldiModelInspector {
 	ID3D11RenderTargetView*		occRenderTexRtView;
 	ID3D11Texture2D*			occDepthStencil;
 	ID3D11DepthStencilView*		occDepthStencilView;
-
+	ID3D11ShaderResourceView*	occDepthStencilSrv;
+	
 	int							occSize = 1024;
 	
 	ldiRenderLines				quadMeshWire;
@@ -546,47 +547,184 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	return 0;
 }
 
-bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* Tool) {
-	ID3D11Buffer* perViewBuffer;
-	ID3D11UnorderedAccessView* perViewBufferUav;
+struct ldiLaserViewCoveragePrep {
+	mat4 projMat;
+};
 
-	int numSurfels = (int)Tool->surfels.size();
+ldiLaserViewCoveragePrep modelInspectorLaserViewCoveragePrep(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = ModelInspector->occSize;
+	viewport.Height = ModelInspector->occSize;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+
+	ldiLaserViewCoveragePrep result = {};
+	result.projMat = glm::perspectiveFovRH_ZO(glm::radians(11.478f), (float)ModelInspector->occSize, (float)ModelInspector->occSize, 0.1f, 100.0f);
+
+	return result;
+}
+
+void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiLaserViewCoveragePrep* Prep, vec3 SurfacePos, vec3 SurfaceNormal) {
+	ID3D11RenderTargetView* renderTargets[] = {
+		ModelInspector->occRenderTexRtView
+	};
+
+	AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, ModelInspector->occDepthStencilView);
+	AppContext->d3dDeviceContext->ClearDepthStencilView(ModelInspector->occDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+	// Convert world transform to machine movement.
+	//ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[i];
+
+	vec3 modelLocalTargetPos = SurfacePos;
+	vec3 actualModelLocalCamPos = SurfacePos + SurfaceNormal * 20.0f;
+	vec3 viewDir = glm::normalize(-SurfaceNormal);
+
+	ModelInspector->laserViewRot.y = viewDir.y * -90.0f;
+	ModelInspector->laserViewRot.x = glm::degrees(atan2(-viewDir.z, -viewDir.x));
+
+	mat4 modelLocalMat = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.x), vec3Up);
+	vec3 modelWorldTargetPos = modelLocalMat * vec4(vec3(0.0f, 7.5, 0.0f) - modelLocalTargetPos, 1.0f);
+
+	// Laser tool head movement.
+	mat4 laserHeadMat = glm::translate(mat4(1.0f), vec3(0, 7.5f, 0.0f));
+	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(ModelInspector->laserViewRot.y), -vec3Forward);
+	laserHeadMat = glm::translate(laserHeadMat, vec3(20.0f, 0, 0.0f));
+	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(90.0f), vec3Up);
+
+	ModelInspector->laserViewPos = modelWorldTargetPos;
+
+	// Model movement.
+	mat4 modelMat = glm::translate(mat4(1.0f), ModelInspector->laserViewPos);
+	modelMat = glm::rotate(modelMat, glm::radians(ModelInspector->laserViewRot.x), vec3Up);
+
+	mat4 camViewMat = glm::inverse(laserHeadMat);
+	mat4 camViewModelMat = camViewMat * modelMat;
+	vec3 camModelLocaPos = vec4(0, 0, 0, 1) * camViewModelMat;
+	mat4 projViewModelMat = Prep->projMat * camViewModelMat;
+
+	// Render model.
+	D3D11_MAPPED_SUBRESOURCE ms;
+	AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	constantBuffer->mvp = projViewModelMat;
+	constantBuffer->color = vec4(0, 0, 0, 1);
+	//constantBuffer->color = vec4(actualModelLocalCamPos, 1);
+	AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+	{
+		ldiRenderModel* Model = &ModelInspector->dergnDebugModel;
+		UINT lgStride = sizeof(ldiSimpleVertex);
+		UINT lgOffset = 0;
+
+		AppContext->d3dDeviceContext->IASetInputLayout(AppContext->simpleInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		AppContext->d3dDeviceContext->VSSetShader(AppContext->simpleVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShader(AppContext->simplePixelShader, 0, 0);
+		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+		AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+	}
+
+	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, NULL, 1, 1, &ModelInspector->coverageBufferUav, 0);
+	//AppContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->occRenderTexRtView, (float*)&bkgColor);
+
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(actualModelLocalCamPos, 1);
+		AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+		UINT lgStride = sizeof(ldiCoveragePointVertex);
+		UINT lgOffset = 0;
+
+		AppContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &ModelInspector->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(ModelInspector->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		AppContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointWriteVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->VSSetShaderResources(0, 1, &ModelInspector->coverageBufferSrv);
+
+		AppContext->d3dDeviceContext->PSSetShader(ModelInspector->coveragePointWritePixelShader, 0, 0);
+		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ModelInspector->occDepthStencilSrv);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &AppContext->defaultPointSamplerState);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
+
+		AppContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+
+		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, nullSRV);
+	}
+}
+
+bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	double t0 = _getTime(AppContext);
+
+	D3D11_QUERY_DESC queryDesc = {};
+	queryDesc.Query = D3D11_QUERY_EVENT;
+
+	ID3D11Query* query;
+	AppContext->d3dDevice->CreateQuery(&queryDesc, &query);
+
+	ldiLaserViewCoveragePrep prep = modelInspectorLaserViewCoveragePrep(AppContext, ModelInspector);
+
+	for (size_t i = 0; i < ModelInspector->pointDistrib.points.size(); ++i) {
+	//for (size_t i = 0; i < 100; ++i) {
+		// Convert world transform to machine movement.
+		ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[i];
+
+		modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal);
+	}
+
+	AppContext->d3dDeviceContext->End(query);
+	BOOL queryData;
+
+	while (S_OK != AppContext->d3dDeviceContext->GetData(query, &queryData, sizeof(BOOL), 0)) {
+	}
+
+	if (queryData != TRUE) {
+		return false;
+	}
+
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Coverage: " << t0 * 1000.0f << " ms\n";
 	
-	// TODO: These local buffers never need to be read back to CPU, and should marked dynamic.
-	if (!gfxCreateStructuredBuffer(AppContext, 4, numSurfels, 0, &perViewBuffer)) {
-		return false;
-	}
-
-	if (!gfxCreateBufferUav(AppContext, perViewBuffer, &perViewBufferUav)) {
-		perViewBuffer->Release();
-		return false;
-	}
-
-	// Final coverage score buffer.
-
-	// Per render coverage buffer.
-
-	// Render per view:
-		// Render depth map.
-		// Determine per point score.
-		// Update coverage buffer
-
-	//modelInspectorRenderLaserView(AppContext, Tool);
-
-	perViewBuffer->Release();
-	perViewBufferUav->Release();
-
 	return true;
 }
 
 void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ID3D11RenderTargetView* renderTargets[] = {
-			ModelInspector->occRenderTexRtView
+		ModelInspector->occRenderTexRtView
 	};
 
 	//AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, ModelInspector->occDepthStencilView);
-	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, ModelInspector->occDepthStencilView, 1, 1, &ModelInspector->coverageBufferUav, 0);
+	//AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, ModelInspector->occDepthStencilView, 1, 1, &ModelInspector->coverageBufferUav, 0);
 
+	AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, ModelInspector->occDepthStencilView);
+	
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
@@ -602,15 +740,12 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 	AppContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->occRenderTexRtView, (float*)&bkgColor);
 	AppContext->d3dDeviceContext->ClearDepthStencilView(ModelInspector->occDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(11.478f), (float)ModelInspector->occSize, (float)ModelInspector->occSize, 0.01f, 100.0f);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(11.478f), (float)ModelInspector->occSize, (float)ModelInspector->occSize, 0.1f, 100.0f);
 
 	// Convert world transform to machine movement.
 	ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
-	vec3 modelLocalTargetPos = vert->position;// + vert->normal * -20.0f;
-
+	vec3 modelLocalTargetPos = vert->position;
 	vec3 actualModelLocalCamPos = vert->position + vert->normal * 20.0f;
-	//std::cout << actualModelLocalCamPos.x << ", " << actualModelLocalCamPos.y << ", " << actualModelLocalCamPos.z << "\n";
-
 	vec3 viewDir = glm::normalize(-vert->normal);
 
 	// Convert Y axis to laserY. 1.0 to -1.0 to -90.0f to 90.0f;
@@ -620,34 +755,21 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 	mat4 modelLocalMat = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.x), vec3Up);
 	vec3 modelWorldTargetPos = modelLocalMat * vec4(vec3(0.0f, 7.5, 0.0f) - modelLocalTargetPos, 1.0f);
 
-	//std::cout << modelWorldTargetPos.x << ", " << modelWorldTargetPos.y << ", " << modelWorldTargetPos.z << "\n";
-
 	// Laser tool head movement.
 	mat4 laserHeadMat = glm::translate(mat4(1.0f), vec3(0, 7.5f, 0.0f));
 	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(ModelInspector->laserViewRot.y), -vec3Forward);
 	laserHeadMat = glm::translate(laserHeadMat, vec3(20.0f, 0, 0.0f));
 	laserHeadMat = glm::rotate(laserHeadMat, glm::radians(90.0f), vec3Up);
 
-	/*vec3 laserWorldPos = laserHeadMat * vec4(0, 0, 0, 1);
-	vec3 diff = modelWorldTargetPos;*/
-
 	ModelInspector->laserViewPos = modelWorldTargetPos;
 
 	// Model movement.
 	mat4 modelMat = glm::translate(mat4(1.0f), ModelInspector->laserViewPos);
-	/*modelMat = glm::rotate(modelMat, glm::radians(ModelInspector->laserViewRot.x), vec3Up);*/
 	modelMat = glm::rotate(modelMat, glm::radians(ModelInspector->laserViewRot.x), vec3Up);
-
-	/*mat4 viewRotX = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.x), vec3Right);
-	mat4 viewRotY = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->laserViewRot.y), vec3Up);*/
-	//mat4 camViewMat = glm::translate(mat4(1.0f), -vec3(0, 0.0f, 20)) * viewRotX * viewRotY * glm::translate(mat4(1.0f), -ModelInspector->laserViewPos);
-
 	mat4 camViewMat = glm::inverse(laserHeadMat);
 	mat4 camViewModelMat = camViewMat * modelMat;
 	vec3 camModelLocaPos = vec4(0, 0, 0, 1) * camViewModelMat;
 	mat4 projViewModelMat = projMat * camViewModelMat;
-
-	//std::cout << camModelLocaPos.x << ", " << camModelLocaPos.y << ", " << camModelLocaPos.z << "\n";
 
 	// Render model.
 	D3D11_MAPPED_SUBRESOURCE ms;
@@ -680,19 +802,8 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 		AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 	}
 
+	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, NULL, 1, 1, &ModelInspector->coverageBufferUav, 0);
 	AppContext->d3dDeviceContext->ClearRenderTargetView(ModelInspector->occRenderTexRtView, (float*)&bkgColor);
-
-	//{
-	//	D3D11_MAPPED_SUBRESOURCE ms;
-	//	AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-	//	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-	//	constantBuffer->mvp = projViewModelMat;
-	//	// Camera position in local model space.
-	//	constantBuffer->color = vec4(actualModelLocalCamPos, 1);
-	//	AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
-
-	//	gfxRenderSurfelModel(AppContext, &ModelInspector->surfelRenderModel, AppContext->dotShaderResourceView, AppContext->dotSamplerState);
-	//}
 
 	{
 		D3D11_MAPPED_SUBRESOURCE ms;
@@ -716,14 +827,19 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 
 		AppContext->d3dDeviceContext->PSSetShader(ModelInspector->coveragePointWritePixelShader, 0, 0);
 		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ModelInspector->occDepthStencilSrv);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &AppContext->defaultPointSamplerState);
 		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
 
 		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 
-		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
 
 		AppContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+
+		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, nullSRV);
 	}
 }
 
@@ -890,7 +1006,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
 
-	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels);
+	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &quadModel);
 	
 	//ldiModel quadMeshTriModel;
 	//convertQuadToTriModel(&quadModel, &quadMeshTriModel);
@@ -994,16 +1110,36 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		depthStencilDesc.Height = ModelInspector->occSize;
 		depthStencilDesc.MipLevels = 1;
 		depthStencilDesc.ArraySize = 1;
-		depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthStencilDesc.Format = DXGI_FORMAT_R32_TYPELESS;
 		depthStencilDesc.SampleDesc.Count = 1;
 		depthStencilDesc.SampleDesc.Quality = 0;
 		depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
-		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 		depthStencilDesc.CPUAccessFlags = 0;
 		depthStencilDesc.MiscFlags = 0;
 
 		AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &ModelInspector->occDepthStencil);
-		AppContext->d3dDevice->CreateDepthStencilView(ModelInspector->occDepthStencil, NULL, &ModelInspector->occDepthStencilView);
+
+		D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+		dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;// DXGI_FORMAT_D24_UNORM_S8_UINT;
+		dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+		dsvDesc.Flags = 0;
+		dsvDesc.Texture2D.MipSlice = 0;
+
+		if (AppContext->d3dDevice->CreateDepthStencilView(ModelInspector->occDepthStencil, &dsvDesc, &ModelInspector->occDepthStencilView) != S_OK) {
+			std::cout << "CreateDepthStencilView failed\n";
+			return 1;
+		}
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		srvDesc.ViewDimension = D3D_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->occDepthStencil, &srvDesc, &ModelInspector->occDepthStencilSrv) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
 	}
 
 	// Create occlusion grid render model.
@@ -1117,10 +1253,6 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		return 1;
 	}
 
-	//if (!modelInspectorCalculateLaserViewCoverage(AppContext, ModelInspector)) {
-	//	return 1;
-	//}
-
 	//----------------------------------------------------------------------------------------------------
 	// Coverage point shaders.
 	//----------------------------------------------------------------------------------------------------
@@ -1143,6 +1275,13 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 
 	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoveragePs", &ModelInspector->coveragePointWritePixelShader)) {
+		return 1;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Run full coverage test.
+	//----------------------------------------------------------------------------------------------------
+	if (!modelInspectorCalculateLaserViewCoverage(AppContext, ModelInspector)) {
 		return 1;
 	}
 

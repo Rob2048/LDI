@@ -299,6 +299,7 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 	return result;
 }
 
+/*
 ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels) {
 	ldiRenderModel result = {};
 
@@ -356,6 +357,94 @@ ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector
 		v3->id = i;
 		v3->normal = s->normal;
 		
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiCoveragePointVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+*/
+
+ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, ldiQuadModel* ModelSource) {
+	ldiRenderModel result = {};
+
+	// Unique quads with unique verts per quad.
+
+	int quadCount = (int)(ModelSource->indices.size() / 4);
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiCoveragePointVertex* verts = new ldiCoveragePointVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	for (int i = 0; i < quadCount; ++i) {
+		vec3 p0 = ModelSource->verts[ModelSource->indices[i * 4 + 0]];
+		vec3 p1 = ModelSource->verts[ModelSource->indices[i * 4 + 1]];
+		vec3 p2 = ModelSource->verts[ModelSource->indices[i * 4 + 2]];
+		vec3 p3 = ModelSource->verts[ModelSource->indices[i * 4 + 3]];
+
+		float s0 = glm::length(p0 - p1);
+		float s1 = glm::length(p1 - p2);
+		float s2 = glm::length(p2 - p3);
+		float s3 = glm::length(p3 - p0);
+
+		// NOTE: Calculate normal.
+		vec3 normal = (*Surfels)[i].normal;
+
+		ldiCoveragePointVertex* v0 = &verts[i * 4 + 0];
+		ldiCoveragePointVertex* v1 = &verts[i * 4 + 1];
+		ldiCoveragePointVertex* v2 = &verts[i * 4 + 2];
+		ldiCoveragePointVertex* v3 = &verts[i * 4 + 3];
+
+		v0->position = p0;
+		v0->id = i;
+		v0->normal = normal;
+
+		v1->position = p1;
+		v1->id = i;
+		v1->normal = normal;
+
+		v2->position = p2;
+		v2->id = i;
+		v2->normal = normal;
+
+		v3->position = p3;
+		v3->id = i;
+		v3->normal = normal;
+
 		indices[i * 6 + 0] = i * 4 + 2;
 		indices[i * 6 + 1] = i * 4 + 1;
 		indices[i * 6 + 2] = i * 4 + 0;

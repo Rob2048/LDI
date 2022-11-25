@@ -60,9 +60,18 @@ float4 showCoveragePs(PS_INPUT input) : SV_Target {
 //----------------------------------------------------------------------------------------------------
 RWStructuredBuffer<int> coverageBufferWrite : register(u1);
 
-PS_INPUT writeCoverageVs(vertexInputCoveragePoint input) {
+struct PS_INPUT_WRITE {
+	float4 pos : SV_POSITION;
+	float4 dist : TEXCOORD1;
+	float3 color : COLOR;
+	float3 normal : NORMAL;
+	int id : TEXCOORD0;
+};
+
+PS_INPUT_WRITE writeCoverageVs(vertexInputCoveragePoint input) {
 	PS_INPUT output;
-	output.pos = mul(ProjectionMatrix, float4(input.pos + normalize(ObjectColor.xyz - input.pos) * 0.01, 1));
+	// output.pos = mul(ProjectionMatrix, float4(input.pos + normalize(ObjectColor.xyz - input.pos) * 0.01, 1));
+	output.pos = mul(ProjectionMatrix, float4(input.pos, 1));
 	output.id = input.id;
 	output.normal = input.normal;
 	// output.color = float3(coverageBuffer[input.id], 0, 0);
@@ -73,29 +82,44 @@ PS_INPUT writeCoverageVs(vertexInputCoveragePoint input) {
 	return output;
 }
 
-float4 writeCoveragePs(PS_INPUT input) : SV_Target {
-	// return float4(input.color, 1);
+sampler pointSampler;
+Texture2D depthTex : register(t0);
 
-	if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
-		InterlockedMax(coverageBufferWrite[input.id], (int)(input.dist.y * 1000.0));
-		
-		if (input.dist.y >= 0.866) {
-			// 30
-			return float4(0, 1, 0, 1);
-		} else if (input.dist.y >= 0.707) {
-			// 45
-			return float4(0, 0.75, 0, 1);
-		} else if (input.dist.y >= 0.5) {
-			// 60
-			return float4(0, 0.5, 0, 1);
-		} else if (input.dist.y >= 0.34) {
-			// 70
-			return float4(1.0, 0.5, 0, 1);
+float4 writeCoveragePs(PS_INPUT_WRITE input) : SV_Target {
+	float2 screenPos = input.pos.xy / 1024.0;
+	float depthTexValue = depthTex.Sample(pointSampler, screenPos).r;
+
+	// float depth = (input.pos.z * 10000.0) % 1.0;
+	float depth = (depthTexValue * 10000.0) % 1.0;
+
+	float diff = depthTexValue - input.pos.z;
+
+	// TODO: Tolerance?
+	if (diff >= 0) {
+		if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
+			InterlockedMax(coverageBufferWrite[input.id], (int)(input.dist.y * 1000.0));
+			
+			if (input.dist.y >= 0.866) {
+				// 30
+				return float4(0, 1, 0, 1);
+			} else if (input.dist.y >= 0.707) {
+				// 45
+				return float4(0, 0.75, 0, 1);
+			} else if (input.dist.y >= 0.5) {
+				// 60
+				return float4(0, 0.5, 0, 1);
+			} else if (input.dist.y >= 0.34) {
+				// 70
+				return float4(1.0, 0.5, 0, 1);
+			}
+
+			return float4(1, 0, 0, 1);
 		}
 
-
-		return float4(1, 0, 0, 1);
+		return float4(input.dist.y, input.dist.y, input.dist.y, 1);
 	}
 
-	return float4(input.dist.y, input.dist.y, input.dist.y, 1);
+	// TODO: Check if this is too slow.
+	discard;
+	return float4(1, 0, 1, 1);
 }
