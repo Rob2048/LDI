@@ -17,7 +17,7 @@ PS_INPUT mainVs(vertexInputBasic input) {
 
 
 	// output.dist.x = length(input.pos - ObjectColor.xyz);
-	float3 normal = input.col * 2.0 - 1.0;
+	// float3 normal = input.col * 2.0 - 1.0;
 	// output.dist.y = dot(normal, normalize(ObjectColor.xyz - input.pos));
 
 	return output;

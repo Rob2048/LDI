@@ -3,6 +3,9 @@ Laser direct imager.
 
 ![Screenshot](resources/cad_design_1.png)
 
+# Notes
+- Surfel coverage idea: Use basic surfel area technique to determine laser views, then project samples on those surfels. Then use poisson sampling to eliminate samples. Allow overlaps for fuzzy edges.
+
 # Figure paint process
 
 ## Print

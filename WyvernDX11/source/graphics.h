@@ -1269,6 +1269,7 @@ bool gfxCreateComputeShader(ldiApp* AppContext, LPCWSTR Filename, const char* En
 
 bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementCount, void* Data, ID3D11Buffer** Buffer) {
 	D3D11_BUFFER_DESC desc = {};
+	desc.Usage = D3D11_USAGE_DEFAULT;
 	desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 	desc.ByteWidth = ElementSize * ElementCount;
 	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
