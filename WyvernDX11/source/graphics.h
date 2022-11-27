@@ -241,8 +241,8 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 		ldiBasicVertex* v2 = &verts[i * 4 + 2];
 		ldiBasicVertex* v3 = &verts[i * 4 + 3];
 
-		vec3 color = s->normal * 0.5f + 0.5f;
-		//vec3 color = s->color;
+		//vec3 color = s->normal * 0.5f + 0.5f;
+		vec3 color = s->color;
 
 		v0->position = p0;
 		v0->color = color;
@@ -633,7 +633,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 	double singleDotArea = dotSize * dotSize;
 	double dotsInArea = totalArea / singleDotArea;
 
-	std::cout << "Total area: " << totalArea << " cm3 Dots: " << (int)dotsInArea << "\n";
+	std::cout << "Total area: " << totalArea << " cm2 Dots: " << (int)dotsInArea << "\n";
 
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;

@@ -36,9 +36,10 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 		discard;
 	}
 
+	return float4(tex.rgb, 1) * input.col;
+
 	// return float4(input.worldPos * 0.1, 1);
 
-	// if (input.dist.x >= 1 && input.dist.x <= 1.3) {
 	if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
 		if (input.dist.y >= 0.866) {
 			// 30
@@ -54,11 +55,8 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 			return float4(1.0, 0.5, 0, 1);
 		}
 
-
 		return float4(1, 0, 0, 1);
 	}
 
 	return float4(tex.rgb, 1) * float4(input.dist.y, input.dist.y, input.dist.y, 1);
-
-	return float4(tex.rgb, 1) * input.col;
 }

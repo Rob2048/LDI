@@ -118,23 +118,26 @@ float4 writeCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 		}
 
 		if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
-			int distValue = (int)(input.dist.y * 1000.0);
-			InterlockedMax(coverageBufferWrite[input.id], distValue);
-			InterlockedAdd(areaBuffer[slotId], distValue);
+
+			//if (input.dist.y >= 0.707) {
+				int distValue = (int)(input.dist.y * 1000.0);
+				InterlockedMax(coverageBufferWrite[input.id], distValue);
+				InterlockedAdd(areaBuffer[slotId], distValue);
 			
-			if (input.dist.y >= 0.866) {
-				// 30
-				return float4(0, 1, 0, 1);
-			} else if (input.dist.y >= 0.707) {
-				// 45
-				return float4(0, 0.75, 0, 1);
-			} else if (input.dist.y >= 0.5) {
-				// 60
-				return float4(0, 0.5, 0, 1);
-			} else if (input.dist.y >= 0.34) {
-				// 70
-				return float4(1.0, 0.5, 0, 1);
-			}
+				if (input.dist.y >= 0.866) {
+					// 30
+					return float4(0, 1, 0, 1);
+				} else if (input.dist.y >= 0.707) {
+					// 45
+					return float4(0, 0.75, 0, 1);
+				} else if (input.dist.y >= 0.5) {
+					// 60
+					return float4(0, 0.5, 0, 1);
+				} else if (input.dist.y >= 0.34) {
+					// 70
+					return float4(1.0, 0.5, 0, 1);
+				}
+			//}
 
 			return float4(1, 0, 0, 1);
 		}
@@ -159,22 +162,25 @@ float4 writeNoCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 		}
 
 		if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
-			int distValue = (int)(input.dist.y * 1000.0);
-			InterlockedAdd(areaBuffer[slotId], distValue);
-			
-			if (input.dist.y >= 0.866) {
-				// 30
-				return float4(0, 1, 0, 1);
-			} else if (input.dist.y >= 0.707) {
-				// 45
-				return float4(0, 0.75, 0, 1);
-			} else if (input.dist.y >= 0.5) {
-				// 60
-				return float4(0, 0.5, 0, 1);
-			} else if (input.dist.y >= 0.34) {
-				// 70
-				return float4(1.0, 0.5, 0, 1);
-			}
+
+			//if (input.dist.y >= 0.707) {
+				int distValue = (int)(input.dist.y * 1000.0);
+				InterlockedAdd(areaBuffer[slotId], distValue);
+				
+				if (input.dist.y >= 0.866) {
+					// 30
+					return float4(0, 1, 0, 1);
+				} else if (input.dist.y >= 0.707) {
+					// 45
+					return float4(0, 0.75, 0, 1);
+				} else if (input.dist.y >= 0.5) {
+					// 60
+					return float4(0, 0.5, 0, 1);
+				} else if (input.dist.y >= 0.34) {
+					// 70
+					return float4(1.0, 0.5, 0, 1);
+				}
+			//}
 
 			return float4(1, 0, 0, 1);
 		}
