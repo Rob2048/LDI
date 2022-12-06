@@ -122,5 +122,8 @@
     <ClInclude Include="source\voxelGrid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\spatialGrid.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

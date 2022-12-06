@@ -209,14 +209,16 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 	ldiBasicVertex* verts = new ldiBasicVertex[vertCount];
 	uint32_t* indices = new uint32_t[indexCount];
 
-	float surfelSize = 0.0075f;
-	float hSize = surfelSize / 2.0f;
+	//float surfelSize = 0.0075f;
+	//float hSize = surfelSize / 2.0f;
 	//float hSize = surfelSize * 4.0f;
 	float normalAdjust = 0.001f;
 	
 	for (int i = 0; i < quadCount; ++i) {
 		ldiSurfel* s = &(*Surfels)[i];
 
+		float hSize = s->scale * 0.5f;
+		
 		vec3 upVec(0, 1, 0);
 
 		if (s->normal == upVec || s->normal == -upVec) {

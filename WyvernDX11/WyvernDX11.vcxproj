@@ -171,6 +171,7 @@
   <ItemGroup>
     <ClInclude Include="source\computerVision.h" />
     <ClInclude Include="source\modelEditor.h" />
+    <ClInclude Include="source\spatialGrid.h" />
     <ClInclude Include="source\visionSimulator.h" />
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />

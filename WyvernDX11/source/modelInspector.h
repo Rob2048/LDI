@@ -3,198 +3,7 @@
 #define max(a,b)            (((a) > (b)) ? (a) : (b))
 #define min(a,b)            (((a) < (b)) ? (a) : (b))
 
-struct ldiSpatialGrid {
-	vec3 min;
-	vec3 max;
-	vec3 origin;
-	vec3 size;
-	float cellSize;
-	int countX;
-	int countY;
-	int countZ;
-	int countTotal;
-	int* index;
-	int* data;
-};
-
-struct ldiProbabilityGrid {
-	vec3 min;
-	vec3 max;
-	vec3 origin;
-	vec3 size;
-	int totalCells;
-	float cellSize;
-	int cellCount;
-	float* data;
-};
-
-void spatialGridDestroy(ldiSpatialGrid* Grid) {
-	if (Grid->index) {
-		delete[] Grid->index;
-	}
-
-	if (Grid->data) {
-		delete[] Grid->data;
-	}
-
-	memset(Grid, 0, sizeof(ldiSpatialGrid));
-}
-
-void spatialGridInit(ldiSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
-	spatialGridDestroy(Grid);
-
-	Grid->cellSize = CellSize;
-
-	Grid->origin = MinBounds + (MaxBounds - MinBounds) * 0.5f;
-	Grid->size = MaxBounds - MinBounds;
-
-	Grid->countX = ceilf(Grid->size.x / CellSize + 0.5f) + 2;
-	Grid->countY = ceilf(Grid->size.y / CellSize + 0.5f) + 2;
-	Grid->countZ = ceilf(Grid->size.z / CellSize + 0.5f) + 2;
-	Grid->countTotal = Grid->countX * Grid->countY * Grid->countZ;
-
-	std::cout << "Spatial cell counts: " << Grid->countX << ", " << Grid->countY << ", " << Grid->countZ << " (" << Grid->countTotal << ")\n";
-
-	Grid->size = vec3(Grid->countX * CellSize, Grid->countY * CellSize, Grid->countZ * CellSize);
-
-	Grid->min = Grid->origin - Grid->size * 0.5f;
-	Grid->max = Grid->origin + Grid->size * 0.5f;
-
-	assert(Grid->countTotal > 0);
-	Grid->index = new int[Grid->countTotal];
-	memset(Grid->index, 0, sizeof(int) * Grid->countTotal);
-
-	std::cout << "Spatial grid cells: " << ((Grid->countTotal * 4) / 1024.0 / 1024.0) << " MB\n";
-}
-
-vec3 spatialGridGetCellFromWorldPosition(ldiSpatialGrid* Grid, vec3 Position) {
-	vec3 result;
-
-	vec3 local = Position - Grid->min;
-
-	result = local / Grid->cellSize;
-
-	return result;
-}
-
-inline int spatialGridGetCellId(ldiSpatialGrid* Grid, int CellX, int CellY, int CellZ) {
-	return CellX + CellY * Grid->countX + CellZ * Grid->countX * Grid->countY;
-}
-
-int spatialGridGetCellIdFromWorldPosition(ldiSpatialGrid* Grid, vec3 Position) {
-	vec3 local = Position - Grid->min;
-
-	int cellX = (int)(local.x / Grid->cellSize);
-	int cellY = (int)(local.y / Grid->cellSize);
-	int cellZ = (int)(local.z / Grid->cellSize);
-
-	return spatialGridGetCellId(Grid, cellX, cellY, cellZ);
-}
-
-void spatialGridPrepEntry(ldiSpatialGrid* Grid, vec3 Position) {
-	int cellId = spatialGridGetCellIdFromWorldPosition(Grid, Position);
-	assert(cellId >= 0 && cellId < Grid->countTotal);
-
-	Grid->index[cellId]++;
-}
-
-void spatialGridCompile(ldiSpatialGrid* Grid) {
-	int totalEntries = 0;
-	int totalOccupedCells = 0;
-
-	for (int i = 0; i < Grid->countTotal; ++i) {
-		if (Grid->index[i] > 0) {
-			totalOccupedCells++;
-			totalEntries += Grid->index[i];
-		}
-	}
-
-	Grid->data = new int[totalOccupedCells + totalEntries];
-
-	std::cout << "Spatial grid data: " << ((totalOccupedCells + totalEntries * 4) / 1024.0 / 1024.0) << " MB\n";
-
-	int currentOffset = 0;
-
-	for (int i = 0; i < Grid->countTotal; ++i) {
-		int entryCount = Grid->index[i];
-
-		if (entryCount == 0) {
-			Grid->index[i] = -1;
-		} else {
-			Grid->index[i] = currentOffset;
-			Grid->data[currentOffset] = 0;
-			currentOffset += 1 + entryCount;
-		}
-	}
-}
-
-void spatialGridAddEntry(ldiSpatialGrid* Grid, vec3 Position, int Value) {
-	int cellId = spatialGridGetCellIdFromWorldPosition(Grid, Position);
-	assert(cellId >= 0 && cellId < Grid->countTotal);
-
-	int dataOffset = Grid->index[cellId];
-	
-	int cellCount = Grid->data[dataOffset];
-	Grid->data[dataOffset + 1 + cellCount] = Value;
-	Grid->data[dataOffset] += 1;
-}
-
-void spatialGridRenderOccupied(ldiApp* AppContext, ldiSpatialGrid* Grid) {
-	for (int i = 0; i < Grid->countTotal; ++i) {
-		int dataOffset = Grid->index[i];
-		
-		if (dataOffset == -1) {
-			continue;
-		}
-
-		int cellX = i % Grid->countX;
-		int cellY = (i % (Grid->countX * Grid->countY)) / Grid->countX;
-		int cellZ = i / (Grid->countX * Grid->countY);
-
-		vec3 localSpace = vec3(cellX, cellY, cellZ) * Grid->cellSize;
-		vec3 worldSpace = localSpace + Grid->min;
-		vec3 max = worldSpace + Grid->cellSize;
-
-		pushDebugBoxMinMax(AppContext, worldSpace, max, vec3(1, 0, 1));
-	}
-}
-
-void spatialGridRenderDebug(ldiApp* AppContext, ldiSpatialGrid* Grid, bool Bounds, bool CellView) {
-	if (Bounds) {
-		pushDebugBox(AppContext, Grid->origin, Grid->size, vec3(1, 0, 1));
-	}
-
-	if (CellView) {
-		vec3 color = vec3(0, 0, 1); 
-		
-		// Along X axis.
-		for (int iY = 0; iY < Grid->countY; ++iY) {
-			for (int iZ = 0; iZ < Grid->countZ; ++iZ) {
-				pushDebugLine(AppContext, vec3(Grid->min.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), vec3(Grid->max.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), color);
-			}
-		}
-	}
-}
-
-struct ldiSpatialCellResult {
-	int count;
-	int* data;
-};
-
-ldiSpatialCellResult spatialGridGetCell(ldiSpatialGrid* Grid, int CellX, int CellY, int CellZ) {
-	ldiSpatialCellResult result{};
-
-	int cellId = spatialGridGetCellId(Grid, CellX, CellY, CellZ);
-
-	int dataOffset = Grid->index[cellId];
-
-	if (dataOffset != -1) {
-		result.count = Grid->data[dataOffset];
-		result.data = &Grid->data[dataOffset + 1];
-	}
-
-	return result;
-}
+#include "spatialGrid.h"
 
 struct ldiLaserViewSurfel {
 	int id;
@@ -236,7 +45,8 @@ struct ldiModelInspector {
 	bool						showPointCloud = false;
 	bool						quadMeshShowWireframe = false;
 	bool						quadMeshShowDebug = true;
-	bool						showSurfels = true;
+	bool						showSurfels = false;
+	bool						showPoissonSamples = true;
 	bool						showSpatialCells = false;
 	bool						showSpatialBounds = false;
 	bool						showSampleSites = false;
@@ -252,6 +62,7 @@ struct ldiModelInspector {
 	vec4						viewBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 
+	ldiQuadModel				quadModel;
 	ldiModel					dergnModel;
 	ldiRenderModel				dergnRenderModel;
 	ldiRenderModel				dergnDebugModel;
@@ -272,6 +83,7 @@ struct ldiModelInspector {
 	ldiRenderLines				quadMeshWire;
 	ldiRenderModel				surfelRenderModel;
 	ldiRenderModel				surfelHighRenderModel;
+	ldiRenderModel				poissonSamplesRenderModel;
 
 	ldiRenderPointCloud			pointCloudRenderModel;
 
@@ -285,6 +97,7 @@ struct ldiModelInspector {
 	ldiImage					baseTexture;
 
 	ldiSpatialGrid				spatialGrid;
+	ldiPoissonSpatialGrid		poissonSpatialGrid;
 
 	ldiPointCloud				pointDistrib;
 	ldiRenderPointCloud			pointDistribCloud;
@@ -292,7 +105,7 @@ struct ldiModelInspector {
 	vec3						laserViewPos;
 
 	int							selectedSurfel = 0;
-	int							selectedLaserView = 0;
+	int							selectedLaserView = -1;
 	bool						laserViewShowBackground = false;
 
 	ID3D11ComputeShader*		calcPointScoreComputeShader;
@@ -319,8 +132,6 @@ struct ldiModelInspector {
 
 	std::vector<ldiLaserViewPathPos> laserViewPathPositions;
 	std::vector<int>			laserViewPath;
-
-
 };
 
 void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
@@ -363,7 +174,7 @@ void geoCreateSurfels(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 		surfel.position = center;// + normal * normalAdjust;
 		surfel.normal = normal;
 		surfel.color = vec3(0, 0, 0);
-		surfel.scale = 1.0f;
+		surfel.scale = 0.0075f;
 
 		Result->push_back(surfel);
 	}
@@ -413,7 +224,7 @@ void geoCreateSurfelsHigh(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 			surfel.id = i;
 			surfel.normal = normal;
 			surfel.color = vec3(0.5f, 0.5f, 0.5f);
-			surfel.scale = 1.0f;
+			surfel.scale = 0.0075f;
 			surfel.position = s[sIter];
 
 			Result->push_back(surfel);
@@ -962,6 +773,16 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->laserViewPathPositions.clear();
 
+	struct ldiSurfelViewCoverage {
+		int viewId;
+		float angle;
+
+	};
+
+	struct ldiViewInfo {
+		mat4 modelToView;
+	};
+
 	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
@@ -1039,6 +860,9 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 			break;
 		}
 
+		// TODO: TEMP
+		maxAreaId = 250;
+
 		//----------------------------------------------------------------------------------------------------
 		// Re-render best view and get all samples related to it.
 		//----------------------------------------------------------------------------------------------------
@@ -1082,42 +906,205 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		//----------------------------------------------------------------------------------------------------
 		// Calculate surfel positions
 		//----------------------------------------------------------------------------------------------------
-		ldiMachineTransform machineTransform = modelInspectorGetLaserViewModelToView(prep.projMat, pathPos.surfacePos, pathPos.surfaceNormal);
+		if (false) {
+			ldiMachineTransform machineTransform = modelInspectorGetLaserViewModelToView(prep.projMat, pathPos.surfacePos, pathPos.surfaceNormal);
 
-		t0 = _getTime(AppContext);
+			t0 = _getTime(AppContext);
 
-		for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
-			// NOTE: Each low rank surfel has 4 high rankers.
-			int surfelId = pathPos.surfelIds[i];
-			float angle = coverageBufferData[surfelId] / 1000.0f;
+			for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
+				// NOTE: Each low rank surfel has 4 high rankers.
+				int surfelId = pathPos.surfelIds[i];
+				float angle = coverageBufferData[surfelId] / 1000.0f;
 
-			for (size_t j = 0; j < 4; ++j) {
-				//ldiSurfel* s = &ModelInspector->surfels[surfelId];
-				ldiSurfel* s = &ModelInspector->surfelsHigh[surfelId * 4 + j];
+				for (size_t j = 0; j < 4; ++j) {
+					//ldiSurfel* s = &ModelInspector->surfels[surfelId];
+					ldiSurfel* s = &ModelInspector->surfelsHigh[surfelId * 4 + j];
 
-				ldiLaserViewSurfel viewSurfel = {};
-				viewSurfel.id = surfelId;
-				viewSurfel.angle = angle;
+					ldiLaserViewSurfel viewSurfel = {};
+					viewSurfel.id = surfelId;
+					viewSurfel.angle = angle;
 
-				vec4 clipSpace = machineTransform.projViewModelMat * vec4(s->position, 1.0f);
-				clipSpace.x /= clipSpace.w;
-				clipSpace.y /= clipSpace.w;
-				clipSpace.z /= clipSpace.w;
+					vec4 clipSpace = machineTransform.projViewModelMat * vec4(s->position, 1.0f);
+					clipSpace.x /= clipSpace.w;
+					clipSpace.y /= clipSpace.w;
+					clipSpace.z /= clipSpace.w;
 
-				clipSpace = clipSpace * 0.5f + 0.5f;
+					clipSpace = clipSpace * 0.5f + 0.5f;
 
-				viewSurfel.screenPos = vec2(clipSpace.x * 1024.0f, (1.0f - clipSpace.y) * 1024.0f);
+					viewSurfel.screenPos = vec2(clipSpace.x * 1024.0f, (1.0f - clipSpace.y) * 1024.0f);
 			
-				pathPos.surfels.push_back(viewSurfel);
+					pathPos.surfels.push_back(viewSurfel);
+				}
 			}
+
+			t0 = _getTime(AppContext) - t0;
+			std::cout << "Transform surfels: " << t0 * 1000.0f << " ms\n";
+
+			ModelInspector->laserViewPathPositions.push_back(pathPos);
 		}
 
-		t0 = _getTime(AppContext) - t0;
-		std::cout << "Transform surfels: " << t0 * 1000.0f << " ms\n";
-
-		ModelInspector->laserViewPathPositions.push_back(pathPos);
-
 		AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageStagingBuffer, 0);
+
+		//----------------------------------------------------------------------------------------------------
+		// Distribute poisson samples.
+		//----------------------------------------------------------------------------------------------------
+		{
+			t0 = _getTime(AppContext);
+
+			// Create sample candidates.
+			int candidatesPerSide = 8;
+			int candidatesPerSurfel = candidatesPerSide * candidatesPerSide;
+
+			std::vector<ldiSurfel> poissonSamples;
+
+			int totalCandidates = pathPos.surfelIds.size() * candidatesPerSurfel;
+
+			std::cout << "Total candidates: " << totalCandidates << "\n";
+
+			ldiPoissonSpatialGrid* sampleGrid = &ModelInspector->poissonSpatialGrid;
+
+			std::vector<ldiSurfel> poissonCandidates;
+			poissonCandidates.reserve(totalCandidates);
+
+			// Randomly walk valid low rank surfels.
+			for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
+				int surfelId = pathPos.surfelIds[i];
+
+				// Get quad for this surfel.
+				vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 0]];
+				vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 1]];
+				vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 2]];
+				vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 3]];
+
+				vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
+
+				vec3 normal = ModelInspector->surfels[surfelId].normal;
+
+				float s0 = glm::length(v0 - v1);
+				float s1 = glm::length(v1 - v2);
+				float s2 = glm::length(v2 - v3);
+				float s3 = glm::length(v3 - v0);
+
+				// For each required surfel, get the position.
+				float divSize = 1.0f / (candidatesPerSide);
+				float divHalf = divSize * 0.5f;
+
+				for (int iY = 0; iY < candidatesPerSide; ++iY) {
+					float lerpY = divSize * iY + divHalf;
+
+					for (int iX = 0; iX < candidatesPerSide; ++iX) {
+						float lerpX = divSize * iX + divHalf;
+						vec3 a = (v0 + (v1 - v0) * lerpX);
+						vec3 b = (v3 + (v2 - v3) * lerpX);
+
+						vec3 pos = (a + (b - a) * lerpY);
+
+						int idX = lerpX * 2.0f;
+						int idY = lerpY * 2.0f;
+						vec3 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
+
+						float lum = 1.0f - (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+
+						// NOTE: Luminance cutoff. Can't represent values this light.
+						if (lum < 0.1f) {
+							continue;
+						}
+
+						ldiSurfel candidateSurfel = {};
+						candidateSurfel.color = vec3(lum, lum, lum);
+						candidateSurfel.position = pos;
+						candidateSurfel.normal = normal;
+						candidateSurfel.scale = 0.0075f * lum;
+
+						poissonCandidates.push_back(candidateSurfel);
+					}
+				}
+			}
+
+			std::vector<int> candidateShuffles;
+			candidateShuffles.resize(poissonCandidates.size());
+
+			for (size_t iterShuff = 0; iterShuff < poissonCandidates.size(); ++iterShuff) {
+				candidateShuffles[iterShuff] = iterShuff;
+			}
+
+			for (size_t iterShuff = 0; iterShuff < poissonCandidates.size(); ++iterShuff) {
+				int swapIdx = rand() % poissonCandidates.size();
+
+				int temp = candidateShuffles[iterShuff];
+				candidateShuffles[iterShuff] = candidateShuffles[swapIdx];
+				candidateShuffles[swapIdx] = temp;
+			}
+
+			// Check that the candidate does not conflict.
+			for (size_t iterCandidate = 0; iterCandidate < candidateShuffles.size(); ++iterCandidate) {
+				ldiSurfel* cand = &poissonCandidates[candidateShuffles[iterCandidate]];
+				vec3 cellPos = poissonSpatialGridGetCellFromWorldPosition(sampleGrid, cand->position);
+
+				int cXs = (int)(cellPos.x - 0.5f);
+				int cXe = cXs + 1;
+				int cYs = (int)(cellPos.y - 0.5f);
+				int cYe = cYs + 1;
+				int cZs = (int)(cellPos.z - 0.5f);
+				int cZe = cZs + 1;
+
+				bool noconflicts = true;
+
+				for (int iterCz = cZs; iterCz <= cZe; ++iterCz) {
+					for (int iterCy = cYs; iterCy <= cYe; ++iterCy) {
+						for (int iterCx = cXs; iterCx <= cXe; ++iterCx) {
+							int cellId = poissonSpatialGridGetCellId(sampleGrid, iterCx, iterCy, iterCz);
+
+							size_t sampleCount = sampleGrid->cells[cellId].samples.size();
+
+							for (size_t iterSamples = 0; iterSamples < sampleCount; ++iterSamples) {
+								// Compare candidate against sample;
+
+								ldiPoissonSample* ps = &sampleGrid->cells[cellId].samples[iterSamples];
+
+								float mag = glm::distance(ps->position, cand->position);
+
+								//float checkDist = 0.02f * cand->color.r + 0.0075f;
+								float checkDist = 0.0075f;
+
+								if (mag <= checkDist) {
+									noconflicts = false;
+									break;
+								}
+							}
+
+							if (!noconflicts) {
+								break;
+							}
+						}
+						if (!noconflicts) {
+							break;
+						}
+					}
+					if (!noconflicts) {
+						break;
+					}
+				}
+
+				if (noconflicts) {
+					cand->color = vec3(1.0f, 1.0f, 1.0f);
+					poissonSamples.push_back(*cand);
+
+					ldiPoissonSample ps = {};
+					ps.position = cand->position;
+					ps.value = cand->color.r;
+
+					sampleGrid->cells[poissonSpatialGridGetCellId(sampleGrid, cellPos.x, cellPos.y, cellPos.z)].samples.push_back(ps);
+				}
+			}
+
+			t0 = _getTime(AppContext) - t0;
+			std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms\n";
+
+			ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples);
+
+			std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1186,6 +1173,11 @@ void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 	ModelInspector->laserViewPath.clear();
 	
 	int pathNodes = ModelInspector->laserViewPathPositions.size();
+
+	if (pathNodes == 0) {
+		return;
+	}
+
 	int* nodeMask = new int[pathNodes];
 
 	int bestRoot = 0;
@@ -1249,29 +1241,28 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
 
 	// Import PLY quad mesh.
-	ldiQuadModel quadModel;
-	if (!plyLoadQuadMesh("../cache/output.ply", &quadModel)) {
+	if (!plyLoadQuadMesh("../cache/output.ply", &ModelInspector->quadModel)) {
 		return 1;
 	}
 
-	int quadCount = quadModel.indices.size() / 4;
+	int quadCount = ModelInspector->quadModel.indices.size() / 4;
 
 	double totalSideLengths = 0.0;
 	int totalSideCount = 0;
 	float maxSide = FLT_MIN;
 	float minSide = FLT_MAX;
 
-	for (size_t i = 0; i < quadModel.verts.size(); ++i) {
-		vec3* vert = &quadModel.verts[i];
+	for (size_t i = 0; i < ModelInspector->quadModel.verts.size(); ++i) {
+		vec3* vert = &ModelInspector->quadModel.verts[i];
 		*vert = *vert * globalScale + globalTranslate;
 	}
 
 	// Side lengths.
 	for (int i = 0; i < quadCount; ++i) {
-		vec3 v0 = quadModel.verts[quadModel.indices[i * 4 + 0]];
-		vec3 v1 = quadModel.verts[quadModel.indices[i * 4 + 1]];
-		vec3 v2 = quadModel.verts[quadModel.indices[i * 4 + 2]];
-		vec3 v3 = quadModel.verts[quadModel.indices[i * 4 + 3]];
+		vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 0]];
+		vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 1]];
+		vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 2]];
+		vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 3]];
 
 		float s0 = glm::length(v0 - v1);
 		float s1 = glm::length(v1 - v2);
@@ -1297,10 +1288,10 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	std::cout << "Quad model - quads: " << quadCount << " sideAvg: " << (totalSideLengths * 10000.0) << " um \n";
 	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
 
-	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &quadModel);
+	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &ModelInspector->quadModel);
 
-	geoCreateSurfels(&quadModel, &ModelInspector->surfels);
-	geoCreateSurfelsHigh(&quadModel, &ModelInspector->surfelsHigh);
+	geoCreateSurfels(&ModelInspector->quadModel, &ModelInspector->surfels);
+	geoCreateSurfelsHigh(&ModelInspector->quadModel, &ModelInspector->surfelsHigh);
 
 	std::cout << "High surfels: " << ModelInspector->surfelsHigh.size() << "\n";
 
@@ -1319,7 +1310,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseTexture, &ModelInspector->surfelsHigh);
 	
+	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
+	//----------------------------------------------------------------------------------------------------
 	t0 = _getTime(AppContext) - t0;
 	vec3 surfelsMin(10000, 10000, 10000);
 	vec3 surfelsMax(-10000, -10000, -10000);
@@ -1350,9 +1343,14 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 
 	ModelInspector->spatialGrid = spatialGrid;
-	
+
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
+
+	//----------------------------------------------------------------------------------------------------
+	// Create spatial structure for poisson samples.
+	//----------------------------------------------------------------------------------------------------
+	poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
 
 	t0 = _getTime(AppContext);
 	{
@@ -1393,7 +1391,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
 	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh);
-	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &quadModel);
+	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &ModelInspector->quadModel);
 	
 	ldiPointCloud pointCloud;
 	if (!plyLoadPoints("../../assets/models/dergnScan.ply", &pointCloud)) {
@@ -1401,7 +1399,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 
 	ModelInspector->pointCloudRenderModel = gfxCreateRenderPointCloud(AppContext, &pointCloud);
-	ModelInspector->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &quadModel);
+	ModelInspector->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &ModelInspector->quadModel);
 
 	{
 		D3D11_SUBRESOURCE_DATA texData = {};
@@ -1647,7 +1645,6 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	/*if (!modelInspectorCalculateLaserViewCoverage(AppContext, ModelInspector)) {
 		return 1;
 	}*/
-
 
 	/*{
 		t0 = _getTime(AppContext);
@@ -1923,6 +1920,17 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderSurfelModel(appContext, &ModelInspector->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 	}
 
+	if (ModelInspector->showPoissonSamples) {
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
+		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+		gfxRenderSurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+	}
+
 	// Area coverage result.
 	if (false) {
 		D3D11_MAPPED_SUBRESOURCE ms;
@@ -1996,6 +2004,8 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Checkbox("Bounds", &tool->showBounds);
 
 		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
+
+		ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
 		
 		ImGui::Separator();
 		ImGui::Text("Point cloud");
