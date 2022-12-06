@@ -257,6 +257,7 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	Tool->camera.position = vec3(26.0f, 51.0f, 0);
 	Tool->camera.rotation = vec3(-90, 45, 0);
 	Tool->camera.projMat = glm::perspectiveFovRH_ZO(glm::radians(42.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 50.0f);
+	Tool->camera.fov = 42.0f;
 
 	Tool->renderViewCopy = new uint8_t[Tool->imageWidth * Tool->imageHeight * 4];
 
@@ -266,6 +267,7 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 
 	Tool->mainCamera.position = vec3(40, 60, -20);
 	Tool->mainCamera.rotation = vec3(-125, 40, 0);
+	Tool->mainCamera.fov = 60.0f;
 
 	Tool->calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
 	Tool->calibCameraMatrix.at<double>(0, 0) = 1693.30789;
@@ -411,13 +413,6 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	return 0;
 }
 
-void displayTextAtPoint(ldiVisionSimulator* Tool, vec3 Position, std::string Text, vec4 Color, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 projPos = projectPoint(&Tool->mainCamera, Tool->mainViewWidth, Tool->mainViewHeight, Position);
-	if (projPos.z > 0) {
-		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
-	}
-}
-
 void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = Tool->appContext;
 	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
@@ -426,7 +421,7 @@ void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, s
 	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
 	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
 
-	displayTextAtPoint(Tool, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	displayTextAtPoint(&Tool->mainCamera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 }
 
 void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -437,6 +432,20 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		Tool->mainViewHeight = Height;
 		gfxCreateRenderView(appContext, &Tool->mainViewBuffers, Width, Height);
 	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	/*mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->mainCamera.rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->mainCamera.rotation.x), vec3Up);
+	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->mainCamera.position);
+
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)Tool->mainViewWidth, (float)Tool->mainViewHeight, 0.01f, 100.0f);
+	mat4 invProjMat = inverse(projMat);
+	mat4 modelMat = mat4(1.0f);
+
+	mat4 projViewModelMat = projMat * camViewMat * modelMat;*/
+	updateCamera3dBasicFps(&Tool->mainCamera, (float)Tool->mainViewWidth, (float)Tool->mainViewHeight);
 
 	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
@@ -457,20 +466,6 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
 		pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Update camera.
-	//----------------------------------------------------------------------------------------------------
-	// TODO: Update inline with input for specific viewport, before rendering.
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->mainCamera.rotation.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->mainCamera.rotation.x), vec3Up);
-	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->mainCamera.position);
-
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)Tool->mainViewWidth, (float)Tool->mainViewHeight, 0.01f, 100.0f);
-	mat4 invProjMat = inverse(projMat);
-	mat4 modelMat = mat4(1.0f);
-
-	mat4 projViewModelMat = projMat * camViewMat * modelMat;
 
 	//----------------------------------------------------------------------------------------------------
 	// Rendering.
@@ -609,7 +604,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	if (Tool->showTargetMain) {
 		for (int i = 0; i < 6; ++i) {
 			ldiBasicConstantBuffer constantBuffer;
-			constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
+			constantBuffer.mvp = Tool->mainCamera.projMat * Tool->mainCamera.viewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
 			constantBuffer.color = vec4(targetFaceColorDim[i], 1);
 
 			if (i == 5) {
@@ -642,7 +637,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 			pushDebugBox(appContext, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
-			displayTextAtPoint(Tool, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
+			displayTextAtPoint(&Tool->mainCamera, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
 		}
 	}
 
@@ -653,7 +648,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = Tool->mainCamera.projViewMat;
 		constantBuffer->color = vec4(1, 1, 1, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}

@@ -19,12 +19,6 @@ struct PS_INPUT {
 StructuredBuffer<int> coverageBuffer : register(t0);
 StructuredBuffer<int> surfelMask : register(t1);
 
-// NOTE: Modified from https://stackoverflow.com/questions/5149544/can-i-generate-a-random-number-inside-a-pixel-shader
-float random( float p ) {
-	float K1 = 23.14069263277926;
-	return frac(cos( dot(p,K1) ) * 12345.6789);
-}
-
 //----------------------------------------------------------------------------------------------------
 // Show.
 //----------------------------------------------------------------------------------------------------
@@ -120,6 +114,7 @@ float4 writeCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 		if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
 
 			//if (input.dist.y >= 0.707) {
+			if (input.dist.y >= 0.5) {
 				int distValue = (int)(input.dist.y * 1000.0);
 				InterlockedMax(coverageBufferWrite[input.id], distValue);
 				InterlockedAdd(areaBuffer[slotId], distValue);
@@ -137,7 +132,7 @@ float4 writeCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 					// 70
 					return float4(1.0, 0.5, 0, 1);
 				}
-			//}
+			}
 
 			return float4(1, 0, 0, 1);
 		}
@@ -164,6 +159,7 @@ float4 writeNoCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 		if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
 
 			//if (input.dist.y >= 0.707) {
+			if (input.dist.y >= 0.5) {
 				int distValue = (int)(input.dist.y * 1000.0);
 				InterlockedAdd(areaBuffer[slotId], distValue);
 				
@@ -180,7 +176,7 @@ float4 writeNoCoveragePs(PS_INPUT_WRITE input) : SV_Target {
 					// 70
 					return float4(1.0, 0.5, 0, 1);
 				}
-			//}
+			}
 
 			return float4(1, 0, 0, 1);
 		}

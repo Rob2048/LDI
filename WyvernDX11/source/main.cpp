@@ -54,7 +54,11 @@ struct ldiCamera {
 	vec3 rotation;
 	mat4 viewMat;
 	mat4 projMat;
+	mat4 invProjMat;
+	mat4 projViewMat;
 	float fov;
+	int viewWidth;
+	int viewHeight;
 };
 
 struct ldiTextInfo {
@@ -172,6 +176,19 @@ double _getTime(ldiApp* AppContext) {
 	double result = (double)time / ((double)AppContext->timeFrequency);
 
 	return result;
+}
+
+// TODO: Move to another location.
+void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight) {
+	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
+	
+	Camera->viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
+	Camera->projMat = glm::perspectiveFovRH_ZO(glm::radians(Camera->fov), ViewWidth, ViewHeight, 0.01f, 100.0f);
+	Camera->invProjMat = inverse(Camera->projMat);
+	Camera->projViewMat = Camera->projMat * Camera->viewMat;
+	Camera->viewWidth = ViewWidth;
+	Camera->viewHeight = ViewHeight;
 }
 
 #include "serialPort.h"
@@ -909,7 +926,6 @@ int main() {
 		ImGui::NewFrame();
 		
 		if (ImGui::BeginMainMenuBar()) {
-
 			if (ImGui::BeginMenu("File")) {
 				if (ImGui::MenuItem("New project")) {}
 				if (ImGui::MenuItem("Open project")) {}

@@ -199,6 +199,7 @@ ldiSpatialCellResult spatialGridGetCell(ldiSpatialGrid* Grid, int CellX, int Cel
 struct ldiLaserViewSurfel {
 	int id;
 	vec2 screenPos;
+	float angle;
 };
 
 struct ldiLaserViewPathPos {
@@ -240,6 +241,7 @@ struct ldiModelInspector {
 	bool						showSpatialBounds = false;
 	bool						showSampleSites = false;
 	bool						showBounds = false;
+	bool						showScaleHelper = false;
 
 	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
@@ -291,6 +293,7 @@ struct ldiModelInspector {
 
 	int							selectedSurfel = 0;
 	int							selectedLaserView = 0;
+	bool						laserViewShowBackground = false;
 
 	ID3D11ComputeShader*		calcPointScoreComputeShader;
 	ID3D11ComputeShader*		accumulatePointScoreComputeShader;
@@ -357,7 +360,7 @@ void geoCreateSurfels(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 
 		ldiSurfel surfel{};
 		surfel.id = i;
-		surfel.position = center + normal * normalAdjust;
+		surfel.position = center;// + normal * normalAdjust;
 		surfel.normal = normal;
 		surfel.color = vec3(0, 0, 0);
 		surfel.scale = 1.0f;
@@ -418,7 +421,50 @@ void geoCreateSurfelsHigh(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 	}
 }
 
-void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
+struct ldiColorTransferThreadContext {
+	ldiPhysics* physics;
+	ldiPhysicsMesh* cookedMesh;
+	ldiModel* srcModel;
+	ldiImage* image;
+	std::vector<ldiSurfel>* surfels;
+	int	startIdx;
+	int	endIdx;
+};
+
+void geoTransferThreadBatch(ldiColorTransferThreadContext Context) {
+	float normalAdjust = 0.01;
+
+	for (size_t i = Context.startIdx; i < Context.endIdx; ++i) {
+		ldiSurfel* s = &(*Context.surfels)[i];
+		ldiRaycastResult result = physicsRaycast(Context.physics, Context.cookedMesh, s->position + s->normal * normalAdjust, -s->normal);
+
+		if (result.hit) {
+			ldiMeshVertex v0 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 0]];
+			ldiMeshVertex v1 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 1]];
+			ldiMeshVertex v2 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 2]];
+
+			float u = result.barry.x;
+			float v = result.barry.y;
+			float w = 1.0 - (u + v);
+			vec2 uv = w * v0.uv + u * v1.uv + v * v2.uv;
+
+			// TODO: Clamp/Wrap lookup index on each axis.
+			int pixX = uv.x * Context.image->width;
+			int pixY = Context.image->height - (uv.y * Context.image->height);
+
+			uint8_t r = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 0];
+			uint8_t g = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 1];
+			uint8_t b = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 2];
+
+			s->color = vec3(r / 255.0, g / 255.0, b / 255.0);
+		}
+		else {
+			s->color = vec3(1, 0, 0);
+		}
+	}
+}
+
+void _geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
 	float normalAdjust = 0.01;
 	
 	for (size_t i = 0; i < Surfels->size(); ++i) {
@@ -437,7 +483,7 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 
 			// TODO: Clamp/Wrap lookup index on each axis.
 			int pixX = uv.x * Image->width;
-			int pixY = (Image->height - 1) - (uv.y * Image->height);
+			int pixY = Image->height - (uv.y * Image->height);
 
 			uint8_t r = Image->data[(pixX + pixY * Image->width) * 4 + 0];
 			uint8_t g = Image->data[(pixX + pixY * Image->width) * 4 + 1];
@@ -448,6 +494,39 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 			s->color = vec3(1, 0, 0);
 		}
 	}
+}
+
+void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
+	double t0 = _getTime(AppContext);
+	
+	const int threadCount = 20;
+	int batchSize = Surfels->size() / threadCount;
+	int batchRemainder = Surfels->size() - (batchSize * threadCount);
+	std::thread workerThread[threadCount];
+
+	for (int t = 0; t < threadCount; ++t) {
+		ldiColorTransferThreadContext tc{};
+		tc.physics = AppContext->physics;
+		tc.cookedMesh = CookedMesh;
+		tc.srcModel = SrcModel;
+		tc.image = Image;
+		tc.surfels = Surfels;
+		tc.startIdx = t * batchSize;
+		tc.endIdx = (t + 1) * batchSize;
+
+		if (t == threadCount - 1) {
+			tc.endIdx += batchRemainder;
+		}
+
+		workerThread[t] = std::move(std::thread(geoTransferThreadBatch, tc));
+	}
+
+	for (int t = 0; t < threadCount; ++t) {
+		workerThread[t].join();
+	}
+
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
 }
 
 void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
@@ -463,7 +542,7 @@ void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
 	si.cb = sizeof(si);
 	ZeroMemory(&pi, sizeof(pi));
 
-	char args[] = "PolyMender-clean.exe ../../bin/cache/source.stl 10 0.9 ../../bin/cache/voxel.ply";
+	char args[] = "PolyMender-clean.exe ../../bin/cache/source.stl 11 0.9 ../../bin/cache/voxel.ply";
 
 	CreateProcessA(
 		"../../assets/bin/PolyMender-clean.exe",
@@ -492,7 +571,9 @@ void modelInspectorCreateQuadMesh(ldiModelInspector* ModelInspector) {
 	// 100um sides and smoothing.
 	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.02 --smooth 2";
 	// 75um sides.
-	char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.015";
+	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.015";
+	// 150um sides for multi-resolution surfels.
+	char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.030";
 	
 	CreateProcessA(
 		"../../assets/bin/Instant Meshes.exe",
@@ -881,7 +962,7 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->laserViewPathPositions.clear();
 
-	for (int viewIter = 0; viewIter < 2; ++viewIter) {
+	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -981,18 +1062,20 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
 			// NOTE: 707 == 45degrees to laser view.
-			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 707) {
+			// NOTE: 500 == 60degrees to laser view.
+			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 500) {
 				++activeSurfels;
 				ModelInspector->surfelMask[i] = viewIter + 1;
 				pathPos.surfelIds.push_back(i);
 			}
 		}
 
-		AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageStagingBuffer, 0);
+		// NOTE: Unmap happens later.
 
 		std::cout << "Active surfels: " << activeSurfels << "\n";
 
 		if (activeSurfels == 0) {
+			AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageStagingBuffer, 0);
 			break;
 		}
 
@@ -1006,6 +1089,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
 			// NOTE: Each low rank surfel has 4 high rankers.
 			int surfelId = pathPos.surfelIds[i];
+			float angle = coverageBufferData[surfelId] / 1000.0f;
 
 			for (size_t j = 0; j < 4; ++j) {
 				//ldiSurfel* s = &ModelInspector->surfels[surfelId];
@@ -1013,6 +1097,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 				ldiLaserViewSurfel viewSurfel = {};
 				viewSurfel.id = surfelId;
+				viewSurfel.angle = angle;
 
 				vec4 clipSpace = machineTransform.projViewModelMat * vec4(s->position, 1.0f);
 				clipSpace.x /= clipSpace.w;
@@ -1031,6 +1116,8 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		std::cout << "Transform surfels: " << t0 * 1000.0f << " ms\n";
 
 		ModelInspector->laserViewPathPositions.push_back(pathPos);
+
+		AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageStagingBuffer, 0);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1046,6 +1133,53 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 	return true;
 }
 
+float modelInspectorGetLaserViewPath(std::vector<int>* ViewPath, std::vector<ldiLaserViewPathPos>* PathPositions, int* NodeMask, int RootNode) {
+	if (ViewPath) {
+		ViewPath->clear();
+	}
+
+	int pathNodes = PathPositions->size();
+	int currentNode = RootNode;
+	float pathLength = 0.0f;
+	memset(NodeMask, 0, sizeof(int) * pathNodes);
+
+	while (true) {
+		NodeMask[currentNode] = 1;
+
+		if (ViewPath) {
+			ViewPath->push_back(currentNode);
+		}
+
+		vec3 rootPos = (*PathPositions)[currentNode].surfacePos + (*PathPositions)[currentNode].surfaceNormal * 20.0f;
+
+		float closest = 100000.0f;
+		currentNode = -1;
+
+		for (int i = 0; i < pathNodes; ++i) {
+			if (NodeMask[i] != 0) {
+				continue;
+			}
+
+			vec3 checkPos = (*PathPositions)[i].surfacePos + (*PathPositions)[i].surfaceNormal * 20.0f;
+
+			float dist = glm::length(checkPos - rootPos);
+
+			if (dist < closest) {
+				closest = dist;
+				currentNode = i;
+			}
+		}
+
+		if (currentNode != -1) {
+			pathLength += closest;
+		} else {
+			break;
+		}
+	}
+
+	return pathLength;
+}
+
 void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 	double t0 = _getTime(ModelInspector->appContext);
 
@@ -1053,35 +1187,23 @@ void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 	
 	int pathNodes = ModelInspector->laserViewPathPositions.size();
 	int* nodeMask = new int[pathNodes];
-	memset(nodeMask, 0, sizeof(int) * pathNodes);
 
-	int currentNode = 0;
-	
-	while (currentNode != -1) {
-		nodeMask[currentNode] = 1;
-		ModelInspector->laserViewPath.push_back(currentNode);
-		vec3 rootPos = ModelInspector->laserViewPathPositions[currentNode].surfacePos + ModelInspector->laserViewPathPositions[currentNode].surfaceNormal * 20.0f;
+	int bestRoot = 0;
+	float bestPath = 100000.0f;
 
-		float closest = 100000.0f;
-		int closestId = -1;
+	for (int i = 0; i < pathNodes; ++i) {
+		float pathLength = modelInspectorGetLaserViewPath(NULL, &ModelInspector->laserViewPathPositions, nodeMask, i);
 
-		for (int i = 0; i < pathNodes; ++i) {
-			if (nodeMask[i] != 0) {
-				continue;
-			}
-
-			vec3 checkPos = ModelInspector->laserViewPathPositions[i].surfacePos + ModelInspector->laserViewPathPositions[i].surfaceNormal * 20.0f;
-
-			float dist = glm::length(checkPos - rootPos);
-
-			if (dist < closest) {
-				closest = dist;
-				closestId = i;
-			}
+		if (pathLength < bestPath) {
+			bestPath = pathLength;
+			bestRoot = i;
 		}
 
-		currentNode = closestId;
+		std::cout << "Start node: " << i << " Path length: " << pathLength << "\n";
 	}
+
+	float pathLength = modelInspectorGetLaserViewPath(&ModelInspector->laserViewPath, &ModelInspector->laserViewPathPositions, nodeMask, bestRoot);
+	std::cout << "Best start node: " << bestRoot << " Path length: " << pathLength << "\n";
 
 	delete[] nodeMask;
 
@@ -1107,19 +1229,20 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
-	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
+	ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
-	float globalScale = 2.0f;
-	vec3 globalTranslate(0.0f, 3.0f, 0.0f);
+	float globalScale = 1.0f;
+	vec3 globalTranslate(0.0f, 0.0f, 0.0f);
 	
 	// Scale model.
 	//float scale = 12.0 / 11.0;
-	float scale = 5.0 / 11.0 * globalScale;
-	for (int i = 0; i < ModelInspector->dergnModel.verts.size(); ++i) {
+	//float scale = 5.0 / 11.0 * globalScale;
+	/*for (int i = 0; i < ModelInspector->dergnModel.verts.size(); ++i) {
 		ldiMeshVertex* vert = &ModelInspector->dergnModel.verts[i];
 		vert->pos = vert->pos * scale + globalTranslate;
-	}
+	}*/
 
 	physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
 
@@ -1183,7 +1306,8 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	double t0 = _getTime(AppContext);
 	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
 
 	ModelInspector->baseTexture.width = x;
@@ -1193,11 +1317,8 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
 
-	t0 = _getTime(ModelInspector->appContext);
-	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseTexture, &ModelInspector->surfels);
-	t0 = _getTime(ModelInspector->appContext) - t0;
-	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
-
+	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseTexture, &ModelInspector->surfelsHigh);
+	
 	// Create spatial structure for surfels.
 	t0 = _getTime(AppContext) - t0;
 	vec3 surfelsMin(10000, 10000, 10000);
@@ -1268,6 +1389,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
+
 	
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
 	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh);
@@ -1550,27 +1672,25 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	return 0;
 }
 
-vec3 projectPoint(ldiCamera* Camera, int ViewWidth, int ViewHeight, vec3 Pos) {
-	// TODO: Should be cached in the camera after calculating final position.
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
-	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
-
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Camera->fov), (float)ViewWidth, (float)ViewHeight, 0.01f, 100.0f);
-	
-	mat4 projViewModelMat = projMat * camViewMat;
-	
+vec3 projectPoint(ldiCamera* Camera, vec3 Pos) {
 	vec4 worldPos = vec4(Pos.x, Pos.y, Pos.z, 1);
-	vec4 clipPos = projViewModelMat * worldPos;
+	vec4 clipPos = Camera->projViewMat * worldPos;
 	clipPos.x /= clipPos.w;
 	clipPos.y /= clipPos.w;
 
 	vec3 screenPos;
-	screenPos.x = (clipPos.x * 0.5 + 0.5) * ViewWidth;
-	screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * ViewHeight;
+	screenPos.x = (clipPos.x * 0.5 + 0.5) * Camera->viewWidth;
+	screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * Camera->viewHeight;
 	screenPos.z = clipPos.z;
 
 	return screenPos;
+}
+
+void displayTextAtPoint(ldiCamera* Camera, vec3 Position, std::string Text, vec4 Color, std::vector<ldiTextInfo>* TextBuffer) {
+	vec3 projPos = projectPoint(Camera, Position);
+	if (projPos.z > 0) {
+		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
+	}
 }
 
 void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -1583,70 +1703,37 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	}
 
 	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	updateCamera3dBasicFps(&ModelInspector->camera, (float)ModelInspector->mainViewWidth, (float)ModelInspector->mainViewHeight);
+
+	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
 	//----------------------------------------------------------------------------------------------------
 	beginDebugPrimitives(appContext);
+
+	// Axis gizmo.
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
 	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
-	pushDebugLine(appContext, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
-	pushDebugLine(appContext, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
-	pushDebugLine(appContext, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
-	pushDebugLine(appContext, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
+	if (ModelInspector->showScaleHelper) {
+		pushDebugLine(appContext, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
+		pushDebugLine(appContext, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
+		pushDebugLine(appContext, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
+		pushDebugLine(appContext, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
 	
-	pushDebugBox(appContext, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
-	pushDebugBoxSolid(appContext, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
+		pushDebugBox(appContext, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
+		pushDebugBoxSolid(appContext, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
 
-	pushDebugBox(appContext, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
-
-	ldiTextInfo text0 = {};
-
-	vec3 projPos = projectPoint(&ModelInspector->camera, ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, vec3(3, 0, 0));
-	if (projPos.z > 0) {
-		text0.position = vec2(projPos.x, projPos.y);
-		text0.text = "0 mm";
-		TextBuffer->push_back(text0);
+		pushDebugBox(appContext, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
+	
+		displayTextAtPoint(&ModelInspector->camera, vec3(3, 0, 0), "0 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(&ModelInspector->camera, vec3(3, 5, 0), "50 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(&ModelInspector->camera, vec3(3, 10, 0), "100 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(&ModelInspector->camera, vec3(3, 12, 0), "120 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(&ModelInspector->camera, vec3(3, 15, 0), "150 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
 	}
-
-	projPos = projectPoint(&ModelInspector->camera, ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, vec3(3, 5, 0));
-	if (projPos.z > 0) {
-		text0.position = vec2(projPos.x, projPos.y);
-		text0.text = "50 mm";
-		TextBuffer->push_back(text0);
-	}
-
-	projPos = projectPoint(&ModelInspector->camera, ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, vec3(3, 10, 0));
-	if (projPos.z > 0) {
-		text0.position = vec2(projPos.x, projPos.y);
-		text0.text = "100 mm";
-		TextBuffer->push_back(text0);
-	}
-
-	projPos = projectPoint(&ModelInspector->camera, ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, vec3(3, 12, 0));
-	if (projPos.z > 0) {
-		text0.position = vec2(projPos.x, projPos.y);
-		text0.text = "120 mm";
-		TextBuffer->push_back(text0);
-	}
-
-	projPos = projectPoint(&ModelInspector->camera, ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, vec3(3, 15, 0));
-	if (projPos.z > 0) {
-		text0.position = vec2(projPos.x, projPos.y);
-		text0.text = "150 mm";
-		TextBuffer->push_back(text0);
-	}
-
-	/*vec3 rayOrigin(sin(_getTime(appContext)), 10, 0);
-	vec3 rayDir(0, -1, 0);
-
-	ldiRaycastResult rayHit = physicsRaycast(appContext->physics, &ModelInspector->cookedDergn, rayOrigin, rayDir);
-
-	if (rayHit.hit) {
-		pushDebugLine(appContext, rayOrigin, rayHit.pos, vec3(0, 1, 0));
-	} else {
-		pushDebugLine(appContext, rayOrigin, rayOrigin + rayDir * vec3(10, 10, 10), vec3(1, 0, 0));
-	}*/
 	
 	// Grid.
 	int gridCount = 60;
@@ -1676,20 +1763,6 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	}
 
 	//----------------------------------------------------------------------------------------------------
-	// Update camera.
-	//----------------------------------------------------------------------------------------------------
-	// TODO: Update inline with input for specific viewport, before rendering.
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(ModelInspector->camera.rotation.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(ModelInspector->camera.rotation.x), vec3Up);
-	mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -ModelInspector->camera.position);
-
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(ModelInspector->camera.fov), (float)ModelInspector->mainViewWidth, (float)ModelInspector->mainViewHeight, 0.01f, 100.0f);
-	mat4 invProjMat = inverse(projMat);
-	mat4 modelMat = mat4(1.0f);
-
-	mat4 projViewModelMat = projMat * camViewMat * modelMat;
-
-	//----------------------------------------------------------------------------------------------------
 	// Rendering.
 	//----------------------------------------------------------------------------------------------------
 	appContext->d3dDeviceContext->OMSetRenderTargets(1, &ModelInspector->renderViewBuffers.mainViewRtView, ModelInspector->renderViewBuffers.depthStencilView);
@@ -1712,30 +1785,26 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 			ldiPointCloudVertex* v = &ModelInspector->pointDistrib.points[i];
 			pushDebugLine(appContext, v->position, v->position + v->normal * 0.1f, vec3(1.0f, 0, 0));
 		}
-	}
-
-	{
+	
 		ldiPointCloudVertex* v = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
 		pushDebugLine(appContext, v->position, v->position + v->normal * 20.0f, vec3(1.0f, 0, 0));
-	}
-
-	{
+	
 		for (size_t i = 0; i < ModelInspector->laserViewPathPositions.size(); ++i) {
 			ldiLaserViewPathPos* p = &ModelInspector->laserViewPathPositions[i];
 			vec3 pos = p->surfacePos + p->surfaceNormal * 20.0f;
 			pushDebugBox(appContext, pos, vec3(0.1f, 0.1f, 0.1f), vec3(1, 0, 1));
 			pushDebugLine(appContext, pos, pos + -p->surfaceNormal, vec3(1.0f, 0, 0));
 		}
-	}
+	
+		for (size_t i = 1; i < ModelInspector->laserViewPath.size(); ++i) {
+			ldiLaserViewPathPos* a = &ModelInspector->laserViewPathPositions[ModelInspector->laserViewPath[i - 1]];
+			ldiLaserViewPathPos* b = &ModelInspector->laserViewPathPositions[ModelInspector->laserViewPath[i - 0]];
 
-	for (size_t i = 1; i < ModelInspector->laserViewPath.size(); ++i) {
-		ldiLaserViewPathPos* a = &ModelInspector->laserViewPathPositions[ModelInspector->laserViewPath[i - 1]];
-		ldiLaserViewPathPos* b = &ModelInspector->laserViewPathPositions[ModelInspector->laserViewPath[i - 0]];
+			vec3 aPos = a->surfacePos + a->surfaceNormal * 20.0f;
+			vec3 bPos = b->surfacePos + b->surfaceNormal * 20.0f;
 
-		vec3 aPos = a->surfacePos + a->surfaceNormal * 20.0f;
-		vec3 bPos = b->surfacePos + b->surfaceNormal * 20.0f;
-
-		pushDebugLine(appContext, aPos, bPos, vec3(0.0f, 1.0f, 1.0f));
+			pushDebugLine(appContext, aPos, bPos, vec3(0.0f, 1.0f, 1.0f));
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1745,7 +1814,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(1, 1, 1, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
@@ -1761,10 +1830,10 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 			constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
-			constantBuffer->mvp = projViewModelMat;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
 			constantBuffer->color = vec4(0, 0, 0, 1);
-			constantBuffer->view = camViewMat;
-			constantBuffer->proj = projMat;
+			constantBuffer->view = ModelInspector->camera.viewMat;
+			constantBuffer->proj = ModelInspector->camera.projMat;
 			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 		}
 		{
@@ -1788,7 +1857,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(0, 0, 0, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1801,10 +1870,10 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 			constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
-			constantBuffer->mvp = projViewModelMat;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
 			constantBuffer->color = vec4(0, 0, 0, 1);
-			constantBuffer->view = camViewMat;
-			constantBuffer->proj = projMat;
+			constantBuffer->view = ModelInspector->camera.viewMat;
+			constantBuffer->proj = ModelInspector->camera.projMat;
 			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 		}
 		{
@@ -1824,7 +1893,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(0, 0, 0, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1835,7 +1904,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(0, 0, 0, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1846,7 +1915,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1854,12 +1923,12 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderSurfelModel(appContext, &ModelInspector->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 	}
 
-	//if (ModelInspector->showSurfels) {
-	if (true) {
+	// Area coverage result.
+	if (false) {
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->mvp = ModelInspector->camera.projViewMat;
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1925,6 +1994,8 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Checkbox("Sample sites", &tool->showSampleSites);
 
 		ImGui::Checkbox("Bounds", &tool->showBounds);
+
+		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
 		
 		ImGui::Separator();
 		ImGui::Text("Point cloud");
@@ -1932,13 +2003,14 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
 		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
 		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+	}
 
-		ImGui::Separator();
-		ImGui::Text("Laser view");
+	if (ImGui::CollapsingHeader("Laser view")) {
 		ImGui::DragFloat3("Cam position", (float*)&tool->laserViewPos, 0.1f, -100.0f, 100.0f);
 		ImGui::DragFloat2("Cam rotation", (float*)&tool->laserViewRot, 0.1f, -360.0f, 360.0f);
 		ImGui::SliderInt("Surfel", &tool->selectedSurfel, 0, tool->pointDistrib.points.size() - 1);
 		ImGui::SliderInt("Laser view", &tool->selectedLaserView, 0, tool->laserViewPathPositions.size() - 1);
+		ImGui::Checkbox("Laser view show background", &tool->laserViewShowBackground);
 		
 		ImGui::Text("Coverage area: %d", tool->coverageValue);
 		ImGui::Image(tool->laserViewTexView, ImVec2(512, 512));
@@ -2037,10 +2109,15 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		int laserViewSurfelCount = 0;
 
 		if (tool->selectedLaserView != -1) {
-			draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
-			draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
-			draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
-			draw_list->AddRect(imgMin, imgMax, ImGui::GetColorU32({1.0f, 0, 0, 1.0f}));
+			if (tool->laserViewShowBackground) {
+				draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
+				draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+				draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+			} else {
+				draw_list->AddRectFilled(imgMin, imgMax, ImColor(0.5f, 0.5f, 0.5f, 1.0f));
+			}
+
+			draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
 
 			ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
 
@@ -2052,6 +2129,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 
 			for (size_t i = 0; i < laserView->surfels.size(); ++i) {
 				vec2 surfelPos = laserView->surfels[i].screenPos;
+				float angle = laserView->surfels[i].angle;
 
 				ImVec2 rMin;
 				rMin.x = screenStartPos.x + (imgOffset.x + surfelPos.x - surfelHalfSize) * imgScale;
@@ -2064,9 +2142,30 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 				ImVec2 center;
 				center.x = screenStartPos.x + (imgOffset.x + surfelPos.x) * imgScale;
 				center.y = screenStartPos.y + (imgOffset.y + surfelPos.y) * imgScale;
+
+				ImColor col(255, 255, 255);
+
+				//draw_list->AddCircle(center, surfelHalfSize* imgScale, ImColor((int)(62 * angle), (int)(101 * angle), (int)(156 * angle)), 8);
+
+				if (angle >= 0.9) {
+					// 30
+					col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
+				}
+				else if (angle >= 0.8) {
+					// 45
+					col = ImColor(0.0f, 0.75f, 0.0f, 1.0f);
+				}
+				else if (angle >= 0.75) {
+					// 60
+					col = ImColor(0.0f, 0.5f, 0.0f, 1.0f);
+				}
+				else if (angle >= 0.7) {
+					// 70
+					col = ImColor(1.0f, 0.5f, 0.0f, 1.0f);
+				}
 			
-				//draw_list->AddRectFilled(rMin, rMax, ImColor(62, 101, 156));
-				draw_list->AddCircle(center, surfelHalfSize * imgScale, ImColor(62, 101, 156), 8);
+				draw_list->AddCircle(center, surfelHalfSize* imgScale, col, 16);
+				//draw_list->AddRectFilled(rMin, rMax, col);
 			}
 		}
 
@@ -2191,7 +2290,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		for (int i = 0; i < textBuffer.size(); ++i) {
 			ldiTextInfo* info = &textBuffer[i];
-			drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), IM_COL32(255, 255, 255, 255), info->text.c_str());
+			drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), ImColor(info->color.r, info->color.g, info->color.b, info->color.a), info->text.c_str());
 		}
 
 		// Viewport overlay widgets.
