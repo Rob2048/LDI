@@ -34,18 +34,18 @@ int samplerTesterInit(ldiApp* AppContext, ldiSamplerTester* SamplerTester) {
 	return 0;
 }
 
-float GammaToLinear(float In) {
-	float linearRGBLo = In / 12.92f;
-	float linearRGBHi = pow(max(abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
-
-	return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
-}
-
-float LinearToGamma(float In) {
-	float sRGBLo = In * 12.92f;
-	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
-	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
-}
+//float GammaToLinear(float In) {
+//	float linearRGBLo = In / 12.92f;
+//	float linearRGBHi = pow(max(abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
+//
+//	return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
+//}
+//
+//float LinearToGamma(float In) {
+//	float sRGBLo = In * 12.92f;
+//	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
+//	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
+//}
 
 // Get intensity value from source texture at x,y, 0.0 to 1.0.
 float GetSourceValue(float* Data, int Width, int Height, float X, float Y) {
