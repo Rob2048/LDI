@@ -378,14 +378,14 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 	//----------------------------------------------------------------------------------------------------
 	// Debug primitives.
 	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(appContext);
+	beginDebugPrimitives(&appContext->defaultDebug);
 
 	// Origin.
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
-	pushDebugQuad(appContext, vec3(0, 0, -1), vec3(50, 69.6, 0), vec3(1, 1, 1));
+	pushDebugQuad(&appContext->defaultDebug, vec3(0, 0, -1), vec3(50, 69.6, 0), vec3(1, 1, 1));
 
 	if (SamplerTester->showGrid) {
 		int gridCountX = 100;
@@ -395,11 +395,11 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 		//vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, gridCellWidth * gridCount, 0) * 0.5f;
 		vec3 gridHalfOffset(0, 0, 0);
 		for (int i = 0; i < gridCountX + 1; ++i) {
-			pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCountY * gridCellWidth, 0) - gridHalfOffset, gridColor);
+			pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, gridCountY * gridCellWidth, 0) - gridHalfOffset, gridColor);
 		}
 
 		for (int i = 0; i < gridCountY + 1; ++i) {
-			pushDebugLine(appContext, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCountX * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
+			pushDebugLine(&appContext->defaultDebug, vec3(0, i * gridCellWidth, 0) - gridHalfOffset, vec3(gridCountX * gridCellWidth, i * gridCellWidth, 0) - gridHalfOffset, gridColor);
 		}
 	}
 
@@ -447,7 +447,7 @@ void samplerTesterRender(ldiSamplerTester* SamplerTester, int Width, int Height,
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
 
-	renderDebugPrimitives(appContext);
+	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 
 	//----------------------------------------------------------------------------------------------------
 	// Render point samples.

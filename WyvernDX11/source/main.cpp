@@ -78,6 +78,18 @@ struct ldiPlatformTransform {
 struct ldiPhysics;
 struct ldiImageInspector;
 
+struct ldiDebugPrims {
+	std::vector<ldiSimpleVertex>	lineGeometryVertData;
+	int								lineGeometryVertBufferSize;
+	int								lineGeometryVertCount;
+	ID3D11Buffer* lineGeometryVertexBuffer;
+
+	std::vector<ldiSimpleVertex>	triGeometryVertData;
+	int								triGeometryVertBufferSize;
+	int								triGeometryVertCount;
+	ID3D11Buffer* triGeometryVertexBuffer;
+};
+
 // Application and platform context.
 struct ldiApp {
 	HWND						hWnd;
@@ -143,16 +155,8 @@ struct ldiApp {
 	ID3D11Texture2D*			dotTexture;
 	ID3D11ShaderResourceView*	dotShaderResourceView;
 	ID3D11SamplerState*			dotSamplerState;
-	
-	std::vector<ldiSimpleVertex>	lineGeometryVertData;
-	int								lineGeometryVertMax;
-	int								lineGeometryVertCount;
-	ID3D11Buffer*					lineGeometryVertexBuffer;
 
-	std::vector<ldiSimpleVertex>	triGeometryVertData;
-	int								triGeometryVertMax;
-	int								triGeometryVertCount;
-	ID3D11Buffer*					triGeometryVertexBuffer;
+	ldiDebugPrims				defaultDebug;
 
 	ImFont*						fontBig;
 
@@ -794,7 +798,7 @@ int main() {
 		return 1;
 	}
 
-	initDebugPrimitives(appContext);
+	initDebugPrimitives(&appContext->defaultDebug);
 
 	appContext->physics = &_physics;
 	if (physicsInit(appContext, &_physics) != 0) {

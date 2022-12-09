@@ -145,13 +145,13 @@ void spatialGridRenderOccupied(ldiApp* AppContext, ldiSpatialGrid* Grid) {
 		vec3 worldSpace = localSpace + Grid->min;
 		vec3 max = worldSpace + Grid->cellSize;
 
-		pushDebugBoxMinMax(AppContext, worldSpace, max, vec3(1, 0, 1));
+		pushDebugBoxMinMax(&AppContext->defaultDebug, worldSpace, max, vec3(1, 0, 1));
 	}
 }
 
 void spatialGridRenderDebug(ldiApp* AppContext, ldiSpatialGrid* Grid, bool Bounds, bool CellView) {
 	if (Bounds) {
-		pushDebugBox(AppContext, Grid->origin, Grid->size, vec3(1, 0, 1));
+		pushDebugBox(&AppContext->defaultDebug, Grid->origin, Grid->size, vec3(1, 0, 1));
 	}
 
 	if (CellView) {
@@ -160,7 +160,7 @@ void spatialGridRenderDebug(ldiApp* AppContext, ldiSpatialGrid* Grid, bool Bound
 		// Along X axis.
 		for (int iY = 0; iY < Grid->countY; ++iY) {
 			for (int iZ = 0; iZ < Grid->countZ; ++iZ) {
-				pushDebugLine(AppContext, vec3(Grid->min.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), vec3(Grid->max.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), color);
+				pushDebugLine(&AppContext->defaultDebug, vec3(Grid->min.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), vec3(Grid->max.x, Grid->min.y + iY * Grid->cellSize, Grid->min.z + iZ * Grid->cellSize), color);
 			}
 		}
 	}

@@ -417,9 +417,9 @@ void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, s
 	ldiApp* appContext = Tool->appContext;
 	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
 
-	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
-	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
-	pushDebugLine(appContext, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
+	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
 
 	displayTextAtPoint(&Tool->mainCamera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 }
@@ -450,10 +450,10 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
 	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(appContext);
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+	beginDebugPrimitives(&appContext->defaultDebug);
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
 	//----------------------------------------------------------------------------------------------------
 	// Grid.
@@ -463,8 +463,8 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	vec3 gridColor = Tool->gridColor;
 	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
 	for (int i = 0; i < gridCount + 1; ++i) {
-		pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
-		pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -518,20 +518,20 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		vec4 f6 = invProjViewMat * vec4(1, 1, 1, 1); f6 /= f6.w;
 		vec4 f7 = invProjViewMat * vec4(-1, 1, 1, 1); f7 /= f7.w;
 
-		pushDebugLine(appContext, f0, f4, vec3(1, 0, 1));
-		pushDebugLine(appContext, f1, f5, vec3(1, 0, 1));
-		pushDebugLine(appContext, f2, f6, vec3(1, 0, 1));
-		pushDebugLine(appContext, f3, f7, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f0, f4, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f1, f5, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f2, f6, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f3, f7, vec3(1, 0, 1));
 
-		pushDebugLine(appContext, f0, f1, vec3(1, 0, 1));
-		pushDebugLine(appContext, f1, f2, vec3(1, 0, 1));
-		pushDebugLine(appContext, f2, f3, vec3(1, 0, 1));
-		pushDebugLine(appContext, f3, f0, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f0, f1, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f1, f2, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f2, f3, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f3, f0, vec3(1, 0, 1));
 
-		pushDebugLine(appContext, f4, f5, vec3(1, 0, 1));
-		pushDebugLine(appContext, f5, f6, vec3(1, 0, 1));
-		pushDebugLine(appContext, f6, f7, vec3(1, 0, 1));
-		pushDebugLine(appContext, f7, f4, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f4, f5, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f5, f6, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f6, f7, vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, f7, f4, vec3(1, 0, 1));
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -566,8 +566,8 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			vec3 v2 = world * vec4(cubeSize, 0, 0, 1);
 			vec3 v3 = world * vec4(cubeSize, cubeSize, 0, 1);
 
-			pushDebugTri(Tool->appContext, v0, v1, v2, vec3(0.5f, 0.5f, 0.5f));
-			pushDebugTri(Tool->appContext, v1, v3, v2, vec3(0.5f, 0.5f, 0.5f));
+			pushDebugTri(&Tool->appContext->defaultDebug, v0, v1, v2, vec3(0.5f, 0.5f, 0.5f));
+			pushDebugTri(&Tool->appContext->defaultDebug, v1, v3, v2, vec3(0.5f, 0.5f, 0.5f));
 		}
 	}
 
@@ -636,7 +636,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			vec3 offset(-chs, chs, chs);
 			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
-			pushDebugBox(appContext, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
+			pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
 			displayTextAtPoint(&Tool->mainCamera, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
 		}
 	}
@@ -653,7 +653,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
 
-	renderDebugPrimitives(appContext);
+	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 }
 
 void visionSimulatorRender(ldiVisionSimulator* Tool) {

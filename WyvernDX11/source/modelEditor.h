@@ -1013,20 +1013,20 @@ void renderFrustumDebug(ldiApp* AppContext, mat4 ProjViewMat) {
 	vec4 f6 = invProjViewMat * vec4(1, 1, 1, 1); f6 /= f6.w;
 	vec4 f7 = invProjViewMat * vec4(-1, 1, 1, 1); f7 /= f7.w;
 
-	pushDebugLine(AppContext, f0, f4, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f1, f5, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f2, f6, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f3, f7, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f0, f4, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f1, f5, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f2, f6, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f3, f7, vec3(1, 0, 1));
 
-	pushDebugLine(AppContext, f0, f1, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f1, f2, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f2, f3, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f3, f0, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f0, f1, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f1, f2, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f2, f3, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f3, f0, vec3(1, 0, 1));
 
-	pushDebugLine(AppContext, f4, f5, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f5, f6, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f6, f7, vec3(1, 0, 1));
-	pushDebugLine(AppContext, f7, f4, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f4, f5, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f5, f6, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f6, f7, vec3(1, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, f7, f4, vec3(1, 0, 1));
 }
 
 void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -1126,10 +1126,10 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
 	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(appContext);
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+	beginDebugPrimitives(&appContext->defaultDebug);
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
 	/*pushDebugLine(appContext, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
 	pushDebugLine(appContext, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
@@ -1146,8 +1146,8 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 	vec3 gridColor = Tool->gridColor;
 	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
 	for (int i = 0; i < gridCount + 1; ++i) {
-		pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
-		pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1186,7 +1186,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 	// Render models.
 	//----------------------------------------------------------------------------------------------------
 	if (Tool->showRaymarchView) {
-		pushDebugBox(appContext, vec3(0, 64 / 20.0f, 0), vec3(128 / 20.0f, 128 / 20.0f, 128 / 20.0f), vec3(1, 0, 1));
+		pushDebugBox(&appContext->defaultDebug, vec3(0, 64 / 20.0f, 0), vec3(128 / 20.0f, 128 / 20.0f, 128 / 20.0f), vec3(1, 0, 1));
 
 		mat4 projViewMat = projMat * camViewMat;
 		mat4 invProjViewMat = glm::inverse(projViewMat);
@@ -1425,7 +1425,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
 
-	renderDebugPrimitives(appContext);
+	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 }
 
 void modelEditorShowUi(ldiModelEditor* Tool) {

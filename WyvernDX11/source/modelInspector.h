@@ -9,6 +9,7 @@ struct ldiLaserViewSurfel {
 	int id;
 	vec2 screenPos;
 	float angle;
+	float scale;
 };
 
 struct ldiLaserViewPathPos {
@@ -108,7 +109,7 @@ struct ldiModelInspector {
 	vec3						laserViewPos;
 
 	int							selectedSurfel = 0;
-	int							selectedLaserView = -1;
+	int							selectedLaserView = 0;
 	bool						laserViewShowBackground = false;
 
 	ID3D11ComputeShader*		calcPointScoreComputeShader;
@@ -135,6 +136,15 @@ struct ldiModelInspector {
 
 	std::vector<ldiLaserViewPathPos> laserViewPathPositions;
 	std::vector<int>			laserViewPath;
+
+	// Surfel view context.
+	vec2						surfelViewSize;
+	vec2						surfelViewPos;
+	vec2						surfelViewImgOffset = vec2(0.0f, 0.0f);
+	float						surfelViewScale = 1.0f;
+	int							surfelViewCurrentId = -1;
+	ldiRenderModel				surfelViewPointsModel;
+	ldiDebugPrims				surfelViewDebug;
 };
 
 void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
@@ -462,7 +472,6 @@ void surfelsCreateDistribution(ldiSpatialGrid* Grid, std::vector<ldiSurfel>* Sur
 	Result->points.clear();
 
 	for (size_t i = 0; i < Surfels->size(); ++i) {
-	//for (size_t i = 10000; i < 10001; ++i) {
 		if (SurfelMask[i] > 0 || mask[i] == true) {
 			continue;
 		}
@@ -534,6 +543,8 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->camera.position = vec3(0, 0, 10);
 	ModelInspector->camera.rotation = vec3(0, 0, 0);
 	ModelInspector->camera.fov = 60.0f;
+
+	initDebugPrimitives(&ModelInspector->surfelViewDebug);
 
 	return 0;
 }
@@ -905,7 +916,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
 			// NOTE: 707 == 45degrees to laser view.
 			// NOTE: 500 == 60degrees to laser view.
-			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 500) {
+			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 707) {
 				++activeSurfels;
 				ModelInspector->surfelMask[i] = viewIter + 1;
 				pathPos.surfelIds.push_back(i);
@@ -987,6 +998,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 			// Randomly walk valid low rank surfels.
 			for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
 				int surfelId = pathPos.surfelIds[i];
+				float angle = coverageBufferData[surfelId] / 1000.0f;
 
 				// Get quad for this surfel.
 				vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 0]];
@@ -996,12 +1008,13 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 				vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
 
+				//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
 				vec3 normal = ModelInspector->surfels[surfelId].normal;
 
-				float s0 = glm::length(v0 - v1);
+				/*float s0 = glm::length(v0 - v1);
 				float s1 = glm::length(v1 - v2);
 				float s2 = glm::length(v2 - v3);
-				float s3 = glm::length(v3 - v0);
+				float s3 = glm::length(v3 - v0);*/
 
 				// For each required surfel, get the position.
 				float divSize = 1.0f / (candidatesPerSide);
@@ -1022,7 +1035,8 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						vec3 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
 
 						//float lum = 1.0f;
-						float lum = 1.0f - (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+						float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+						lum = 1.0f - GammaToLinear(lum);
 						//float lum = 1.0f - pow(GammaToLinear(color.r), 1.4);
 						//float lum = 1.0f - GammaToLinear(color.r);
 
@@ -1035,8 +1049,10 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						candidateSurfel.color = vec3(lum, lum, lum);
 						candidateSurfel.position = pos;
 						candidateSurfel.normal = normal;
-						candidateSurfel.scale = 0.0075f * lum;
+						//candidateSurfel.scale = 0.0075f * lum;
 						//candidateSurfel.scale = 0.0075f;
+						candidateSurfel.scale = 0.0050f;
+						candidateSurfel.viewAngle = angle;
 
 						poissonCandidates.push_back(candidateSurfel);
 					}
@@ -1058,10 +1074,10 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				candidateShuffles[swapIdx] = temp;
 			}
 
-			vec3 rndCol;
-			rndCol.x = (rand() % 255) / 255.0f;
-			rndCol.y = (rand() % 255) / 255.0f;
-			rndCol.z = (rand() % 255) / 255.0f;
+			vec3 viewRndCol;
+			viewRndCol.x = (rand() % 255) / 255.0f;
+			viewRndCol.y = (rand() % 255) / 255.0f;
+			viewRndCol.z = (rand() % 255) / 255.0f;
 
 			//----------------------------------------------------------------------------------------------------
 			// Turn candidates into samples.
@@ -1093,9 +1109,10 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 								float mag = glm::distance(ps->position, cand->position);
 
-								//float checkDist = 0.02f * cand->color.r + 0.0060f;
+								float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
+								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0060f;
 								//float checkDist = 0.0075f;
-								float checkDist = 0.0060f;
+								//float checkDist = 0.0060f;
 
 								if (mag <= checkDist) {
 									noconflicts = false;
@@ -1120,8 +1137,8 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->color = vec3(0.0f, 0.72f, 0.92f);
 					//cand->color = vec3(0.8f, 0.0f, 0.56f);
 					//cand->color = vec3(0.96f, 0.9f, 0.09f);
-					//cand->color = vec3(0.0f, 0.0f, 0.0f);
-					cand->color = rndCol;
+					cand->color = vec3(0.0f, 0.0f, 0.0f);
+					//cand->color = viewRndCol;
 					
 					poissonSamples.push_back(*cand);
 
@@ -1134,6 +1151,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					ldiLaserViewSurfel viewSurfel = {};
 					viewSurfel.id = 0;
 					viewSurfel.angle = 0;
+					viewSurfel.scale = cand->scale;
 
 					vec4 clipSpace = machineTransform.projViewModelMat * vec4(ps.position, 1.0f);
 					clipSpace.x /= clipSpace.w;
@@ -1143,6 +1161,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					clipSpace = clipSpace * 0.5f + 0.5f;
 
 					viewSurfel.screenPos = vec2(clipSpace.x * 1024.0f, (1.0f - clipSpace.y) * 1024.0f);
+					viewSurfel.angle = cand->viewAngle;
 					
 					pathPos.surfels.push_back(viewSurfel);
 				}
@@ -1155,7 +1174,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		}
 	}
 
-	ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples);
+	ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
 
 	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
 
@@ -1273,8 +1292,8 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
-	ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
-	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
+	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
 	float globalScale = 1.0f;
@@ -1351,9 +1370,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	double t0 = _getTime(AppContext);
 	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_k.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_k.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
 
 	ModelInspector->baseTexture.width = x;
@@ -1762,23 +1781,23 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
 	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(appContext);
+	beginDebugPrimitives(&appContext->defaultDebug);
 
 	// Axis gizmo.
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(appContext, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
 
 	if (ModelInspector->showScaleHelper) {
-		pushDebugLine(appContext, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
-		pushDebugLine(appContext, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
-		pushDebugLine(appContext, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
-		pushDebugLine(appContext, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
 	
-		pushDebugBox(appContext, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
-		pushDebugBoxSolid(appContext, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
+		pushDebugBox(&appContext->defaultDebug, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
+		pushDebugBoxSolid(&appContext->defaultDebug, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
 
-		pushDebugBox(appContext, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
+		pushDebugBox(&appContext->defaultDebug, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
 	
 		displayTextAtPoint(&ModelInspector->camera, vec3(3, 0, 0), "0 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
 		displayTextAtPoint(&ModelInspector->camera, vec3(3, 5, 0), "50 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
@@ -1793,14 +1812,14 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	vec3 gridColor = ModelInspector->gridColor;
 	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
 	for (int i = 0; i < gridCount + 1; ++i) {
-		pushDebugLine(appContext, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
-		pushDebugLine(appContext, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
 
 	if (ModelInspector->showBounds) {
-		pushDebugSphere(appContext, vec3(0, 7.5f, 0), 7.5f, vec3(0.8f, 0.8f, 0.0f), 64);
-		pushDebugSphere(appContext, vec3(0, 7.5f, 0), 7.5f + 5.0f, vec3(0.5f, 0.8f, 0.0f), 64);
-		pushDebugSphere(appContext, vec3(0, 7.5f, 0), 27.5f, vec3(0.0f, 0.8f, 0.0f), 64);
+		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 7.5f, vec3(0.8f, 0.8f, 0.0f), 64);
+		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 7.5f + 5.0f, vec3(0.5f, 0.8f, 0.0f), 64);
+		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 27.5f, vec3(0.0f, 0.8f, 0.0f), 64);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1835,17 +1854,17 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	if (ModelInspector->showSampleSites) {
 		for (size_t i = 0; i < ModelInspector->pointDistrib.points.size(); ++i) {
 			ldiPointCloudVertex* v = &ModelInspector->pointDistrib.points[i];
-			pushDebugLine(appContext, v->position, v->position + v->normal * 0.1f, vec3(1.0f, 0, 0));
+			pushDebugLine(&appContext->defaultDebug, v->position, v->position + v->normal * 0.1f, vec3(1.0f, 0, 0));
 		}
 	
 		ldiPointCloudVertex* v = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
-		pushDebugLine(appContext, v->position, v->position + v->normal * 20.0f, vec3(1.0f, 0, 0));
+		pushDebugLine(&appContext->defaultDebug, v->position, v->position + v->normal * 20.0f, vec3(1.0f, 0, 0));
 	
 		for (size_t i = 0; i < ModelInspector->laserViewPathPositions.size(); ++i) {
 			ldiLaserViewPathPos* p = &ModelInspector->laserViewPathPositions[i];
 			vec3 pos = p->surfacePos + p->surfaceNormal * 20.0f;
-			pushDebugBox(appContext, pos, vec3(0.1f, 0.1f, 0.1f), vec3(1, 0, 1));
-			pushDebugLine(appContext, pos, pos + -p->surfaceNormal, vec3(1.0f, 0, 0));
+			pushDebugBox(&appContext->defaultDebug, pos, vec3(0.1f, 0.1f, 0.1f), vec3(1, 0, 1));
+			pushDebugLine(&appContext->defaultDebug, pos, pos + -p->surfaceNormal, vec3(1.0f, 0, 0));
 		}
 	
 		for (size_t i = 1; i < ModelInspector->laserViewPath.size(); ++i) {
@@ -1855,7 +1874,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 			vec3 aPos = a->surfacePos + a->surfaceNormal * 20.0f;
 			vec3 bPos = b->surfacePos + b->surfaceNormal * 20.0f;
 
-			pushDebugLine(appContext, aPos, bPos, vec3(0.0f, 1.0f, 1.0f));
+			pushDebugLine(&appContext->defaultDebug, aPos, bPos, vec3(0.0f, 1.0f, 1.0f));
 		}
 	}
 
@@ -1871,7 +1890,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
 
-	renderDebugPrimitives(appContext);
+	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 
 	//----------------------------------------------------------------------------------------------------
 	// Render models.
@@ -2051,6 +2070,216 @@ void _guiPointFilterCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd
 	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
 }
 
+void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	ldiModelInspector* tool = (ldiModelInspector*)cmd->UserCallbackData;
+	ldiApp* appContext = tool->appContext;
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = tool->surfelViewPos.x;
+	viewport.TopLeftY = tool->surfelViewPos.y;
+	viewport.Width = tool->surfelViewSize.x;
+	viewport.Height = tool->surfelViewSize.y;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+
+	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	// TODO: Update inline with input for specific viewport, before rendering.
+	vec3 camPos = vec3(tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, 0.0f);
+	mat4 camViewMat = glm::translate(mat4(1.0f), camPos);
+
+	float viewWidth = tool->surfelViewSize.x / tool->surfelViewScale;
+	float viewHeight = tool->surfelViewSize.y / tool->surfelViewScale;
+	mat4 projMat = glm::orthoRH_ZO(0.0f, viewWidth, viewHeight, 0.0f, 0.01f, 100.0f);
+	//mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(50.0f), (float)SamplerTester->mainViewWidth, (float)SamplerTester->mainViewHeight, 0.01f, 100.0f);
+
+	mat4 projViewModelMat = projMat * camViewMat;
+
+	//----------------------------------------------------------------------------------------------------
+	// Debug primitives.
+	//----------------------------------------------------------------------------------------------------
+	beginDebugPrimitives(&appContext->defaultDebug);
+
+	// Origin.
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(100, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 100, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 100), vec3(0, 0, 1));
+
+	if (!tool->laserViewShowBackground) {
+		//pushDebugQuad(&appContext->defaultDebug, vec3(0, 0, -1), vec3(1024, 1024, 0), vec3(0.5f, 0.5f, 0.5f));
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Render points and things.
+	//----------------------------------------------------------------------------------------------------
+	if (tool->laserViewPathPositions.size() > 0 && tool->selectedLaserView >= 0 && tool->selectedLaserView < tool->laserViewPathPositions.size()) {
+
+		if (tool->surfelViewCurrentId != tool->selectedLaserView) {
+			tool->surfelViewCurrentId = tool->selectedLaserView;
+
+			std::cout << "Generate view: " << tool->surfelViewCurrentId << "\n";
+
+			ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
+			int laserViewSurfelCount = (int)laserView->surfels.size();
+
+			std::vector<ldiSurfel> renderPoints;
+
+			float umToPixel = 1.0f / 40.96f;
+
+			beginDebugPrimitives(&tool->surfelViewDebug);
+
+			float lineSize = 1.0f;
+			int lineCount = (int)(1024.0f / 1.0f);
+
+			struct ldiSurfelLineSpan {
+				int startIdx;
+				int endIdx;
+			};
+
+			struct ldiSurfelLine {
+				std::vector<ldiSurfelLineSpan> spans;
+				std::vector<vec3> surfels;
+			};
+
+			std::vector<ldiSurfelLine> lines;
+			lines.resize(lineCount);
+
+			for (size_t i = 0; i < laserView->surfels.size(); ++i) {
+				vec2 surfelPos = laserView->surfels[i].screenPos;
+				float angle = laserView->surfels[i].angle;
+				float surfelSize = (laserView->surfels[i].scale * 10000.0f) * umToPixel;
+				vec3 col(1.0, 0, 0);
+
+				if (angle >= 0.9) {
+					// 30
+					col = vec3(0.0f, 1.0f, 0.0f);
+				}
+				else if (angle >= 0.8) {
+					// 45
+					col = vec3(0.0f, 0.75f, 0.0f);
+				}
+				else if (angle >= 0.75) {
+					// 60
+					col = vec3(0.0f, 0.5f, 0.0f);
+				}
+				else if (angle >= 0.7) {
+					// 70
+					col = vec3(1.0f, 0.5f, 0.0f);
+				}
+
+				col = vec3(0, 0, 0);
+
+				/*int row = (int)(surfelPos.y * 1.0f);
+
+				if (row % 2 == 0) {
+					col.r = 0.7f;
+				}
+
+				if (row % 4 == 0) {
+					col.g = 0.7f;
+				}
+
+				if (row % 6 == 0) {
+					col.b = 0.7f;
+				}*/
+
+				ldiSurfel s = {};
+				s.position = vec3(surfelPos.x, surfelPos.y, -0.5f);
+				s.color = col;
+				s.scale = surfelSize;
+				//s.scale = 50.0f * umToPixel;
+				s.normal = vec3(0, 0, -1);
+
+				renderPoints.push_back(s);
+
+				// TODO: There should not be any points outside the galvo range?
+				if (s.position.y >= 0.0f && s.position.y < 1024.0f && s.position.x >= 0.0f && s.position.x < 1024.0f) {
+					int lineIdx = (int)(s.position.y / lineSize);
+
+					lines[lineIdx].surfels.push_back(s.position);
+				}
+			}
+
+			for (size_t iLine = 0; iLine < lines.size(); ++iLine) {
+				ldiSurfelLine* line = &lines[iLine];
+
+				std::sort(line->surfels.begin(), line->surfels.end(), [](vec3 &a, vec3 &b) {
+					return a.x > b.x;
+				});
+
+				for (size_t iSurfel = 0; iSurfel < line->surfels.size(); ++iSurfel) {
+					if (iSurfel > 0) {
+						vec3 a = line->surfels[iSurfel - 1];
+						vec3 b = line->surfels[iSurfel + 0];
+
+						if (glm::length(a - b) > 1000 * umToPixel) {
+							pushDebugLine(&tool->surfelViewDebug, a, b, vec3(1.0f, 0.0f, 0));
+						} else {
+							pushDebugLine(&tool->surfelViewDebug, a, b, vec3(0, 1.0f, 0));
+						}
+					}
+				}
+			}
+
+			gfxReleaseRenderModel(&tool->surfelViewPointsModel);
+			tool->surfelViewPointsModel = gfxCreateSurfelRenderModel(appContext, &renderPoints, 0.0f);
+		}
+
+		//gfxRenderSurfelModel(appContext, &tool->surfelViewPointsModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+		{
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = projViewModelMat;
+			constantBuffer->color = vec4(1, 1, 1, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			ldiRenderModel* Model = &tool->surfelViewPointsModel;
+			UINT lgStride = sizeof(ldiBasicVertex);
+			UINT lgOffset = 0;
+
+			appContext->d3dDeviceContext->IASetInputLayout(appContext->surfelInputLayout);
+			appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+			appContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+			appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			appContext->d3dDeviceContext->VSSetShader(appContext->surfelVertexShader, 0, 0);
+			appContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
+			appContext->d3dDeviceContext->PSSetShader(appContext->surfelPixelShader, 0, 0);
+			appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &appContext->mvpConstantBuffer);
+			appContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+			appContext->d3dDeviceContext->OMSetBlendState(appContext->defaultBlendState, NULL, 0xffffffff);
+			appContext->d3dDeviceContext->RSSetState(appContext->defaultRasterizerState);
+
+			appContext->d3dDeviceContext->OMSetDepthStencilState(appContext->noDepthState, 0);
+
+			appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &appContext->dotShaderResourceView);
+			appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->dotSamplerState);
+
+			appContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Render debug primitives.
+	//----------------------------------------------------------------------------------------------------
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewModelMat;
+		constantBuffer->color = vec4(1, 1, 1, 1);
+		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	}
+
+	renderDebugPrimitives(appContext, &appContext->defaultDebug);
+	renderDebugPrimitives(appContext, &tool->surfelViewDebug);
+}
+
 void modelInspectorShowUi(ldiModelInspector* tool) {
 	ImGui::Begin("Model inspector controls");
 	if (ImGui::CollapsingHeader("Viewport", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -2136,6 +2365,11 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImVec2 startPos = ImGui::GetCursorPos();
 		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
+		ImVec2 viewportPos = ImGui::GetWindowViewport()->Pos;
+		ImVec2 windowPos;
+		windowPos.x = screenStartPos.x - viewportPos.x;
+		windowPos.y = screenStartPos.y - viewportPos.y;
+		
 		// This will catch our interactions.
 		ImGui::InvisibleButton("__imgInspecViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 		const bool isHovered = ImGui::IsItemHovered(); // Hovered
@@ -2143,117 +2377,129 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImVec2 mousePos = ImGui::GetIO().MousePos;
 		const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
 
-		static float imgScale = 1.0f;
-		static vec2 imgOffset(0.0f, 0.0f);
+		//static float imgScale = 1.0f;
+		//static vec2 imgOffset(0.0f, 0.0f);
 
 		// Convert canvas pos to world pos.
 		vec2 worldPos;
 		worldPos.x = mouseCanvasPos.x;
 		worldPos.y = mouseCanvasPos.y;
-		worldPos *= (1.0 / imgScale);
-		worldPos -= imgOffset;
+		worldPos *= (1.0 / tool->surfelViewScale);
+		worldPos -= tool->surfelViewImgOffset;
 
 		if (isHovered) {
 			float wheel = ImGui::GetIO().MouseWheel;
 
 			if (wheel) {
-				imgScale += wheel * 0.2f * imgScale;
+				tool->surfelViewScale += wheel * 0.2f * tool->surfelViewScale;
 
 				vec2 newWorldPos;
 				newWorldPos.x = mouseCanvasPos.x;
 				newWorldPos.y = mouseCanvasPos.y;
-				newWorldPos *= (1.0 / imgScale);
-				newWorldPos -= imgOffset;
+				newWorldPos *= (1.0 / tool->surfelViewScale);
+				newWorldPos -= tool->surfelViewImgOffset;
 
 				vec2 deltaWorldPos = newWorldPos - worldPos;
 
-				imgOffset.x += deltaWorldPos.x;
-				imgOffset.y += deltaWorldPos.y;
+				tool->surfelViewImgOffset.x += deltaWorldPos.x;
+				tool->surfelViewImgOffset.y += deltaWorldPos.y;
 			}
 		}
 
 		if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
 			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-			mouseDelta *= (1.0 / imgScale);
+			mouseDelta *= (1.0 / tool->surfelViewScale);
 
-			imgOffset += vec2(mouseDelta.x, mouseDelta.y);
+			tool->surfelViewImgOffset += vec2(mouseDelta.x, mouseDelta.y);
 		}
 
 		ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-		float areaX = screenStartPos.x + (imgOffset.x + 0) * imgScale;
-		float areaY = screenStartPos.y + (imgOffset.y + 0) * imgScale;
+		tool->surfelViewPos = vec2(windowPos.x, windowPos.y);
+		tool->surfelViewSize = vec2(viewSize.x, viewSize.y);
 
 		ImVec2 imgMin;
-		imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
-		imgMin.y = screenStartPos.y + imgOffset.y * imgScale;
+		imgMin.x = screenStartPos.x + tool->surfelViewImgOffset.x * tool->surfelViewScale;
+		imgMin.y = screenStartPos.y + tool->surfelViewImgOffset.y * tool->surfelViewScale;
 
 		ImVec2 imgMax;
-		imgMax.x = imgMin.x + 1024 * imgScale;
-		imgMax.y = imgMin.y + 1024 * imgScale;
+		imgMax.x = imgMin.x + 1024 * tool->surfelViewScale;
+		imgMax.y = imgMin.y + 1024 * tool->surfelViewScale;
 
-		int laserViewSurfelCount = 0;
+		draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
 
-		if (tool->selectedLaserView != -1) {
-			if (tool->laserViewShowBackground) {
-				draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
-				draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
-				draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
-			} else {
-				draw_list->AddRectFilled(imgMin, imgMax, ImColor(0.5f, 0.5f, 0.5f, 1.0f));
-			}
-
-			draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
-
-			ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
-
-			laserViewSurfelCount = laserView->surfels.size();
-
-			float umToPixel = 1.0f / 40.96f;
-			float surfelSize = 75 * umToPixel;
-			float surfelHalfSize = surfelSize * 0.5f;
-
-			for (size_t i = 0; i < laserView->surfels.size(); ++i) {
-				vec2 surfelPos = laserView->surfels[i].screenPos;
-				float angle = laserView->surfels[i].angle;
-
-				ImVec2 rMin;
-				rMin.x = screenStartPos.x + (imgOffset.x + surfelPos.x - surfelHalfSize) * imgScale;
-				rMin.y = screenStartPos.y + (imgOffset.y + surfelPos.y - surfelHalfSize) * imgScale;
-
-				ImVec2 rMax;
-				rMax.x = rMin.x + (surfelSize * imgScale);
-				rMax.y = rMin.y + (surfelSize * imgScale);
-
-				ImVec2 center;
-				center.x = screenStartPos.x + (imgOffset.x + surfelPos.x) * imgScale;
-				center.y = screenStartPos.y + (imgOffset.y + surfelPos.y) * imgScale;
-
-				ImColor col(255, 255, 255);
-
-				//draw_list->AddCircle(center, surfelHalfSize* imgScale, ImColor((int)(62 * angle), (int)(101 * angle), (int)(156 * angle)), 8);
-
-				if (angle >= 0.9) {
-					// 30
-					col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
-				}
-				else if (angle >= 0.8) {
-					// 45
-					col = ImColor(0.0f, 0.75f, 0.0f, 1.0f);
-				}
-				else if (angle >= 0.75) {
-					// 60
-					col = ImColor(0.0f, 0.5f, 0.0f, 1.0f);
-				}
-				else if (angle >= 0.7) {
-					// 70
-					col = ImColor(1.0f, 0.5f, 0.0f, 1.0f);
-				}
-			
-				draw_list->AddCircle(center, surfelHalfSize* imgScale, col, 16);
-				//draw_list->AddRectFilled(rMin, rMax, col);
-			}
+		if (tool->laserViewShowBackground) {
+			draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
+			draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+			draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 		}
+
+		draw_list->AddCallback(_renderSurfelViewCallback, tool);
+		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+
+		//int laserViewSurfelCount = 0;
+
+		//if (tool->laserViewPathPositions.size() > 0) {
+		//	if (tool->laserViewShowBackground) {
+		//		draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
+		//		draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+		//		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+		//	} else {
+		//		draw_list->AddRectFilled(imgMin, imgMax, ImColor(0.5f, 0.5f, 0.5f, 1.0f));
+		//	}
+
+		//	draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
+
+		//	ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
+
+		//	laserViewSurfelCount = laserView->surfels.size();
+
+		//	float umToPixel = 1.0f / 40.96f;
+
+		//	for (size_t i = 0; i < laserView->surfels.size(); ++i) {
+		//		vec2 surfelPos = laserView->surfels[i].screenPos;
+		//		float angle = laserView->surfels[i].angle;
+
+		//		float surfelSize = (laserView->surfels[i].scale * 10000.0f) * umToPixel;
+		//		float surfelHalfSize = surfelSize * 0.5f;
+
+		//		ImVec2 rMin;
+		//		rMin.x = screenStartPos.x + (imgOffset.x + surfelPos.x - surfelHalfSize) * imgScale;
+		//		rMin.y = screenStartPos.y + (imgOffset.y + surfelPos.y - surfelHalfSize) * imgScale;
+
+		//		ImVec2 rMax;
+		//		rMax.x = rMin.x + (surfelSize * imgScale);
+		//		rMax.y = rMin.y + (surfelSize * imgScale);
+
+		//		ImVec2 center;
+		//		center.x = screenStartPos.x + (imgOffset.x + surfelPos.x) * imgScale;
+		//		center.y = screenStartPos.y + (imgOffset.y + surfelPos.y) * imgScale;
+
+		//		ImColor col(255, 255, 255);
+
+		//		//draw_list->AddCircle(center, surfelHalfSize* imgScale, ImColor((int)(62 * angle), (int)(101 * angle), (int)(156 * angle)), 8);
+
+		//		if (angle >= 0.9) {
+		//			// 30
+		//			col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
+		//		}
+		//		else if (angle >= 0.8) {
+		//			// 45
+		//			col = ImColor(0.0f, 0.75f, 0.0f, 1.0f);
+		//		}
+		//		else if (angle >= 0.75) {
+		//			// 60
+		//			col = ImColor(0.0f, 0.5f, 0.0f, 1.0f);
+		//		}
+		//		else if (angle >= 0.7) {
+		//			// 70
+		//			col = ImColor(1.0f, 0.5f, 0.0f, 1.0f);
+		//		}
+		//	
+		//		draw_list->AddCircle(center, surfelHalfSize * imgScale, col, 16);
+		//		//draw_list->AddRectFilled(rMin, rMax, col);
+		//	}
+		//}
 
 		if (isHovered) {
 			vec2 pixelPos;
@@ -2261,23 +2507,23 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 			pixelPos.y = (int)(worldPos.y * 4.0f) / 4.0f;
 
 			ImVec2 rMin;
-			rMin.x = screenStartPos.x + (imgOffset.x + pixelPos.x) * imgScale;
-			rMin.y = screenStartPos.y + (imgOffset.y + pixelPos.y) * imgScale;
+			rMin.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x) * tool->surfelViewScale;
+			rMin.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y) * tool->surfelViewScale;
 
 			ImVec2 rMax = rMin;
-			rMax.x += 0.25f * imgScale;
-			rMax.y += 0.25f * imgScale;
+			rMax.x += 0.25f * tool->surfelViewScale;
+			rMax.y += 0.25f * tool->surfelViewScale;
 
 			ImVec2 center;
-			center.x = screenStartPos.x + (imgOffset.x + pixelPos.x + 0.125f) * imgScale;
-			center.y = screenStartPos.y + (imgOffset.y + pixelPos.y + 0.125f) * imgScale;
+			center.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x + 0.125f) * tool->surfelViewScale;
+			center.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y + 0.125f) * tool->surfelViewScale;
 
 			float umToPixel = 1.0f / 40.96f;
 			float surfelSize = 75 * umToPixel;
 			float surfelHalfSize = surfelSize * 0.5f;
 
 			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
-			draw_list->AddCircle(center, surfelHalfSize * imgScale, ImColor(255, 0, 255), 24);
+			draw_list->AddCircle(center, surfelHalfSize * tool->surfelViewScale, ImColor(255, 0, 255), 24);
 		}
 
 		// Viewport overlay.
@@ -2286,9 +2532,9 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 			ImGui::BeginChild("_surfelViewOverlay", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-			ImGui::Text("%.3f %.3f - %.3f", imgOffset.x, imgOffset.y, imgScale);
+			ImGui::Text("%.3f %.3f - %.3f", tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, tool->surfelViewScale);
 			ImGui::Text("%.3f %.3f", worldPos.x, worldPos.y);
-			ImGui::Text("Surfels: %d", laserViewSurfelCount);
+			//ImGui::Text("Surfels: %d", laserViewSurfelCount);
 
 			ImGui::EndChild();
 		}

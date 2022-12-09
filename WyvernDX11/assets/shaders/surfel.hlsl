@@ -13,6 +13,7 @@ struct PS_INPUT {
 PS_INPUT mainVs(vertexInputBasic input) {
 	PS_INPUT output;
 	output.pos = mul(ProjectionMatrix, float4(input.pos + normalize(ObjectColor.xyz - input.pos) * 0.01, 1));
+	// output.pos = mul(ProjectionMatrix, float4(input.pos, 1));
 	output.col = float4(input.col, 1);
 	output.uv = input.uv;
 

@@ -143,13 +143,13 @@ void voxelPushQuadIndices(ldiModel* Model) {
 void voxelRenderDebug(ldiApp* AppContext, ldiVoxelGrid* Grid) {
 	float scale = Grid->scale;
 
-	pushDebugBoxMinMax(AppContext, vec3(0, 0, 0), vec3(Grid->cellSizeX * 0.1f, Grid->cellSizeY * 0.1f, Grid->cellSizeZ * 0.1f), vec3(1, 0, 1));
+	pushDebugBoxMinMax(&AppContext->defaultDebug, vec3(0, 0, 0), vec3(Grid->cellSizeX * 0.1f, Grid->cellSizeY * 0.1f, Grid->cellSizeZ * 0.1f), vec3(1, 0, 1));
 
 	for (size_t i = 0; i < Grid->rawChunks.size(); ++i) {
 		ldiVoxelChunk* chunk = Grid->rawChunks[i];
 
 		pushDebugBoxMinMax(
-			AppContext, 
+			&AppContext->defaultDebug,
 			vec3(chunk->x * VOXEL_CHUNK_SIZE, chunk->y * VOXEL_CHUNK_SIZE, chunk->z * VOXEL_CHUNK_SIZE) * scale,
 			vec3((chunk->x + 1) * VOXEL_CHUNK_SIZE, (chunk->y + 1) * VOXEL_CHUNK_SIZE, (chunk->z + 1) * VOXEL_CHUNK_SIZE) * scale,
 			vec3(1, 1, 1)

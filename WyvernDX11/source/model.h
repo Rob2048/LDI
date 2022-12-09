@@ -53,6 +53,7 @@ struct ldiSurfel {
 	vec3 color;
 	vec3 smoothedNormal;
 	float scale;
+	float viewAngle;
 };
 
 static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {

@@ -198,7 +198,19 @@ void gfxReleaseSurfelRenderModel(ldiRenderModel* Model) {
 	}
 }
 
-ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels) {
+void gfxReleaseRenderModel(ldiRenderModel* Model) {
+	if (Model->vertexBuffer) {
+		Model->vertexBuffer->Release();
+		Model->vertexBuffer = 0;
+	}
+
+	if (Model->indexBuffer) {
+		Model->indexBuffer->Release();
+		Model->indexBuffer = 0;
+	}
+}
+
+ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, float NormalOffset = 0.001f) {
 	ldiRenderModel result = {};
 
 	int quadCount = (int)Surfels->size();
@@ -212,7 +224,7 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 	//float surfelSize = 0.0075f;
 	//float hSize = surfelSize / 2.0f;
 	//float hSize = surfelSize * 4.0f;
-	float normalAdjust = 0.001f;
+	float normalAdjust = NormalOffset;//0.001f;
 	
 	for (int i = 0; i < quadCount; ++i) {
 		ldiSurfel* s = &(*Surfels)[i];
