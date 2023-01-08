@@ -812,7 +812,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
-	for (int viewIter = 0; viewIter < 200; ++viewIter) {
+	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -1035,13 +1035,15 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						vec3 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
 
 						//float lum = 1.0f;
-						float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
-						lum = 1.0f - GammaToLinear(lum);
+						//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+						//lum = 1.0f - GammaToLinear(lum);
+
 						//float lum = 1.0f - pow(GammaToLinear(color.r), 1.4);
 						//float lum = 1.0f - GammaToLinear(color.r);
+						float lum = 1.0f - color.r;
 
 						// NOTE: Luminance cutoff. Can't represent values this light.
-						if (lum < 0.025f) {
+						if (lum < 0.025f || lum > 1.0f) {
 							continue;
 						}
 
@@ -1059,6 +1061,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				}
 			}
 
+			// TODO: Check uniformity of this shuffle.
 			std::vector<int> candidateShuffles;
 			candidateShuffles.resize(poissonCandidates.size());
 
@@ -1103,16 +1106,20 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 							size_t sampleCount = sampleGrid->cells[cellId].samples.size();
 
 							for (size_t iterSamples = 0; iterSamples < sampleCount; ++iterSamples) {
-								// Compare candidate against sample;
+								// NOTE: Compare candidate against sample.
 
 								ldiPoissonSample* ps = &sampleGrid->cells[cellId].samples[iterSamples];
 
 								float mag = glm::distance(ps->position, cand->position);
 
-								float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
+								// NOTE: Distance diffusion.
+								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
 								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0060f;
-								//float checkDist = 0.0075f;
 								//float checkDist = 0.0060f;
+
+								// NOTE: Scaling.
+								float checkDist = 0.0050f;
+								cand->scale = 0.0075f * cand->color.r;
 
 								if (mag <= checkDist) {
 									noconflicts = false;
@@ -1372,7 +1379,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	int x, y, n;
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_k.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
 
 	ModelInspector->baseTexture.width = x;
@@ -1422,10 +1429,8 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
 
 	//----------------------------------------------------------------------------------------------------
-	// Create spatial structure for poisson samples.
+	// Smooth normals.
 	//----------------------------------------------------------------------------------------------------
-	poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
-
 	t0 = _getTime(AppContext);
 	{
 		const int threadCount = 20;
@@ -1462,6 +1467,10 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
 
+	//----------------------------------------------------------------------------------------------------
+	// Create spatial structure for poisson samples.
+	//----------------------------------------------------------------------------------------------------
+	poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
 	
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
 	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh);

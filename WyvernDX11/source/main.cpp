@@ -160,10 +160,10 @@ struct ldiApp {
 
 	ImFont*						fontBig;
 
-	bool						showPlatformWindow = false;
+	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = false;
-	bool						showModelInspector = true;
+	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
 	bool						showModelEditor = false;

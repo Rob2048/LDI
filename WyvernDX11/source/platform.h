@@ -55,10 +55,12 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::Text("Connection");
 
 	ImGui::BeginDisabled(Tool->serialPort.connected);
-	char ipBuff[] = "192.168.0.50";
+	/*char ipBuff[] = "192.168.0.50";
 	int port = 5000;
 	ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
-	ImGui::InputInt("Port", &port);
+	ImGui::InputInt("Port", &port);*/
+
+	
 	ImGui::EndDisabled();
 
 	if (Tool->serialPort.connected) {
@@ -66,11 +68,31 @@ void platformShowUi(ldiPlatform* Tool) {
 			serialPortDisconnect(&Tool->serialPort);
 		};
 		ImGui::Text("Status: Connected");
-	}
-	else {
+	} else {
+		ImGui::Text("Checking for serial ports...");
+
+		// NOTE: Update serial port list at interval;
+		static float updateListTime = 0.0f;
+		static int updateCount = 0;
+
+		updateListTime += ImGui::GetIO().DeltaTime;
+
+		if (updateListTime >= 1.0f) {
+			++updateCount;
+			updateListTime -= 1.0f;
+
+			// https://github.com/serialport/bindings-cpp/blob/main/src/serialport_win.cpp
+		}
+
+		ImGui::Text("%d", updateCount);
+
+		char comPortPath[7] = "COM39";
+		ImGui::InputText("COM path", comPortPath, sizeof(comPortPath));
+
 		if (ImGui::Button("Connect", ImVec2(-1, 0))) {
 			serialPortConnect(&Tool->serialPort, "\\\\.\\COM39", 921600);
 		};
+
 		ImGui::Text("Status: Disconnected");
 	}
 
@@ -116,4 +138,28 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::EndDisabled();
 
 	ImGui::End();
+
+	//----------------------------------------------------------------------------------------------------
+	// Platform 3D view.
+	//----------------------------------------------------------------------------------------------------
+	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	if (ImGui::Begin("Platform 3D view", 0, ImGuiWindowFlags_NoCollapse)) {
+		ImVec2 viewSize = ImGui::GetContentRegionAvail();
+		ImVec2 startPos = ImGui::GetCursorPos();
+		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+
+		// Viewport overlay widgets.
+		{
+			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 25), false, ImGuiWindowFlags_NoScrollbar);
+
+			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+			ImGui::EndChild();
+		}
+	}
+
+	ImGui::End();
+	ImGui::PopStyleVar();
 }

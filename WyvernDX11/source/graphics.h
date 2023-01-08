@@ -513,7 +513,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 
 	double totalArea = 0.0;
 
-	const double dotSize = 0.0075;
+	const double dotSize = 0.0050;
 	
 	for (int i = 0; i < quadCount; ++i) {
 		vec3 p0 = ModelSource->verts[ModelSource->indices[i * 4 + 0]];
