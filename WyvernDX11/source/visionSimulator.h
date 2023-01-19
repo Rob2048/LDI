@@ -413,15 +413,14 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	return 0;
 }
 
-void _renderTransformOrigin(ldiVisionSimulator* Tool, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
-	ldiApp* appContext = Tool->appContext;
+void _renderTransformOrigin(ldiApp* AppContext, ldiCamera* Camera, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
 	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
 
-	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
-	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
-	pushDebugLine(&appContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
 
-	displayTextAtPoint(&Tool->mainCamera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 }
 
 void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -489,12 +488,12 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	// Horse.
 	//----------------------------------------------------------------------------------------------------
 	{
-		_renderTransformOrigin(Tool, &Tool->horse.origin, "Origin", TextBuffer);
-		_renderTransformOrigin(Tool, &Tool->horse.axisX, "X", TextBuffer);
-		_renderTransformOrigin(Tool, &Tool->horse.axisY, "Y", TextBuffer);
-		_renderTransformOrigin(Tool, &Tool->horse.axisZ, "Z", TextBuffer);
-		_renderTransformOrigin(Tool, &Tool->horse.axisA, "A", TextBuffer);
-		_renderTransformOrigin(Tool, &Tool->horse.axisB, "B", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisB, "B", TextBuffer);
 
 		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
 		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
@@ -502,7 +501,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 		ldiTransform mvCameraTransform = {};
 		mvCameraTransform.world = glm::inverse(camViewMat);
-		_renderTransformOrigin(Tool, &mvCameraTransform, "Camera", TextBuffer);
+		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
 
 		// Render camera frustum.
 		mat4 projViewMat = Tool->camera.projMat * camViewMat;
@@ -559,7 +558,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 			ldiTransform boardTransform = {};
 			boardTransform.world = world;
-			_renderTransformOrigin(Tool, &boardTransform, "Board", TextBuffer);
+			_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "Board", TextBuffer);
 
 			vec3 v0 = world * vec4(0, 0, 0, 1);
 			vec3 v1 = world * vec4(0, cubeSize, 0, 1);

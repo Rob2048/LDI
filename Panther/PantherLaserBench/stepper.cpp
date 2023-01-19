@@ -1,6 +1,7 @@
 #include "stepper.h"
 
 abStepper::abStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin) :	
+	active(false),
 	type(Type),
 	stepPin(StepPin),
 	dirPin(DirPin),
@@ -22,17 +23,38 @@ bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerSt
 	invert = Invert;
 
 	if (type == 0) {
-		// Serial.println("Init TMC2130 stepper");
-		
 		_tmc->begin();
 		_tmc->SilentStepStick2130(Current);
-		_tmc->stealthChop(StealthChop);
+		//_tmc->stealthChop(StealthChop);
 		_tmc->microsteps(MicroSteps);
+
+		// Set stall gaurd stuff.
+		// TCOOLTHRS
+		// THIGH = 0;
+		// _tmc->coolstep_min_speed(0xFFFFF); // 20bit max
+		// _tmc->THIGH(0);
+
+		// _tmc->toff(3);
+		// _tmc->tbl(1);
+		// _tmc->hysteresis_start(4);
+		// _tmc->hysteresis_end(-2);
+		// _tmc->rms_current(Current); // mA
+		// _tmc->microsteps(MicroSteps);
+		// _tmc->diag1_stall(1);
+		// _tmc->diag1_active_high(1);
+		// _tmc->coolstep_min_speed(0xFFFFF); // 20bit max
+		// _tmc->THIGH(0);
+		// _tmc->semin(5);
+		// _tmc->semax(2);
+		// _tmc->sedn(0b01);
+		// _tmc->sg_stall_value(0); // -64 to 63
 
 		uint32_t tmcVersion = _tmc->version();
 
-		if (tmcVersion != 17)
+		if (tmcVersion != 17) {
 			success = false;
+		}
+		
 		// Serial.print("TMC version: ");
 		// Serial.println(tmcVersion);
 	} else {
@@ -45,6 +67,8 @@ bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerSt
 		pinMode(limitPin, INPUT_PULLDOWN);
 	}
 
+	active = success;
+
 	return success;
 }
 
@@ -54,6 +78,18 @@ void abStepper::setMicrosteps(int Steps) {
 
 uint16_t abStepper::getMicrostepCount() {
 	return _tmc->MSCNT();
+}
+
+uint32_t abStepper::getDriverStatus() {
+	return _tmc->DRV_STATUS();
+}
+
+bool abStepper::getSfilt() {
+	return _tmc->sfilt();
+}
+
+int8_t abStepper::getSgt() {
+	return _tmc->sgt();
 }
 
 bool abStepper::updateStepper() {
@@ -80,6 +116,87 @@ bool abStepper::updateStepper() {
 		} else {
 			++currentStep;
 		}
+	} else {
+		return true;
+	}
+
+	// TODO: Only calc accel during accel phase.
+	// TODO: Keep velocity after accel phase during cruise phase.
+	// TODO: Final step travel is not accounted for?
+	
+	// Calculate next step time.
+	// NOTE: Roughly 15us to calculate on Teensy 3.5.
+	if (remainingSteps <= decelSteps) {
+		// NOTE: Deacceleration phase.
+		t = (sqrtf(2 * -a * s + u * u) - u) / -a;
+		float v = u + -a * t;
+		u = v;
+	
+		uint32_t delayTimeUs = (uint32_t)(t * 1000000.0);
+		stepperTimeUs += delayTimeUs;		
+	} else if (u >= maxVelocity) {
+		// NOTE: Cruising phase.
+		u = maxVelocity;
+		
+		uint32_t cruiseStepDelay = (uint32_t)((mmPerStep / maxVelocity) * 1000000.0);
+		stepperTimeUs = stepperTimeUs + cruiseStepDelay;		
+	} else {
+		// NOTE: Acceleration phase.
+		t = (sqrtf(2 * a * s + u * u) - u) / a;
+		float v = u + a * t;
+		u = v;
+	
+		uint32_t delayTimeUs = (uint32_t)(t * 1000000.0);
+		stepperTimeUs += delayTimeUs;
+	}
+
+	return true;
+}
+
+bool abStepper::updateStepperLog(ldiStepTable* StepLogTable) {
+	uint32_t currentTime = micros();
+
+	int32_t remainingSteps = stepTarget - currentStep;
+
+	if (remainingSteps == 0)
+		return false;
+
+	if (remainingSteps < 0)
+		remainingSteps = -remainingSteps;
+
+	if (currentTime >= stepperTimeUs) {
+		pulseStepper();
+		//Serial.println(remainingSteps);
+		//Serial.print(" ");
+		//Serial.print(currentTime - moveStartTimeUs);
+		//Serial.print(" V ");
+		//Serial.println(u, 2);
+		
+		if (totalSteps < 0) {
+			--currentStep;
+		} else {
+			++currentStep;
+		}
+
+		//StepLogTable->entries[StepLogTable->size].step = currentStep;
+
+		// {
+		// 	static unsigned long prevTime = 0;
+		// 	unsigned long t0 = micros();
+
+		// 	uint8_t buffer[8];
+		// 	buffer[0] = 255;
+		// 	buffer[1] = 5;
+		// 	buffer[2] = 70;
+		// 	buffer[sizeof(buffer) - 1] = 254;
+
+		// 	memcpy(buffer + 3, &prevTime, 4);
+			
+		// 	Serial.write(buffer, sizeof(buffer));
+
+		// 	prevTime = micros() - t0;
+		// }
+
 	} else {
 		return true;
 	}

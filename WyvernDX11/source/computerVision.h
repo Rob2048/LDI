@@ -60,7 +60,11 @@ void createCharucos(bool Output) {
 			
 			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 0.9f, 0.6f, _dictionary);
 			double newScale = 5.0 / 6.0;
-			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(6, 6, 1.0 * newScale, 0.7 * newScale, _dictionary);
+			// NOTE: Ideal board?
+			//cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(6, 6, 1.0 * newScale, 0.7 * newScale, _dictionary);
+
+			// NOTE: Original board?
+			cv::Ptr<cv::aruco::CharucoBoard> board = cv::aruco::CharucoBoard::create(4, 4, 1.0 * newScale, 0.7 * newScale, _dictionary);
 			_charucoBoards.push_back(board);
 
 			// NOTE: Shift ids.

@@ -160,9 +160,9 @@ struct ldiApp {
 
 	ImFont*						fontBig;
 
-	bool						showPlatformWindow = true;
+	bool						showPlatformWindow = false;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = false;
+	bool						showImageInspector = true;
 	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
@@ -202,8 +202,8 @@ void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight
 #include "computerVision.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
-#include "platform.h"
 #include "visionSimulator.h"
+#include "platform.h"
 #include "modelEditor.h"
 
 #include "imageInspector.h"
@@ -771,7 +771,7 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 int main() {
 	std::cout << "Starting WyvernDX11\n";
 
-	createCharucos(false);
+	createCharucos(true);
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
@@ -812,10 +812,10 @@ int main() {
 		return 1;
 	}
 
-	if (modelInspectorLoad(appContext, modelInspector) != 0) {
+	/*if (modelInspectorLoad(appContext, modelInspector) != 0) {
 		std::cout << "Could not load model inspector\n";
 		return 1;
-	}
+	}*/
 
 	ldiSamplerTester* samplerTester = &_samplerTester;
 	if (samplerTesterInit(appContext, samplerTester) != 0) {

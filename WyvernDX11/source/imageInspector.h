@@ -1,12 +1,17 @@
 #pragma once
 
+// NOTE: OV2311
 #define CAM_IMG_WIDTH 1600
 #define CAM_IMG_HEIGHT 1300
+
+// NOTE: IMX477
+//#define CAM_IMG_WIDTH 4056
+//#define CAM_IMG_HEIGHT 3040
 
 struct ldiImageInspector {
 	ldiApp*						appContext;
 
-	float						camImageFilterFactor = 0.6f;
+	float						camImageFilterFactor = 0.0f;
 
 	ldiCharucoResults			camImageCharucoResults = {};
 
@@ -73,6 +78,7 @@ void imageInspectorHandlePacket(ldiImageInspector* Tool, ldiPacketView* PacketVi
 		uint8_t* pixelData = (uint8_t*)ms.pData;
 
 		for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
+			//memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * 4064, 4064);
 			memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
 		}
 

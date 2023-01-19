@@ -52,16 +52,16 @@ bool serialPortConnect(ldiSerialPort* Port, const char* Name, int BitRate) {
 
 	COMMTIMEOUTS timeouts = {};
 	GetCommTimeouts(handle, &timeouts);
-	timeouts.ReadIntervalTimeout = 0;
+	timeouts.ReadIntervalTimeout = MAXDWORD;
 	timeouts.ReadTotalTimeoutMultiplier = 0;
-	timeouts.ReadTotalTimeoutConstant = 10;
-	//timeouts.WriteTotalTimeoutConstant = 0;
-	//timeouts.WriteTotalTimeoutMultiplier = 0;
+	timeouts.ReadTotalTimeoutConstant = 0;
+	timeouts.WriteTotalTimeoutConstant = 0;
+	timeouts.WriteTotalTimeoutMultiplier = 0;
 	SetCommTimeouts(handle, &timeouts);
 
 	Port->descriptor = handle;
 	Port->connected = true;
-	std::cout << "Serial Connect: Connected to " << Name << ".\n";
+	std::cout << "Serial Connect: Connected to " << Name << "\n";
 
 	return true;
 }

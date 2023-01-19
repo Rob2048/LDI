@@ -5,10 +5,21 @@
 // Alternative: https://github.com/teemuatlut/TMCStepper
 #include <TMC2130Stepper.h>
 
+struct ldiStepTableEntry {
+	int16_t step;
+	int16_t sgValue;
+};
+
+struct ldiStepTable {
+	int32_t size;
+	ldiStepTableEntry entries[32000];
+};
+
 class abStepper {
 public:
 
 	// Config.
+	bool		active;
   	int8_t		type;
 	int32_t 	stepPin;
 	int32_t 	dirPin;	
@@ -41,12 +52,17 @@ public:
 	void setDirection(bool Dir);
 	void setMicrosteps(int Steps);
 	uint16_t getMicrostepCount();
+	uint32_t getDriverStatus();
+	bool getSfilt();
+	int8_t getSgt();
+
 	void zero();
 	void home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep);
 
 	void moveTo(int32_t StepTarget, float MaxVelocity);
 	void moveRelative(int32_t StepTarget, float MaxVelocity);
 	bool updateStepper();
+	bool updateStepperLog(ldiStepTable* StepLogTable);
 	
 	void moveSimple(float Position, int32_t Speed);
 	void moveDirect(int32_t StepTarget, int32_t Speed);

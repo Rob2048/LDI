@@ -7,13 +7,22 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+// NOTE: OV2311
 #define IMG_WIDTH 1600
 #define IMG_HEIGHT 1300
+
+// NOTE: IMX477
+// TODO: NB: The width rounds to nearest 16.
+// #define IMG_WIDTH 4056
+// #define IMG_HEIGHT 3040
+
+// NOTE: IMX219
 // #define IMG_WIDTH 1920
 // #define IMG_HEIGHT 1080
 // #define IMG_WIDTH 3280
 // #define IMG_HEIGHT 2464
 
+uint8_t tempBuffer[IMG_WIDTH * IMG_HEIGHT];
 uint8_t pixelBuffer[IMG_WIDTH * IMG_HEIGHT];
 
 bool _settingsUpdate = false;
@@ -36,6 +45,20 @@ void processImageSRGGB8(uint8_t* Data, int Size) {
 	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
 
 	memcpy(pixelBuffer, Data, pixelCount);
+}
+
+void processImageSRGGB8Avg(uint8_t* Data, int Size, int FrameId, int TotalFrames) {
+	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
+
+	if (FrameId == 0) {
+		memset(pixelBuffer, 0, pixelCount);
+	}
+
+	memcpy(tempBuffer, Data, pixelCount);
+
+	for (int i = 0; i < pixelCount; ++i) {
+		pixelBuffer[i] += (uint8_t)((float)tempBuffer[i] / (float)TotalFrames);
+	}
 }
 
 void processImage(uint8_t* Data, int Size) {
@@ -66,6 +89,31 @@ void processImage(uint8_t* Data, int Size) {
 	// 	// fwrite(pixelBuffer, sizeof(pixelBuffer), 1, fd);
 	// 	// fclose(fd);
 	// }
+}
+
+void processImage12to8(uint8_t* Data, int Size) {
+	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
+
+	for (int i = 0; i < pixelCount; ++i) {
+		uint16_t pixel = ((uint16_t*)Data)[i];
+		pixel = pixel >> 4;
+		pixelBuffer[i] = (uint8_t)pixel;
+
+		// uint8_t pixel = (Data[i * 2 + 1] << 6) | (Data[i * 2 + 0] >> 2);
+		// pixelBuffer[i] = pixel;
+	}
+}
+
+void processImageRGB888to8(uint8_t* Data, int Size) {
+	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
+
+	for (int i = 0; i < pixelCount; ++i) {
+		uint8_t pixel = Data[i * 3 + 0];
+		pixelBuffer[i] = pixel;
+
+		// uint8_t pixel = (Data[i * 2 + 1] << 6) | (Data[i * 2 + 0] >> 2);
+		// pixelBuffer[i] = pixel;
+	}
 }
 
 struct ldiProtocolHeader {
@@ -263,6 +311,135 @@ int runIMX219() {
 	return 0;
 }
 
+int runIMX477() {
+	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
+	// compressedBufferSize = LZ4_compressBound(decompressedSize);
+	// std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
+	// compressedBuffer = new uint8_t[compressedBufferSize];
+
+	LibCamera cam;
+
+	// formats::RGB888
+	// int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB8, 4, 0);
+	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::RGB888, 4, 0);
+
+	if (ret) {
+		std::cout << "Cam init failure\n";
+		cam.closeCamera();
+		return 1;
+	}
+
+	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
+	ControlList controls_;
+	int64_t frame_time = 1000000 / 2;
+	controls_.set(controls::FrameDurationLimits, { frame_time, frame_time });
+	controls_.set(controls::ExposureTime, _shutterSpeed);
+	// NOTE: Analog gain at 0 is some kind of automatic?
+	controls_.set(controls::AnalogueGain, _analogGain);
+	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
+	controls_.set(controls::Sharpness, 0);
+	controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
+	controls_.set(controls::ColourGains, { 0.0f, 0.0f });
+	cam.set(controls_);
+
+	LibcameraOutData frameData;
+	cam.startCamera();
+
+	ldiNet* net = networkCreate();
+		
+	int64_t timeAtLastFrame = 0;
+	
+	while (true) {
+		packetInit(&_packet);
+
+		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
+			std::cout << "Network failed to connect\n";
+			// sleep(1);
+			continue;
+		}
+
+		// NOTE: Just connected, send initial data.
+		ldiProtocolSettings settings;
+		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
+		settings.header.opcode = 0;
+		settings.shutterSpeed = _shutterSpeed;
+		settings.analogGain = _analogGain;
+
+		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
+			std::cout << "Write failed\n";
+			break;
+		}
+
+		while (true) {
+			uint8_t buff[256];
+			int readBytes = networkRead(net, buff, 256);
+
+			if (readBytes == -1) {
+				std::cout << "Read failed\n";
+				break;
+			} else if (readBytes > 0) {
+				// Process packet bytes.
+				std::cout << "Read: " << readBytes << "\n";
+
+				packetProcessData(&_packet, buff, readBytes);
+			}
+
+			// NOTE: Get next frame.
+			bool flag = cam.readFrame(&frameData);
+			if (!flag) {
+				usleep(1000);
+				continue;
+			}
+
+			if (_settingsUpdate) {
+				std::cout << "Update settings\n";
+				_settingsUpdate = false;
+				controls_.set(controls::ExposureTime, _shutterSpeed);
+				controls_.set(controls::AnalogueGain, _analogGain);
+				cam.set(controls_);
+			}
+
+			int64_t timeAtFrame = platformGetMicrosecond();
+			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
+			float fps = 1000.0 / frameDeltaTime;
+			timeAtLastFrame = timeAtFrame;
+
+			int64_t t0 = platformGetMicrosecond();
+			// processImage12to8(frameData.imageData, frameData.size);
+			processImageRGB888to8(frameData.imageData, frameData.size);
+			t0 = platformGetMicrosecond() - t0;
+
+			// std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms\n";
+			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms" << " size: " << frameData.size << "\n";
+
+			cam.returnFrameBuffer(frameData);
+
+			ldiProtocolImageHeader header;
+			header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+			header.header.opcode = 1;
+			header.width = IMG_WIDTH;
+			header.height = IMG_HEIGHT;
+
+			if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+				std::cout << "Write failed\n";
+				break;
+			}
+
+			if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+				std::cout << "Write failed\n";
+				break;
+			}
+
+			// sleep(1);
+		}
+	}
+
+	cam.stopCamera();
+	cam.closeCamera();
+
+	return 0;
+}
+
 int runOV2311() {
 	std::cout << "runOV2311\n";
 	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
@@ -341,7 +518,7 @@ int runOV2311() {
 			// NOTE: Get next frame.
 			bool flag = cam.readFrame(&frameData);
 			if (!flag) {
-				usleep(1000);
+				// usleep(100);
 				continue;
 			}
 
@@ -358,29 +535,39 @@ int runOV2311() {
 			float fps = 1000.0 / frameDeltaTime;
 			timeAtLastFrame = timeAtFrame;
 
+			// Only send out every Nth frame.
+			static int frameNum = 0;
+
 			int64_t t0 = platformGetMicrosecond();
 			// processImage(frameData.imageData, frameData.size);
-			processImageSRGGB8(frameData.imageData, frameData.size);
+			processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
+			// processImageSRGGB8(frameData.imageData, frameData.size);
 			t0 = platformGetMicrosecond() - t0;
 
-			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms\n";
+			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms" << " size: " << frameData.size << "\n";
 
 			cam.returnFrameBuffer(frameData);
+			
+			frameNum++;
+			if (frameNum == 10) {
+				std::cout << "Send\n";
+				frameNum = 0;
 
-			ldiProtocolImageHeader header;
-			header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-			header.header.opcode = 1;
-			header.width = IMG_WIDTH;
-			header.height = IMG_HEIGHT;
+				ldiProtocolImageHeader header;
+				header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+				header.header.opcode = 1;
+				header.width = IMG_WIDTH;
+				header.height = IMG_HEIGHT;
 
-			if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-				std::cout << "Write failed\n";
-				break;
-			}
+				if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+					std::cout << "Write failed\n";
+					break;
+				}
 
-			if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-				std::cout << "Write failed\n";
-				break;
+				if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+					std::cout << "Write failed\n";
+					break;
+				}
 			}
 
 			// sleep(1);
@@ -394,6 +581,11 @@ int runOV2311() {
 }
 
 int main() {
+	// Modes:
+	// - Continuous.
+	// - Capture on demand.
+
 	return runOV2311();
+	// return runIMX477();
 	// return runIMX219();
 }

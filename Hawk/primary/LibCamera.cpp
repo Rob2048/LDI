@@ -25,6 +25,7 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 
 	std::unique_ptr<CameraConfiguration> config;
 	config = camera_->generateConfiguration({ StreamRole::Viewfinder });
+	
 	libcamera::Size size(width, height);
 	config->at(0).pixelFormat = format;
 	config->at(0).size = size;
