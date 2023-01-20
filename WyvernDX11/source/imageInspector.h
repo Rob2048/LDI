@@ -194,6 +194,23 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 		}
+
+		if (ImGui::Button("Get image")) {
+			// Run process for getting image.
+			// Platform comms running in background?
+
+			//pantherIssueCommand(Tool->appContext->panther, 
+			// move
+			// wait
+			// capture
+
+			ldiProtocolMode settings;
+			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
+			settings.header.opcode = 1;
+			settings.mode = 1;
+
+			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
+		}
 	}
 
 	//ImGui::Checkbox("Grid", &camInspector->showGrid);

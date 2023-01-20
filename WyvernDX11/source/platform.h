@@ -5,6 +5,75 @@
 #define PLATFORM_PACKET_END 254
 #define PLATFORM_RECV_TEMP_SIZE 4096
 
+struct ldiPanther {
+	std::thread				workerThread;
+	std::atomic_bool		workerThreadRunning = true;
+	
+	std::atomic_bool		serialPortConnected = false;
+	// std::mutex			serialPortMutex;
+	ldiSerialPort			serialPort;
+
+	uint8_t					recvTemp[PLATFORM_RECV_TEMP_SIZE];
+	int32_t					recvTempSize = 0;
+	int32_t					recvTempPos = 0;
+
+	uint8_t					recvPacketBuffer[PLATFORM_PACKET_RECV_MAX];
+	int32_t					recvPacketSize = 0;
+	uint8_t					recvPacketState = 0;
+	int32_t					recvPacketPayloadSize = 0;
+
+	//std::mutex		dataLock = false;
+
+	float positionX;
+	float positionY;
+	float positionZ;
+};
+
+void pantherWorkerThread(ldiPanther* Panther) {
+	std::cout << "Running panther thread\n";
+
+	while (Panther->workerThreadRunning) {
+		if (Panther->serialPortConnected) {
+
+		}
+	}
+
+	std::cout << "Panther thread completed\n";
+}
+
+void pantherInit(ldiPanther* Panther) {
+	Panther->workerThread = std::thread(pantherWorkerThread, Panther);
+}
+
+void pantherDestroy(ldiPanther* Panther) {
+
+	// Disconnect
+	// serialPortDiscon
+	//serialPortDisconnect(&Platform->serialPort);
+
+	Panther->workerThreadRunning = false;
+	Panther->workerThread.join();
+}
+
+void pantherDisconnect(ldiPanther* Panther) {
+
+}
+
+void pantherConnect(ldiPanther* Panther) {
+	if (Panther->serialPortConnected) {
+		// Disconnect.
+		pantherDisconnect(Panther);
+	}
+}
+
+void pantherIssueCommand(ldiPanther* Panther) {
+
+}
+
+bool pantherIsExecuting(ldiPanther* Panther) {
+	return false;
+}
+
 struct ldiPlatform {
 	ldiApp*			appContext;
 
@@ -58,7 +127,6 @@ void platformWorkerThread(ldiPlatform* Platform) {
 	std::cout << "Platform thread completed\n";
 }
 
-
 int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	Tool->appContext = AppContext;
 
@@ -80,8 +148,7 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 
 	horseInit(&Tool->horse);
 
-	std::thread workerThread(platformWorkerThread, Tool);
-	Tool->workerThread = std::move(workerThread);
+	Tool->workerThread = std::thread(platformWorkerThread, Tool);
 
 	return 0;
 }

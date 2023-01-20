@@ -82,12 +82,12 @@ struct ldiDebugPrims {
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
 	int								lineGeometryVertBufferSize;
 	int								lineGeometryVertCount;
-	ID3D11Buffer* lineGeometryVertexBuffer;
+	ID3D11Buffer*					lineGeometryVertexBuffer;
 
 	std::vector<ldiSimpleVertex>	triGeometryVertData;
 	int								triGeometryVertBufferSize;
 	int								triGeometryVertCount;
-	ID3D11Buffer* triGeometryVertexBuffer;
+	ID3D11Buffer*					triGeometryVertexBuffer;
 };
 
 // Application and platform context.
@@ -160,7 +160,7 @@ struct ldiApp {
 
 	ImFont*						fontBig;
 
-	bool						showPlatformWindow = false;
+	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
 	bool						showModelInspector = false;
@@ -909,16 +909,15 @@ int main() {
 
 		while (true) {
 			ldiPacketView packetView;
-			int updateResult = networkUpdate(&appContext->server, &packetView);
-
-			if (updateResult == 1) {
-				// Got packet.
+			/*networkWaitForPacket(&appContext->server, &packetView);
+			double t = _getTime(appContext);
+			std::cout << "T: " << (t * 1000.0) << "\n";
+			_processPacket(appContext, &packetView);*/
+			
+			if (networkGetPacket(&appContext->server, &packetView)) {
 				_processPacket(appContext, &packetView);
-			} else if (updateResult == 0) {
-				// Would block.
-				break;
 			} else {
-				// Critical error.
+				break;
 			}
 		}
 		

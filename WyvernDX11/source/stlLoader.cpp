@@ -40,4 +40,6 @@ bool stlSaveModel(const char* FileName, ldiModel* Model) {
 	}
 
 	fclose(file);
+
+	return true;
 }
