@@ -153,7 +153,7 @@ void copyImage(ldiImage* Src, ldiDisplacementPlane* Dst, int Dx, int Dy, int Dw,
 	}
 }
 
-// NOTE: From  Christer Ericson's Real-Time Collision Detection
+// NOTE: From Christer Ericson's Real-Time Collision Detection
 // Compute barycentric coordinates (u, v, w) for
 // point p with respect to triangle (a, b, c)
 bool getPointInTri(vec2 p, vec2 a, vec2 b, vec2 c, float& u, float& v, float& w) {

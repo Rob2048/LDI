@@ -1,99 +1,34 @@
 #pragma once
 
-#define PLATFORM_PACKET_RECV_MAX (1024 * 1024)
-#define PLATFORM_PACKET_START 255
-#define PLATFORM_PACKET_END 254
-#define PLATFORM_RECV_TEMP_SIZE 4096
-
-struct ldiPanther {
-	std::thread				workerThread;
-	std::atomic_bool		workerThreadRunning = true;
-	
-	std::atomic_bool		serialPortConnected = false;
-	// std::mutex			serialPortMutex;
-	ldiSerialPort			serialPort;
-
-	uint8_t					recvTemp[PLATFORM_RECV_TEMP_SIZE];
-	int32_t					recvTempSize = 0;
-	int32_t					recvTempPos = 0;
-
-	uint8_t					recvPacketBuffer[PLATFORM_PACKET_RECV_MAX];
-	int32_t					recvPacketSize = 0;
-	uint8_t					recvPacketState = 0;
-	int32_t					recvPacketPayloadSize = 0;
-
-	//std::mutex		dataLock = false;
-
-	float positionX;
-	float positionY;
-	float positionZ;
+enum ldiPlatformJobType {
+	PJT_MOVE_AXIS,
+	PJT_MOTOR_STATUS,
+	PJT_HOMING_TEST,
+	PJT_CAPTURE_CALIBRATION,
 };
 
-void pantherWorkerThread(ldiPanther* Panther) {
-	std::cout << "Running panther thread\n";
+struct ldiPlatformJobHeader {
+	int type;
+};
 
-	while (Panther->workerThreadRunning) {
-		if (Panther->serialPortConnected) {
-
-		}
-	}
-
-	std::cout << "Panther thread completed\n";
-}
-
-void pantherInit(ldiPanther* Panther) {
-	Panther->workerThread = std::thread(pantherWorkerThread, Panther);
-}
-
-void pantherDestroy(ldiPanther* Panther) {
-
-	// Disconnect
-	// serialPortDiscon
-	//serialPortDisconnect(&Platform->serialPort);
-
-	Panther->workerThreadRunning = false;
-	Panther->workerThread.join();
-}
-
-void pantherDisconnect(ldiPanther* Panther) {
-
-}
-
-void pantherConnect(ldiPanther* Panther) {
-	if (Panther->serialPortConnected) {
-		// Disconnect.
-		pantherDisconnect(Panther);
-	}
-}
-
-void pantherIssueCommand(ldiPanther* Panther) {
-
-}
-
-bool pantherIsExecuting(ldiPanther* Panther) {
-	return false;
-}
+struct ldiPlatformJobMoveAxis {
+	ldiPlatformJobHeader header;
+	int axisId;
+	int steps;
+	float velocity;
+};
 
 struct ldiPlatform {
-	ldiApp*			appContext;
+	ldiApp*						appContext;
 
-	ldiSerialPort	serialPort;
-
-	std::thread			workerThread;
-	std::atomic_bool	workerThreadRunning = true;
-
-	uint8_t recvTemp[PLATFORM_RECV_TEMP_SIZE];
-	int32_t recvTempSize = 0;
-	int32_t recvTempPos = 0;
-
-	uint8_t recvPacketBuffer[PLATFORM_PACKET_RECV_MAX];
-	int32_t recvPacketSize = 0;
-	uint8_t recvPacketState = 0;
-	int32_t recvPacketPayloadSize = 0;
-
-	float positionX;
-	float positionY;
-	float positionZ;
+	std::thread					workerThread;
+	std::atomic_bool			workerThreadRunning = true;
+	std::atomic_bool			jobCancel = false;
+	std::atomic_bool			jobExecuting = false;
+	int							jobState = 0;
+	ldiPlatformJobHeader*		job;
+	std::mutex					jobAvailableMutex;
+	std::condition_variable		jobAvailableCondVar;
 
 	ldiCamera					camera;
 	int							imageWidth;
@@ -110,18 +45,120 @@ struct ldiPlatform {
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 
 	ldiHorse					horse;
+	float						positionX;
+	float						positionY;
+	float						positionZ;
+	float						positionA;
+	float						positionB;
 };
+
+void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
+	delete Platform->job;
+	Platform->jobState = 0;
+	Platform->jobExecuting = false;
+}
+
+bool _platformCaptureCalibration(ldiPlatform* Platform) {
+	ldiApp* appContext = Platform->appContext;
+	ldiPanther* panther = appContext->panther;
+
+	// TODO: Make sure directories exist for saving results.
+
+	// TODO: Set cam to mode 0. Prepare other hardware.
+	// TODO: Set starting point.
+
+	for (int i = 0; i < 3; ++i) {
+		if (Platform->jobCancel) {
+			break;
+		}
+
+		std::cout << "Start move " << i << "\n";
+		double t0 = _getTime(appContext);
+		pantherSendMoveRelativeCommand(panther, 0, 8000, 30.0f);
+		pantherWaitForExecutionComplete(panther);
+		t0 = _getTime(appContext) - t0;
+		std::cout << "Move: " << (t0 * 1000.0) << " ms\n";
+
+		t0 = _getTime(appContext);
+		Sleep(200);
+		t0 = _getTime(appContext) - t0;
+		std::cout << "Sleep: " << (t0 * 1000.0) << " ms\n";
+
+		// Trigger camera start.
+		t0 = _getTime(appContext);
+
+		ldiProtocolMode setMode;
+		setMode.header.packetSize = sizeof(ldiProtocolMode) - 4;
+		setMode.header.opcode = 1;
+		setMode.mode = 2;
+
+		networkSend(&Platform->appContext->server, (uint8_t*)&setMode, sizeof(ldiProtocolMode));
+
+		// Wait until next frame recvd.
+		imageInspectorWaitForCameraFrame(Platform->appContext->imageInspector);
+		t0 = _getTime(appContext) - t0;
+		std::cout << "Frame: " << (t0 * 1000.0) << " ms\n";
+
+		// NOTE: the frame data here is not yet thread protected. We just assume that because we are not callling for a new frame that it won't change.
+		t0 = _getTime(appContext);
+
+		char fileName[256];
+		sprintf_s(fileName, sizeof(fileName), "../cache/calib/data_%d.dat", i);
+
+		int imageWidth = CAM_IMG_WIDTH;
+		int imageHeight = CAM_IMG_HEIGHT;
+
+		FILE* file;
+		fopen_s(&file, fileName, "wb");
+		fwrite(&imageWidth, 4, 1, file);
+		fwrite(&imageHeight, 4, 1, file);
+		fwrite(Platform->appContext->imageInspector->camPixelsFinal, CAM_IMG_WIDTH * CAM_IMG_HEIGHT, 1, file);
+		fclose(file);
+
+		t0 = _getTime(appContext) - t0;
+		std::cout << "Save: " << (t0 * 1000.0) << " ms\n";
+	}
+
+	platformWorkerThreadJobComplete(Platform);
+}
 
 void platformWorkerThread(ldiPlatform* Platform) {
 	std::cout << "Running platform thread\n";
 
 	while (Platform->workerThreadRunning) {
-		// Dispatch next job to platform.
-		// Wait for response from last dispatch.
+		Platform->jobCancel = false;
 
-		// Update main thread details.
+		std::unique_lock<std::mutex> lock(Platform->jobAvailableMutex);
+		Platform->jobAvailableCondVar.wait(lock);
 
-		Sleep(100);
+		while (Platform->jobExecuting) {
+			ldiPanther* panther = Platform->appContext->panther;
+
+			switch (Platform->job->type) {
+				case PJT_MOVE_AXIS: {
+					ldiPlatformJobMoveAxis* job = (ldiPlatformJobMoveAxis*)Platform->job;
+					pantherSendMoveRelativeCommand(panther, job->axisId, job->steps, job->velocity);
+					pantherWaitForExecutionComplete(panther);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
+
+				case PJT_MOTOR_STATUS: {
+					pantherSendReadMotorStatusCommand(panther);
+					pantherWaitForExecutionComplete(panther);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
+
+				case PJT_HOMING_TEST: {
+					pantherSendHomingTestCommand(panther);
+					pantherWaitForExecutionComplete(panther);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
+
+				case PJT_CAPTURE_CALIBRATION: {
+					_platformCaptureCalibration(Platform);
+				} break;
+			};
+		}
 	}
 
 	std::cout << "Platform thread completed\n";
@@ -156,184 +193,84 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 void platformDestroy(ldiPlatform* Platform) {
 	Platform->workerThreadRunning = false;
 	Platform->workerThread.join();
-
-	serialPortDisconnect(&Platform->serialPort);
 }
 
-void platformSendPingCommand(ldiPlatform* Platform) {
-	uint8_t cmd[5];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 0;
-	cmd[4] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 5);
-}
-
-void platformSendTestCommand(ldiPlatform* Platform) {
-	uint8_t cmd[5];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 1;
-	cmd[4] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 5);
-}
-
-void platformSendMoveRelativeCommand(ldiPlatform* Platform, uint8_t AxisId, int32_t Steps, float MaxVelocity) {
-	uint8_t cmd[64];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 2;
-	cmd[4] = AxisId;
-	memcpy(cmd + 5, &Steps, 4);
-	memcpy(cmd + 9, &MaxVelocity, 4);
-	cmd[13] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 14);
-}
-
-void platformSendMoveRelativeLogCommand(ldiPlatform* Platform, uint8_t AxisId, int32_t Steps, float MaxVelocity) {
-	uint8_t cmd[64];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 22;
-	cmd[4] = AxisId;
-	memcpy(cmd + 5, &Steps, 4);
-	memcpy(cmd + 9, &MaxVelocity, 4);
-	cmd[13] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 14);
-}
-
-void platformSendMoveRelativeDirectCommand(ldiPlatform* Platform, uint8_t AxisId, int32_t Steps, int32_t Delay) {
-	uint8_t cmd[64];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 21;
-	cmd[4] = AxisId;
-	memcpy(cmd + 5, &Steps, 4);
-	memcpy(cmd + 9, &Delay, 4);
-	cmd[13] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 14);
-}
-
-void platformSendReadMotorStatusCommand(ldiPlatform* Platform) {
-	uint8_t cmd[64];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 20;
-	cmd[4] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 5);
-}
-
-void platformSendHomingTestCommand(ldiPlatform* Platform) {
-	uint8_t cmd[64];
-
-	cmd[0] = PLATFORM_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 23;
-	cmd[4] = PLATFORM_PACKET_END;
-
-	serialPortWriteData(&Platform->serialPort, cmd, 5);
-}
-
-bool platformGetNextPacket(ldiPlatform* Platform) {
-	while (true) {
-		while (Platform->recvTempPos < Platform->recvTempSize) {
-			uint8_t d = Platform->recvTemp[Platform->recvTempPos++];
-
-			if (Platform->recvPacketState == 0) {
-				if (d == PLATFORM_PACKET_START) {
-					Platform->recvPacketState = 1;
-				} else {
-					// NOTE: Bad data.
-				}
-			} else if (Platform->recvPacketState == 1) {
-				Platform->recvPacketPayloadSize = d;
-				Platform->recvPacketSize = 0;
-				Platform->recvPacketState = 2;
-				// NOTE: Assumes payload is at least 1 in size.
-			} else if (Platform->recvPacketState == 2) {
-				Platform->recvPacketBuffer[Platform->recvPacketSize++] = d;
-
-				if (Platform->recvPacketSize == Platform->recvPacketPayloadSize) {
-					Platform->recvPacketState = 3;
-				}
-			} else if (Platform->recvPacketState == 3) {
-				Platform->recvPacketState = 0;
-
-				if (d == PLATFORM_PACKET_END) {
-					return true;
-				}
-			}
-		}
-
-		Platform->recvTempSize = serialPortReadData(&Platform->serialPort, Platform->recvTemp, PLATFORM_RECV_TEMP_SIZE);
-		Platform->recvTempPos = 0;
-
-		if (Platform->recvTempSize == 0) {
-			return false;
-		}
-	}
-}
-
-void platformProcessPacket(ldiPlatform* Platform) {
-	if (Platform->recvPacketPayloadSize == 0) {
-		return;
+bool platformPrepareForNewJob(ldiPlatform* Platform) {
+	if (Platform->jobExecuting) {
+		std::cout << "Platform is already executing a job\n";
+		return false;
 	}
 
-	uint8_t opcode = Platform->recvPacketBuffer[0];
+	return true;
+}
 
-	switch (opcode) {
-		case 13: {
-			std::cout << "Platform message: " << (Platform->recvPacketBuffer + 1) << "\n";
-		} break;
+void platformCancelJob(ldiPlatform* Platform) {
+	Platform->jobCancel = true;
 
-		case 10: {
-			float x = *(float*)(Platform->recvPacketBuffer + 1);
-			float y = *(float*)(Platform->recvPacketBuffer + 5);
-			float z = *(float*)(Platform->recvPacketBuffer + 9);
-			unsigned long time = *(unsigned long*)(Platform->recvPacketBuffer + 13);
-			Platform->positionX = x;
-			Platform->positionY = y;
-			Platform->positionZ = z;
+	// TODO: Cancel remaining queued jobs.
+}
 
-			std::cout << "Platform command success " << x << ", " << y << ", " << z << " " << time << "\n";
-		} break;
+void platformQueueJob(ldiPlatform* Platform, ldiPlatformJobHeader* Job) {
+	Platform->job = Job;
+	Platform->jobState = 1;
+	Platform->jobCancel = false;
+	Platform->jobExecuting = true;
+	Platform->jobAvailableCondVar.notify_all();
+}
 
+bool platformQueueJobMoveAxis(ldiPlatform* Platform, int AxisId, int Steps, float Velocity) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
 
-		case 69: {
-			float x = *(float*)(Platform->recvPacketBuffer + 1);
-			float y = *(float*)(Platform->recvPacketBuffer + 5);
-			float z = *(float*)(Platform->recvPacketBuffer + 9);
-			Platform->positionX = x;
-			Platform->positionY = y;
-			Platform->positionZ = z;
+	ldiPlatformJobMoveAxis* job = new ldiPlatformJobMoveAxis();
+	job->header.type = PJT_MOVE_AXIS;
+	job->axisId = AxisId;
+	job->steps = Steps;
+	job->velocity = Velocity;
 
-		} break;
+	platformQueueJob(Platform, &job->header);
 
-		case 70: {
-			/*float x = *(float*)(Platform->recvPacketBuffer + 1);
-			float y = *(float*)(Platform->recvPacketBuffer + 5);
-			float z = *(float*)(Platform->recvPacketBuffer + 9);*/
-			unsigned long time = *(unsigned long*)(Platform->recvPacketBuffer + 1);
-			
-			std::cout << "Log " << time << "\n";
-		} break;
+	return true;
+}
 
-		default: {
-			std::cout << "Platform opcode " << (int)opcode << " not handled.\n";
-		}
-	}
+bool platformQueueJobMotorStatus(ldiPlatform* Platform) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobHeader* job = new ldiPlatformJobHeader();
+	job->type = PJT_MOTOR_STATUS;
+	
+	platformQueueJob(Platform, job);
+
+	return true;
+}
+
+bool platformQueueJobHomingTest(ldiPlatform* Platform) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobHeader* job = new ldiPlatformJobHeader();
+	job->type = PJT_HOMING_TEST;
+
+	platformQueueJob(Platform, job);
+
+	return true;
+}
+
+bool platformQueueJobCaptureCalibration(ldiPlatform* Platform) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobHeader* job = new ldiPlatformJobHeader();
+	job->type = PJT_CAPTURE_CALIBRATION;
+
+	platformQueueJob(Platform, job);
+
+	return true;
 }
 
 void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
@@ -453,8 +390,22 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 }
 
 void platformShowUi(ldiPlatform* Tool) {
+	ldiApp* appContext = Tool->appContext;
 	static float f = 0.0f;
 	static int counter = 0;
+
+	// TODO: Move update somewhere sensible.
+	// Copy values from panther.
+	appContext->panther->dataLockMutex.lock();
+	Tool->positionX = appContext->panther->positionX;
+	Tool->positionY = appContext->panther->positionY;
+	Tool->positionZ = appContext->panther->positionZ;
+	appContext->panther->dataLockMutex.unlock();
+
+	Tool->horse.x = Tool->positionX / 10.0f - 7.5f;
+	Tool->horse.y = Tool->positionY / 10.0f - 0.0f;
+	Tool->horse.z = Tool->positionZ / 10.0f - 0.0f;
+	horseUpdate(&Tool->horse);
 
 	//ImGui::SetNextWindowSize(ImVec2(400, ImGui::GetMainViewport()->WorkSize.y));
 	//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
@@ -463,8 +414,7 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
 
 	ImGui::Text("Connection");
-
-	ImGui::BeginDisabled(Tool->serialPort.connected);
+	ImGui::BeginDisabled(appContext->panther->serialPortConnected);
 	/*char ipBuff[] = "192.168.0.50";
 	int port = 5000;
 	ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
@@ -475,57 +425,89 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	ImGui::EndDisabled();
 
-	if (Tool->serialPort.connected) {
-		if (platformGetNextPacket(Tool)) {
-			platformProcessPacket(Tool);
-		}
-		
+	if (appContext->panther->serialPortConnected) {
 		if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
-			serialPortDisconnect(&Tool->serialPort);
+			pantherDisconnect(appContext->panther);
 		};
-		ImGui::Text("Status: Connected");
 	} else {
-		//ImGui::Text("Checking for serial ports...");
-
-		// NOTE: Update serial port list at interval;
-		//static float updateListTime = 0.0f;
-		//static int updateCount = 0;
-
-		//updateListTime += ImGui::GetIO().DeltaTime;
-
-		//if (updateListTime >= 1.0f) {
-		//	++updateCount;
-		//	updateListTime -= 1.0f;
-
-		//	// https://github.com/serialport/bindings-cpp/blob/main/src/serialport_win.cpp
-		//}
-
-		//ImGui::Text("%d", updateCount);
-
 		if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-			if (serialPortConnect(&Tool->serialPort, "\\\\.\\COM4", 921600)) {
-				//platformSendPingCommand(Tool);
-				platformSendTestCommand(Tool);
+			if (pantherConnect(appContext->panther, "\\\\.\\COM4")) {
+				pantherSendTestCommand(appContext->panther);
 			}
-		};
-
-		ImGui::Text("Status: Disconnected");
+		}
 	}
-
-	// TODO: Move update somewhere sensible.
-	Tool->horse.x = Tool->positionX / 10.0f - 7.5f;
-	Tool->horse.y = Tool->positionY / 10.0f - 0.0f;
-	Tool->horse.z = Tool->positionZ / 10.0f - 0.0f;
-	horseUpdate(&Tool->horse);
 
 	ImGui::Separator();
 
-	ImGui::BeginDisabled(!Tool->serialPort.connected);
-	ImGui::Text("Position");
+	ImGui::BeginDisabled(!appContext->panther->serialPortConnected);
+	ImGui::Text("Platform status");
 	ImGui::PushFont(Tool->appContext->fontBig);
+
+	const char* labelStrs[] = {
+		"Disconnected",
+		"Connected",
+		"Idle",
+		"Cancelling job",
+		"Running job",
+
+	};
+
+	ImColor labelColors[] = {
+		ImColor(0, 0, 0, 50),
+		ImColor(184, 179, 55, 255),
+		ImColor(61, 184, 55, 255),
+		ImColor(186, 28, 28, 255),
+		ImColor(179, 72, 27, 255),
+	};
+
+	int labelIndex = 0;
+
+	if (appContext->panther->serialPortConnected) {
+		labelIndex = 1;
+
+		if (Tool->jobExecuting) {
+			if (Tool->jobCancel) {
+				labelIndex = 3;
+			} else {
+				labelIndex = 4;
+			}
+		} else {
+			labelIndex = 2;
+		}
+	}
 
 	float startX = ImGui::GetCursorPosX();
 	float availX = ImGui::GetContentRegionAvail().x;
+
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	ImGuiStyle style = ImGui::GetStyle();
+	ImVec2 bannerCursorStart = ImGui::GetCursorPos();
+	ImVec2 bannerMin = ImGui::GetCursorScreenPos() + ImVec2(0.0f, style.FramePadding.y);
+	ImVec2 bannerMax = bannerMin + ImVec2(availX, 32);
+	int bannerHeight = 32;
+
+	drawList->AddRectFilled(bannerMin, bannerMax, labelColors[labelIndex]);
+
+	ImVec2 bannerCursorEnd = ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + bannerHeight + style.FramePadding.y * 2);
+
+	ImVec2 labelSize = ImGui::CalcTextSize(labelStrs[labelIndex]);
+	ImGui::SetCursorPos(bannerCursorStart + ImVec2(availX / 2.0f - labelSize.x / 2.0f, bannerHeight / 2.0f - labelSize.y / 2.0f + style.FramePadding.y));
+	ImGui::Text(labelStrs[labelIndex]);
+	ImGui::SetCursorPos(bannerCursorEnd);
+	ImGui::PopFont();
+
+	ImGui::BeginDisabled(!Tool->jobExecuting || Tool->jobCancel);
+
+	if (ImGui::Button("Cancel job", ImVec2(-1, 0))) {
+		platformCancelJob(Tool);
+	}
+	
+	ImGui::EndDisabled();
+
+	ImGui::Separator();
+	ImGui::Text("Position");
+
+	ImGui::PushFont(Tool->appContext->fontBig);
 	ImGui::SetCursorPosX(startX);
 	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: %.2f", Tool->positionX);
 	ImGui::SameLine();
@@ -534,10 +516,17 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(startX + availX / 3 * 2);
 	ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: %.2f", Tool->positionZ);
+	
+	ImGui::SetCursorPosX(startX + availX / 3 * 0);
+	ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %.2f", Tool->positionA);
+	ImGui::SameLine();
+	ImGui::SetCursorPosX(startX + availX / 3 * 1);
+	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "B: %.2f", Tool->positionB);
 	ImGui::PopFont();
 
-	ImGui::Button("Find home", ImVec2(-1, 0));
-	ImGui::Button("Go home", ImVec2(-1, 0));
+	ImGui::BeginDisabled(Tool->jobExecuting);
+	
+	ImGui::Separator();
 
 	float distance = 1;
 	ImGui::InputFloat("Distance", &distance);
@@ -548,63 +537,70 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::InputFloat("Velocity", &accel);
 
 	if (ImGui::Button("-X", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 0, -steps, accel);
+		platformQueueJobMoveAxis(Tool, 0, -steps, accel);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("-Y", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 1, -steps, accel);
+		platformQueueJobMoveAxis(Tool, 1, -steps, accel);
 	}
 	ImGui::SameLine();		
 	if (ImGui::Button("-Z", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 2, -steps, accel);
+		platformQueueJobMoveAxis(Tool, 2, -steps, accel);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("-A", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 3, -steps, accel);
+		platformQueueJobMoveAxis(Tool, 3, -steps, accel);
 	}
 
 	if (ImGui::Button("+X", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 0, steps, accel);
+		platformQueueJobMoveAxis(Tool, 0, steps, accel);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("+Y", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 1, steps, accel);
+		platformQueueJobMoveAxis(Tool, 1, steps, accel);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("+Z", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 2, steps, accel);
+		platformQueueJobMoveAxis(Tool, 2, steps, accel);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("+A", ImVec2(32, 32))) {
-		platformSendMoveRelativeCommand(Tool, 3, steps, accel);
+		platformQueueJobMoveAxis(Tool, 3, steps, accel);
 	}
 
 	ImGui::Separator();
+	ImGui::Text("Tasks");
+
+	ImGui::Button("Find home", ImVec2(-1, 0));
+	ImGui::Button("Go home", ImVec2(-1, 0));
+
 	if (ImGui::Button("Read motor status", ImVec2(-1, 0))) {
-		platformSendReadMotorStatusCommand(Tool);
+		platformQueueJobMotorStatus(Tool);
 	}
 
 	if (ImGui::Button("Perform homing test", ImVec2(-1, 0))) {
-		platformSendHomingTestCommand(Tool);
-		// 564 - 612
-		// 300 - 308
-		// 276 - 316
+		platformQueueJobHomingTest(Tool);
 	}
 
-	ImGui::Separator();
+	/*ImGui::Separator();
 	static int stepDelay = 300;
 	ImGui::InputInt("Step delay", &stepDelay);
 
 	if (ImGui::Button("-X Direct")) {
-		platformSendMoveRelativeDirectCommand(Tool, 0, -steps, stepDelay);
+		pantherSendMoveRelativeDirectCommand(appContext->panther, 0, -steps, stepDelay);
 	}
 	if (ImGui::Button("+X Direct")) {
-		platformSendMoveRelativeDirectCommand(Tool, 0, steps, stepDelay);
+		pantherSendMoveRelativeDirectCommand(appContext->panther, 0, steps, stepDelay);
+	}*/
+
+	if (ImGui::Button("Capture calibration", ImVec2(-1, 0))) {
+		platformQueueJobCaptureCalibration(Tool);
 	}
 
-	ImGui::Separator();
-	ImGui::Text("Laser");
 	ImGui::Button("Start laser preview", ImVec2(-1, 0));
+
+	ImGui::EndDisabled();
+
 	ImGui::EndDisabled();
 
 	ImGui::End();

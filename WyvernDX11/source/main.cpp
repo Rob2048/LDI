@@ -3,10 +3,19 @@
 #include <iostream>
 #include <vector>
 #include <thread>
+#include <filesystem>
 
 // NOTE: Must be included before any Windows includes.
 #include "network.h"
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <tchar.h>
+
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_win32.h"
@@ -15,19 +24,13 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
+#include "utilities.h"
 #include "glm.h"
 #include "model.h"
 #include "objLoader.h"
 #include "plyLoader.h"
 #include "stlLoader.h"
 #include "image.h"
-
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <tchar.h>
-
-#define _USE_MATH_DEFINES
-#include <math.h>
 
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
@@ -77,6 +80,7 @@ struct ldiPlatformTransform {
 
 struct ldiPhysics;
 struct ldiImageInspector;
+struct ldiPanther;
 
 struct ldiDebugPrims {
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
@@ -167,10 +171,12 @@ struct ldiApp {
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
 	bool						showModelEditor = false;
+	bool						showGalvoInspector = false;
 
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
 	ldiImageInspector*			imageInspector = 0;
+	ldiPanther*					panther = 0;
 };
 
 double _getTime(ldiApp* AppContext) {
@@ -203,10 +209,11 @@ void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight
 #include "modelInspector.h"
 #include "samplerTester.h"
 #include "visionSimulator.h"
+#include "panther.h"
+#include "imageInspector.h"
 #include "platform.h"
 #include "modelEditor.h"
-
-#include "imageInspector.h"
+#include "galvoInspector.h"
 
 ldiPhysics			_physics = {};
 ldiApp				_appContext = {};
@@ -216,6 +223,8 @@ ldiPlatform			_platform = {};
 ldiVisionSimulator	_visionSimulator = {};
 ldiImageInspector	_imageInspector = {};
 ldiModelEditor		_modelEditor = {};
+ldiPanther			_panther = {};
+ldiGalvoInspector	_galvoInspector = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing helpers.
@@ -771,7 +780,7 @@ void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
 int main() {
 	std::cout << "Starting WyvernDX11\n";
 
-	createCharucos(true);
+	createCharucos(false);
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
@@ -847,6 +856,12 @@ int main() {
 		return 1;
 	}
 
+	ldiGalvoInspector* galvoInspector = &_galvoInspector;
+	if (galvoInspectorInit(appContext, galvoInspector) != 0) {
+		std::cout << "Could not init galvo inspector\n";
+		return 1;
+	}
+
 	//if (modelEditorLoad(appContext, modelEditor) != 0) {
 	//	std::cout << "Could not load model editor\n";
 	//	// TODO: Platform should be detroyed properly when ANY system failed to load.
@@ -860,6 +875,12 @@ int main() {
 
 	if (!networkInit(&appContext->server, "20000")) {
 		std::cout << "Networking failure\n";
+		return 1;
+	}
+
+	appContext->panther = &_panther;
+	if (!pantherInit(appContext, &_panther)) {
+		std::cout << "Could not init panther\n";
 		return 1;
 	}
 
@@ -994,6 +1015,10 @@ int main() {
 				if (ImGui::MenuItem("Model editor", NULL, appContext->showModelEditor)) {
 					appContext->showModelEditor = !appContext->showModelEditor;
 				}
+
+				if (ImGui::MenuItem("Galvo inspector", NULL, appContext->showGalvoInspector)) {
+					appContext->showGalvoInspector = !appContext->showGalvoInspector;
+				}
 				
 				ImGui::EndMenu();
 			}
@@ -1029,6 +1054,10 @@ int main() {
 
 		if (appContext->showModelEditor) {
 			modelEditorShowUi(modelEditor);
+		}
+
+		if (appContext->showGalvoInspector) {
+			galvoInspectorShowUi(galvoInspector);
 		}
 
 		_renderImgui(&_appContext);

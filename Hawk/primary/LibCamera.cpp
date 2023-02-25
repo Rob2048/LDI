@@ -1,5 +1,19 @@
 #include "LibCamera.h"
 
+void _printConfigInfo(CameraConfiguration* config) {
+	std::cout << "Streams: " << config->size() << "\n";
+
+	for (int i = 0; i < config->size(); ++i) {
+		std::cout << "Stream " << i << ":\n";
+		std::cout << "  pixelFormat: " << config->at(i).pixelFormat << "\n";
+		std::cout << "  size: " << config->at(i).size.width << ", " << config->at(i).size.height << "\n";
+		std::cout << "  frameSize: " << config->at(i).frameSize << "\n";
+		std::cout << "  bufferCount: " << config->at(i).bufferCount << "\n";
+		std::cout << "  stride: " << config->at(i).stride << "\n";
+		// std::cout << "  colorSpace: " << config->at(i).colorSpace << "\n";
+	}
+}
+
 int LibCamera::initCamera(int width, int height, PixelFormat format, int buffercount, int rotation) {
 	int ret;
 	cm = std::make_unique<CameraManager>();
@@ -24,22 +38,29 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 	camera_acquired_ = true;
 
 	std::unique_ptr<CameraConfiguration> config;
-	config = camera_->generateConfiguration({ StreamRole::Viewfinder });
+	// StreamRole::Raw
+	// StreamRole::VideoRecording
+	// StreamRole::Viewfinder
+	config = camera_->generateConfiguration({ StreamRole::Raw });
 	
 	libcamera::Size size(width, height);
 	config->at(0).pixelFormat = format;
 	config->at(0).size = size;
+	config->at(0).colorSpace = ColorSpace::Raw;
 	if (buffercount)
 		config->at(0).bufferCount = buffercount;
-	Transform transform = Transform::Identity;
-	bool ok;
-	Transform rot = transformFromRotation(rotation, &ok);
-	if (!ok)
-		throw std::runtime_error("illegal rotation value, Please use 0 or 180");
-	transform = rot * transform;
-	if (!!(transform & Transform::Transpose))
-		throw std::runtime_error("transforms requiring transpose not supported");
-	config->transform = transform;
+	// Transform transform = Transform::Identity;
+	// bool ok;
+	// Transform rot = transformFromRotation(rotation, &ok);
+	// if (!ok)
+	// 	throw std::runtime_error("illegal rotation value, Please use 0 or 180");
+	// transform = rot * transform;
+	// if (!!(transform & Transform::Transpose))
+	// 	throw std::runtime_error("transforms requiring transpose not supported");
+	// config->transform = transform;
+
+	std::cout << "Before validation:\n";
+	_printConfigInfo(config.get());
 
 	switch (config->validate()) {
 		case CameraConfiguration::Valid:
@@ -53,6 +74,10 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 			std::cout << "Camera configuration invalid" << std::endl;
 			return 1;
 	}
+
+	std::cout << "Final configuration:\n";
+	_printConfigInfo(config.get());
+
 	config_ = std::move(config);
 	return 0;
 }
@@ -84,9 +109,12 @@ int LibCamera::startCapture() {
 
 		unsigned int allocated = allocator_->buffers(cfg.stream()).size();
 		nbuffers = std::min(nbuffers, allocated);
+
+		std::cout << "Allocate buffer in stream conf: " << allocated << " " << nbuffers << "\n";
 	}
 
 	for (unsigned int i = 0; i < nbuffers; i++) {
+		std::cout << "Buffer " << i << "\n";
 		std::unique_ptr<Request> request = camera_->createRequest();
 		if (!request) {
 			std::cerr << "Can't create request" << std::endl;
@@ -94,6 +122,7 @@ int LibCamera::startCapture() {
 		}
 
 		for (StreamConfiguration &cfg : *config_) {
+			std::cout << "  Iter cfg\n";
 			Stream *stream = cfg.stream();
 			const std::vector<std::unique_ptr<FrameBuffer>> &buffers =
 				allocator_->buffers(stream);
@@ -105,11 +134,19 @@ int LibCamera::startCapture() {
 					  << std::endl;
 				return ret;
 			}
+
+			int doneplane1 = 0;
 			for (const FrameBuffer::Plane &plane : buffer->planes()) {
-				void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
-							plane.fd.get(), 0);
-				mappedBuffers_[plane.fd.get()] =
-					std::make_pair(memory, plane.length);
+				std::cout << "    FrameBuffer plane length: " << plane.length << "\n";
+				
+				void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED, plane.fd.get(), plane.offset);
+				std::cout << "MEM: " << (uint64_t)memory << "\n";
+				std::cout << "Plane FD: " << plane.fd.get() << "\n";
+
+				if (!doneplane1) {
+					mappedBuffers_[plane.fd.get()] = std::make_pair(memory, plane.length);
+					doneplane1 = 1;
+				}
 			}
 		}
 
@@ -169,18 +206,34 @@ bool LibCamera::readFrame(LibcameraOutData *frameData){
 	if (!requestQueue.empty()){
 		Request *request = this->requestQueue.front();
 
+		ControlList& metaData = request->metadata();
+		for (auto it = metaData.begin(); it != metaData.end(); ++it) {
+
+				auto ctrlid = metaData.idMap()->at(it->first);
+    			// std::cout << ctrlid->name() << "(" << el.first << ") = " << el.second.toString() << std::endl;
+
+				std::cout << " Control: " << it->first << " " << ctrlid->name() << ": " << it->second.toString() << "\n";
+		}
+
 		const Request::BufferMap &buffers = request->buffers();
+		std::cout << "rf\n";
 		for (auto it = buffers.begin(); it != buffers.end(); ++it) {
+			std::cout << "  buff\n";
 			FrameBuffer *buffer = it->second;
 			for (unsigned int i = 0; i < buffer->planes().size(); ++i) {
 				const FrameBuffer::Plane &plane = buffer->planes()[i];
 				const FrameMetadata::Plane &meta = buffer->metadata().planes()[i];
-				
-				void *data = mappedBuffers_[plane.fd.get()].first;
+
+				int planeFd = plane.fd.get();
+				void *data = (uint8_t*)mappedBuffers_[planeFd].first + plane.offset;
 				unsigned int length = std::min(meta.bytesused, plane.length);
+
+				std::cout << "    plane " << planeFd << " " << plane.offset << " " << length << " " << meta.bytesused << "\n";
 
 				frameData->size = length;
 				frameData->imageData = (uint8_t *)data;
+
+				break;
 			}
 		}
 		this->requestQueue.pop();

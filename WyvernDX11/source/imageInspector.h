@@ -1,15 +1,30 @@
 #pragma once
 
+// NOTE: OV9281
+#define CAM_IMG_WIDTH 1280
+#define CAM_IMG_HEIGHT 800
+
 // NOTE: OV2311
-#define CAM_IMG_WIDTH 1600
-#define CAM_IMG_HEIGHT 1300
+//#define CAM_IMG_WIDTH 1600
+//#define CAM_IMG_HEIGHT 1300
 
 // NOTE: IMX477
 //#define CAM_IMG_WIDTH 4056
 //#define CAM_IMG_HEIGHT 3040
 
+enum ldiImageInspectorMode {
+	IIM_LIVE_CAMERA,
+	IIM_CALIBRATION_JOB
+};
+
+struct ldiCalibrationJob {
+	std::vector<std::string> fileSamples;
+};
+
 struct ldiImageInspector {
 	ldiApp*						appContext;
+
+	ldiImageInspectorMode		imageMode = IIM_LIVE_CAMERA;
 
 	float						camImageFilterFactor = 0.0f;
 
@@ -28,9 +43,25 @@ struct ldiImageInspector {
 	ID3D11ShaderResourceView*	camResourceView;
 	ID3D11Texture2D*			camTex;
 
+	std::mutex					camNewFrameMutex;
+	std::condition_variable		camNewFrameCondVar;
+
+	int							camLastNewFrameId = 0;
+	std::atomic_int				camNewFrameId = 0;
 	float						camPixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 	uint8_t						camPixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+
+	ldiCalibrationJob			calibJob;
+	int							calibJobSelectedSampleId;
+	uint8_t						calibJobImage[CAM_IMG_WIDTH * CAM_IMG_HEIGHT];
 };
+
+bool imageInspectorWaitForCameraFrame(ldiImageInspector* Inspector) {
+	std::unique_lock<std::mutex> lock(Inspector->camNewFrameMutex);
+	Inspector->camNewFrameCondVar.wait(lock);
+
+	return true;
+}
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
@@ -73,25 +104,8 @@ void imageInspectorHandlePacket(ldiImageInspector* Tool, ldiPacketView* PacketVi
 			Tool->camPixelsFinal[i] = Tool->camPixels[i];
 		}
 
-		D3D11_MAPPED_SUBRESOURCE ms;
-		Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		uint8_t* pixelData = (uint8_t*)ms.pData;
-
-		for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
-			//memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * 4064, 4064);
-			memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
-		}
-
-		Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
-
-		if (Tool->camImageProcess) {
-			ldiImage camImg = {};
-			camImg.data = Tool->camPixelsFinal;
-			camImg.width = CAM_IMG_WIDTH;
-			camImg.height = CAM_IMG_HEIGHT;
-
-			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
-		}
+		Tool->camNewFrameId++;
+		Tool->camNewFrameCondVar.notify_all();
 	} else {
 		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
 	}
@@ -144,12 +158,88 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	return 0;
 }
 
+void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* FrameData) {
+	D3D11_MAPPED_SUBRESOURCE ms;
+	Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	uint8_t* pixelData = (uint8_t*)ms.pData;
+
+	for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
+		//memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * 4064, 4064);
+		memcpy(pixelData + i * ms.RowPitch, FrameData + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
+	}
+
+	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
+}
+
+void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
+	if (Tool->calibJobSelectedSampleId == SelectionId) {
+		return;
+	}
+
+	Tool->calibJobSelectedSampleId = SelectionId;
+
+	if (SelectionId == -1) {
+		return;
+	}
+
+	std::cout << "Sel " << Tool->calibJobSelectedSampleId << "\n";
+
+	FILE* file;
+	fopen_s(&file, Tool->calibJob.fileSamples[Tool->calibJobSelectedSampleId].c_str(), "rb");
+
+	int width;
+	int height;
+	fread(&width, 4, 1, file);
+	fread(&height, 4, 1, file);
+	fread(&Tool->calibJobImage, width * height, 1, file);
+	fclose(file);
+
+	_imageInspectorCopyFrameDataToTexture(Tool, Tool->calibJobImage);
+}
+
+void _imageInspectorProcessCalibJob(ldiImageInspector* Tool) {
+	if (Tool->calibJob.fileSamples.size() == 0) {
+		std::cout << "No calibration job samples to process\n";
+		return;
+	}
+}
+
 void imageInspectorShowUi(ldiImageInspector* Tool) {
+	if (Tool->imageMode == IIM_LIVE_CAMERA) {
+		if (Tool->camNewFrameId != Tool->camLastNewFrameId) {
+			Tool->camLastNewFrameId = Tool->camNewFrameId;
+
+			_imageInspectorCopyFrameDataToTexture(Tool, Tool->camPixelsFinal);
+
+			if (Tool->camImageProcess) {
+				ldiImage camImg = {};
+				camImg.data = Tool->camPixelsFinal;
+				camImg.width = CAM_IMG_WIDTH;
+				camImg.height = CAM_IMG_HEIGHT;
+
+				findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+			}
+		}
+	}
+
 	ImGui::Begin("Image inspector controls");
+
+	static float imgScale = 1.0f;
+	static vec2 imgOffset(0.0f, 0.0f);
+
+	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
+		//ImGui::SliderFloat("Gain R", &Tool->camImageGainR, 0.0f, 2.0f);
+		//ImGui::SliderFloat("Gain G", &Tool->camImageGainG, 0.0f, 2.0f);
+		//ImGui::SliderFloat("Gain B", &Tool->camImageGainB, 0.0f, 2.0f);
+		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
+		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
+	}
+
 	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
 		bool newSettings = false;
 
-		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 10, 100000)) {
+		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 1, 30000)) {
 			//std::cout << "Set shutter: " << appContext->camImageShutterSpeed << "\n";
 			newSettings = true;
 		}
@@ -158,6 +248,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			//std::cout << "Set shutter: " << appContext->camImageAnalogGain << "\n";
 			newSettings = true;
 		}
+
+		ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
 
 		if (newSettings) {
 			ldiProtocolSettings settings;
@@ -168,19 +260,39 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolSettings));
 		}
-	}
 
-	static float imgScale = 1.0f;
-	static vec2 imgOffset(0.0f, 0.0f);
+		if (ImGui::Button("Start continuous mode")) {
+			Tool->imageMode = IIM_LIVE_CAMERA;
 
-	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
-		ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
-		ImGui::SliderFloat("Gain R", &Tool->camImageGainR, 0.0f, 2.0f);
-		ImGui::SliderFloat("Gain G", &Tool->camImageGainG, 0.0f, 2.0f);
-		ImGui::SliderFloat("Gain B", &Tool->camImageGainB, 0.0f, 2.0f);
-		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
-		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
+			ldiProtocolMode settings;
+			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
+			settings.header.opcode = 1;
+			settings.mode = 1;
+
+			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
+		}
+
+		if (ImGui::Button("Stop continuous mode")) {
+			Tool->imageMode = IIM_LIVE_CAMERA;
+
+			ldiProtocolMode settings;
+			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
+			settings.header.opcode = 1;
+			settings.mode = 0;
+
+			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
+		}
+
+		if (ImGui::Button("Get single image")) {
+			Tool->imageMode = IIM_LIVE_CAMERA;
+
+			ldiProtocolMode settings;
+			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
+			settings.header.opcode = 1;
+			settings.mode = 2;
+
+			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
+		}
 	}
 
 	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -194,22 +306,47 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 		}
+	}
 
-		if (ImGui::Button("Get image")) {
-			// Run process for getting image.
-			// Platform comms running in background?
+	if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::Button("Load job")) {
+			Tool->imageMode = IIM_CALIBRATION_JOB;
+			Tool->calibJob.fileSamples.clear();
+			_imageInspectorSelectCalibJob(Tool, -1);
 
-			//pantherIssueCommand(Tool->appContext->panther, 
-			// move
-			// wait
-			// capture
+			std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/calib/");
 
-			ldiProtocolMode settings;
-			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
-			settings.header.opcode = 1;
-			settings.mode = 1;
+			for (int i = 0; i < filePaths.size(); ++i) {
+				std::cout << "file " << i << ": " << filePaths[i] << "\n";
 
-			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
+				if (endsWith(filePaths[i], ".dat")) {
+					Tool->calibJob.fileSamples.push_back(filePaths[i]);
+				}
+			}
+		}
+
+		if (ImGui::Button("Process job")) {
+			_imageInspectorProcessCalibJob(Tool);
+		}
+
+		ImGui::Text("Samples");
+		//if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
+		if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, -FLT_MIN))) {
+			for (int n = 0; n < Tool->calibJob.fileSamples.size(); ++n) {
+				bool isSelected = (Tool->calibJobSelectedSampleId == n);
+
+				if (ImGui::Selectable(Tool->calibJob.fileSamples[n].c_str(), isSelected)) {
+					// NOTE: Always switch back to calibration job mode if clicking on a job sample.
+					Tool->imageMode == IIM_CALIBRATION_JOB;
+
+					_imageInspectorSelectCalibJob(Tool, n);
+				}
+
+				if (isSelected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndListBox();
 		}
 	}
 

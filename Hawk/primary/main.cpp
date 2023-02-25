@@ -1,15 +1,20 @@
 #include "LibCamera.h"
 #include <iostream>
 #include <stdint.h>
-// #include "lz4.h"
+#include "lz4.h"
 #include "network.h"
+#include <pigpio.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+// NOTE: OV9281
+#define IMG_WIDTH 1280
+#define IMG_HEIGHT 800
+
 // NOTE: OV2311
-#define IMG_WIDTH 1600
-#define IMG_HEIGHT 1300
+// #define IMG_WIDTH 1600
+// #define IMG_HEIGHT 1300
 
 // NOTE: IMX477
 // TODO: NB: The width rounds to nearest 16.
@@ -24,15 +29,19 @@
 
 uint8_t tempBuffer[IMG_WIDTH * IMG_HEIGHT];
 uint8_t pixelBuffer[IMG_WIDTH * IMG_HEIGHT];
+float floatBuffer[IMG_WIDTH * IMG_HEIGHT];
 
 bool _settingsUpdate = false;
 // int _shutterSpeed = 8000;
 // int _analogGain = 1;
-int _shutterSpeed = 40000;
-int _analogGain = 2;
+int _shutterSpeed = 400;
+int _analogGain = 1;
 
-// uint8_t* compressedBuffer;
-// int compressedBufferSize = 0;
+bool _modeUpdate = false;
+int _mode = 0;
+
+uint8_t* compressedBuffer;
+int compressedBufferSize = 0;
 
 int64_t platformGetMicrosecond() {
 	timespec time;
@@ -51,13 +60,18 @@ void processImageSRGGB8Avg(uint8_t* Data, int Size, int FrameId, int TotalFrames
 	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
 
 	if (FrameId == 0) {
-		memset(pixelBuffer, 0, pixelCount);
+		memset(floatBuffer, 0, pixelCount * 4);
 	}
 
 	memcpy(tempBuffer, Data, pixelCount);
 
+	// int result = LZ4_compress_default((const char*)tempBuffer, (char*)compressedBuffer, Size, compressedBufferSize);
+	// std::cout << "Comp: " << result << "\n";
+
 	for (int i = 0; i < pixelCount; ++i) {
-		pixelBuffer[i] += (uint8_t)((float)tempBuffer[i] / (float)TotalFrames);
+		// pixelBuffer[i] += (uint8_t)((float)tempBuffer[i] / (float)TotalFrames);
+		floatBuffer[i] += (float)tempBuffer[i] / (float)TotalFrames;
+		pixelBuffer[i] = (uint8_t)floatBuffer[i];
 	}
 }
 
@@ -133,6 +147,11 @@ struct ldiProtocolSettings {
 	int analogGain;
 };
 
+struct ldiProtocolMode {
+	ldiProtocolHeader header;
+	int mode;
+};
+
 struct ldiPacket {
 	uint8_t buffer[1024 * 1024];
 	int len = 0;
@@ -148,7 +167,10 @@ void handlePacket(ldiPacket* Packet) {
 		_shutterSpeed = packet->shutterSpeed;
 		_analogGain = packet->analogGain;
 		_settingsUpdate = true;
-
+	} else if (header->opcode == 1) {
+		ldiProtocolMode* packet = (ldiProtocolMode*)Packet->buffer;
+		_mode = packet->mode;
+		_modeUpdate = true;
 	} else {
 		std::cout << "Unknown opcode\n";
 	}
@@ -442,10 +464,11 @@ int runIMX477() {
 
 int runOV2311() {
 	std::cout << "runOV2311\n";
-	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
-	// compressedBufferSize = LZ4_compressBound(decompressedSize);
-	// std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
-	// compressedBuffer = new uint8_t[compressedBufferSize];
+	
+	int decompressedSize = IMG_WIDTH * IMG_HEIGHT;
+	compressedBufferSize = LZ4_compressBound(decompressedSize);
+	std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
+	compressedBuffer = new uint8_t[compressedBufferSize];
 
 	LibCamera cam;
 
@@ -515,11 +538,184 @@ int runOV2311() {
 				packetProcessData(&_packet, buff, readBytes);
 			}
 
+			if (_settingsUpdate) {
+				std::cout << "Update settings\n";
+				_settingsUpdate = false;
+				controls_.set(controls::ExposureTime, _shutterSpeed);
+				controls_.set(controls::AnalogueGain, _analogGain);
+				cam.set(controls_);
+			}
+
 			// NOTE: Get next frame.
 			bool flag = cam.readFrame(&frameData);
 			if (!flag) {
 				// usleep(100);
 				continue;
+			}
+
+			int64_t timeAtFrame = platformGetMicrosecond();
+			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
+			float fps = 1000.0 / frameDeltaTime;
+			timeAtLastFrame = timeAtFrame;
+
+			static int frameNum = 0;
+
+			if (_modeUpdate) {
+				frameNum = 0;
+				_modeUpdate = false;
+			}
+
+			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << "\n";
+
+			if (_mode == 1) {
+				// Continuous mode.
+				int64_t t0 = platformGetMicrosecond();
+				// processImage(frameData.imageData, frameData.size);
+				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 3);
+				// processImageSRGGB8(frameData.imageData, frameData.size);
+				t0 = platformGetMicrosecond() - t0;
+
+				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
+
+				frameNum++;
+
+				// Only send out every Nth frame.
+				if (frameNum >= 3) {
+					std::cout << "Send\n";
+					frameNum = 0;
+
+					ldiProtocolImageHeader header;
+					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+					header.header.opcode = 1;
+					header.width = IMG_WIDTH;
+					header.height = IMG_HEIGHT;
+
+					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+				}
+			} else if (_mode == 2) {
+				// One shot gather mode.
+				int64_t t0 = platformGetMicrosecond();
+				// processImage(frameData.imageData, frameData.size);
+				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
+				// processImageSRGGB8(frameData.imageData, frameData.size);
+				t0 = platformGetMicrosecond() - t0;
+
+				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
+
+				frameNum++;
+
+				// Only send out every Nth frame.
+				if (frameNum >= 10) {
+					std::cout << "Send\n";
+					frameNum = 0;
+
+					ldiProtocolImageHeader header;
+					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+					header.header.opcode = 1;
+					header.width = IMG_WIDTH;
+					header.height = IMG_HEIGHT;
+
+					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					_mode = 0;
+				}
+			}
+
+			cam.returnFrameBuffer(frameData);
+		}
+	}
+
+	cam.stopCamera();
+	cam.closeCamera();
+
+	return 0;
+}
+
+int runOV9281() {
+	std::cout << "runOV9281\n";
+
+	LibCamera cam;
+
+	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::YUV420, 4, 0);
+
+	if (ret) {
+		std::cout << "Cam init failure\n";
+		cam.closeCamera();
+		return 1;
+	}
+
+	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
+	ControlList controls_;
+	int64_t frame_time = 1000000 / 30;
+	int64_t minFrameTime = 1000000 / 30;
+	controls_.set(controls::FrameDurationLimits, { minFrameTime, frame_time });
+	controls_.set(controls::ExposureTime, _shutterSpeed);
+	controls_.set(controls::AnalogueGain, _analogGain);
+	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
+	controls_.set(controls::DigitalGain, 1);
+	// controls_.set(controls::Sharpness, 0);
+
+	controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
+	controls_.set(controls::ColourGains, { 0.0f, 0.0f });
+	cam.set(controls_);
+
+	LibcameraOutData frameData;
+	cam.startCamera();
+		
+	ldiNet* net = networkCreate();
+
+	int64_t timeAtLastFrame = 0;
+	
+	while (true) {
+		packetInit(&_packet);
+
+		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
+			std::cout << "Network failed to connect\n";
+			// sleep(1);
+			continue;
+		}
+
+		// NOTE: Just connected, send initial data.
+		ldiProtocolSettings settings;
+		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
+		settings.header.opcode = 0;
+		settings.shutterSpeed = _shutterSpeed;
+		settings.analogGain = _analogGain;
+
+		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
+			std::cout << "Write failed\n";
+			break;
+		}
+
+		while (true) {
+			uint8_t buff[256];
+
+			int readBytes = networkRead(net, buff, 256);
+
+			if (readBytes == -1) {
+				std::cout << "Read failed\n";
+				break;
+			} else if (readBytes > 0) {
+				// Process packet bytes.
+				std::cout << "Read: " << readBytes << "\n";
+
+				packetProcessData(&_packet, buff, readBytes);
 			}
 
 			if (_settingsUpdate) {
@@ -530,47 +726,99 @@ int runOV2311() {
 				cam.set(controls_);
 			}
 
+			// NOTE: Get next frame.
+			bool flag = cam.readFrame(&frameData);
+			if (!flag) {
+				usleep(100);
+				continue;
+			}
+
 			int64_t timeAtFrame = platformGetMicrosecond();
 			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
 			float fps = 1000.0 / frameDeltaTime;
 			timeAtLastFrame = timeAtFrame;
 
-			// Only send out every Nth frame.
 			static int frameNum = 0;
 
-			int64_t t0 = platformGetMicrosecond();
-			// processImage(frameData.imageData, frameData.size);
-			processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
-			// processImageSRGGB8(frameData.imageData, frameData.size);
-			t0 = platformGetMicrosecond() - t0;
-
-			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms" << " size: " << frameData.size << "\n";
-
-			cam.returnFrameBuffer(frameData);
-			
-			frameNum++;
-			if (frameNum == 10) {
-				std::cout << "Send\n";
+			if (_modeUpdate) {
 				frameNum = 0;
+				_modeUpdate = false;
+			}
 
-				ldiProtocolImageHeader header;
-				header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-				header.header.opcode = 1;
-				header.width = IMG_WIDTH;
-				header.height = IMG_HEIGHT;
+			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << " " << frameData.size << "\n";
 
-				if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-					std::cout << "Write failed\n";
-					break;
+			if (_mode == 1) {
+				// Continuous mode.
+				int64_t t0 = platformGetMicrosecond();
+				// processImage(frameData.imageData, frameData.size);
+				// processImageSRGGB8(frameData.imageData, frameData.size);
+				memcpy(pixelBuffer, frameData.imageData, frameData.size);
+				// processImageSRGGB8(frameData.imageData, frameData.size);
+				t0 = platformGetMicrosecond() - t0;
+
+				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
+
+				frameNum++;
+
+				// Only send out every Nth frame.
+				if (frameNum >= 0) {
+					std::cout << "Send\n";
+					frameNum = 0;
+
+					ldiProtocolImageHeader header;
+					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+					header.header.opcode = 1;
+					header.width = IMG_WIDTH;
+					header.height = IMG_HEIGHT;
+
+					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
 				}
+			} else if (_mode == 2) {
+				// One shot gather mode.
+				int64_t t0 = platformGetMicrosecond();
+				// processImage(frameData.imageData, frameData.size);
+				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
+				// processImageSRGGB8(frameData.imageData, frameData.size);
+				t0 = platformGetMicrosecond() - t0;
 
-				if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-					std::cout << "Write failed\n";
-					break;
+				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
+
+				frameNum++;
+
+				// Only send out every Nth frame.
+				if (frameNum >= 10) {
+					std::cout << "Send\n";
+					frameNum = 0;
+
+					ldiProtocolImageHeader header;
+					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
+					header.header.opcode = 1;
+					header.width = IMG_WIDTH;
+					header.height = IMG_HEIGHT;
+
+					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
+						std::cout << "Write failed\n";
+						break;
+					}
+
+					_mode = 0;
 				}
 			}
 
-			// sleep(1);
+			cam.returnFrameBuffer(frameData);
 		}
 	}
 
@@ -580,12 +828,47 @@ int runOV2311() {
 	return 0;
 }
 
+// OV9281 external trigger mode: https://forums.raspberrypi.com/viewtopic.php?t=293959
+//
+// Enable:
+// i2cset -y -f 10 0x60 0x4F 0x00 0x01 i
+// i2cset -y -f 10 0x60 0x01 0x00 0x00 i
+
+// Disable:
+// i2cset -y -f 10 0x60 0x4F 0x00 0x00 i
+// i2cset -y -f 10 0x60 0x01 0x00 0x01 i
+
+// GPIO 4 (PIN 16) (BCM 23)
+#define TRIGGER_GPIO_PIN 23
+
 int main() {
 	// Modes:
 	// - Continuous.
 	// - Capture on demand.
 
-	return runOV2311();
+	// int gv = gpioInitialise();
+
+	// if (gv == PI_INIT_FAILED) {
+	// 	std::cout << "PIGPIO failed to init.\n";
+	// 	return 1;
+	// }
+	
+	// gpioSetMode(TRIGGER_GPIO_PIN, PI_OUTPUT);
+	// gpioWrite(TRIGGER_GPIO_PIN, PI_HIGH);
+
+	// std::cout << "GPIO version: " << gv << "\n";
+
+	// while (true) {
+	// 	gpioWrite(TRIGGER_GPIO_PIN, PI_HIGH);
+	// 	sleep(2);
+	// 	gpioWrite(TRIGGER_GPIO_PIN, PI_LOW);
+	// 	sleep(2);
+	// }
+
+	// return 0;
+
+	return runOV9281();
+	// return runOV2311();
 	// return runIMX477();
 	// return runIMX219();
 }

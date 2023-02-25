@@ -27,6 +27,30 @@ u_long _checkRecvBytes(SOCKET Socket) {
 	return result;
 }
 
+int _recv(ldiServer* Server, uint8_t* RecvBuffer, int BytesToRecv) {
+	int recvBytes = recv(Server->clientSocket, (char*)RecvBuffer, BytesToRecv, 0);
+
+	if (recvBytes == 0) {
+		// NOTE: Connection is gracefully terminated.
+		_terminateClient(Server);
+		std::cout << "Client disconnected\n";
+		return -1;
+	} else if (recvBytes == SOCKET_ERROR) {
+		int error = WSAGetLastError();
+
+		// NOTE: Just blocking, so terminate loop.
+		if (error == WSAEWOULDBLOCK) {
+			return 0;
+		}
+
+		std::cout << "Critical socket error: " << error << "\n";
+		_terminateClient(Server);
+		return -1;
+	}
+
+	return recvBytes;
+}
+
 void networkWorkerThread(ldiServer* Server) {
 	std::cout << "Running network thread\n";
 
@@ -38,14 +62,12 @@ void networkWorkerThread(ldiServer* Server) {
 
 			if (error == WSAEWOULDBLOCK) {
 				// NOTE: Just blocking...
-			}
-			else {
+			} else {
 				// TODO: Handle more critical error.
 				std::cout << "Accept socket error: " << error << "\n";
 				exit(1);
 			}
-		}
-		else {
+		} else {
 			// NOTE: Got client socket.
 			if (Server->clientSocket != INVALID_SOCKET) {
 				std::cout << "Warning: client already connected!\n";
@@ -66,21 +88,18 @@ void networkWorkerThread(ldiServer* Server) {
 						_terminateClient(Server);
 						std::cout << "Client disconnected\n";
 						break;
-					}
-					else if (recvBytes == SOCKET_ERROR) {
+					} else if (recvBytes == SOCKET_ERROR) {
 						int error = WSAGetLastError();
 
 						if (error == WSAEWOULDBLOCK) {
 							// NOTE: Just blocking, so terminate loop.
-						}
-						else {
+						} else {
 							std::cout << "Critical socket error: " << error << "\n";
 							_terminateClient(Server);
 						}
 
 						break;
-					}
-					else {
+					} else {
 						// NOTE: Valid data read.
 						//std::cout << "Header bytes: " << recvBytes << "\n";
 
@@ -97,47 +116,67 @@ void networkWorkerThread(ldiServer* Server) {
 				if (Server->recvPacketState == 1) {
 					// NOTE: Packet payload.
 					int bytesToRecv = Server->recvPacketPayloadLen + 4 - Server->recvSize;
-					int recvBytes = recv(Server->clientSocket, (char*)Server->recvBuffer + Server->recvSize, bytesToRecv, 0);
+					//int recvBytes = recv(Server->clientSocket, (char*)Server->recvBuffer + Server->recvSize, bytesToRecv, 0);
+					int recvBytes = _recv(Server, Server->recvBuffer + Server->recvSize, bytesToRecv);
 
-					if (recvBytes == 0) {
-						// NOTE: Connection is gracefully terminated.
-						_terminateClient(Server);
-						std::cout << "Client disconnected\n";
+					if (recvBytes <= 0) {
 						break;
 					}
-					else if (recvBytes == SOCKET_ERROR) {
-						int error = WSAGetLastError();
 
-						if (error == WSAEWOULDBLOCK) {
-							// NOTE: Just blocking, so terminate loop.
-						}
-						else {
-							std::cout << "Critical socket error: " << error << "\n";
-							_terminateClient(Server);
-						}
+					Server->recvSize += recvBytes;
 
-						break;
+					if (Server->recvSize == Server->recvPacketPayloadLen + 4) {
+						//std::cout << "Got entire packet " << Server->recvSize << "\n";
+
+						std::unique_lock<std::mutex> lock(Server->packetMutex);
+						Server->packetAvailable = true;
+
+						// TODO: Need this to wake on error too.
+						Server->waitForPacketCondVar.notify_all();
+
+						Server->packetCondVar.wait(lock);
+
+						Server->recvPacketState = 0;
+						Server->recvSize = 0;
 					}
-					else {
-						// NOTE: Valid data read.
-						//std::cout << "Payload bytes: " << recvBytes << "\n";
-						Server->recvSize += recvBytes;
 
-						if (Server->recvSize == Server->recvPacketPayloadLen + 4) {
-							//std::cout << "Got entire packet " << Server->recvSize << "\n";
+					//if (recvBytes == 0) {
+					//	// NOTE: Connection is gracefully terminated.
+					//	_terminateClient(Server);
+					//	std::cout << "Client disconnected\n";
+					//	break;
+					//} else if (recvBytes == SOCKET_ERROR) {
+					//	int error = WSAGetLastError();
 
-							std::unique_lock<std::mutex> lock(Server->packetMutex);
-							Server->packetAvailable = true;
+					//	if (error == WSAEWOULDBLOCK) {
+					//		// NOTE: Just blocking, so terminate loop.
+					//	}
+					//	else {
+					//		std::cout << "Critical socket error: " << error << "\n";
+					//		_terminateClient(Server);
+					//	}
 
-							// TODO: Need this to wake on error too.
-							Server->waitForPacketCondVar.notify_all();
+					//	break;
+					//} else {
+					//	// NOTE: Valid data read.
+					//	//std::cout << "Payload bytes: " << recvBytes << "\n";
+					//	Server->recvSize += recvBytes;
 
-							Server->packetCondVar.wait(lock);
+					//	if (Server->recvSize == Server->recvPacketPayloadLen + 4) {
+					//		//std::cout << "Got entire packet " << Server->recvSize << "\n";
 
-							Server->recvPacketState = 0;
-							Server->recvSize = 0;
-						}
-					}
+					//		std::unique_lock<std::mutex> lock(Server->packetMutex);
+					//		Server->packetAvailable = true;
+
+					//		// TODO: Need this to wake on error too.
+					//		Server->waitForPacketCondVar.notify_all();
+
+					//		Server->packetCondVar.wait(lock);
+
+					//		Server->recvPacketState = 0;
+					//		Server->recvSize = 0;
+					//	}
+					//}
 				}
 			}
 		}

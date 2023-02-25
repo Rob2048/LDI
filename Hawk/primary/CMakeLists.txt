@@ -18,9 +18,9 @@ message(STATUS ${LIBCAMERA_BASE_LIBRARY})
 
 include_directories(. "${CAMERA_INCLUDE_DIRS}")
 set(LIBCAMERA_LIBRARIES "${LIBCAMERA_LIBRARY}" "${LIBCAMERA_BASE_LIBRARY}")
-add_executable(libcamera-demo main.cpp LibCamera.cpp network.cpp)
+add_executable(libcamera-demo main.cpp LibCamera.cpp network.cpp lz4.c)
 
-target_link_libraries(libcamera-demo "${LIBCAMERA_LIBRARIES}")
+target_link_libraries(libcamera-demo "${LIBCAMERA_LIBRARIES}" pigpio)
 
 message("Release flags: " ${CMAKE_CXX_FLAGS_RELEASE})
 message("Debug flags: " ${CMAKE_CXX_FLAGS_DEBUG})

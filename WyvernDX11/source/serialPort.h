@@ -1,13 +1,19 @@
 #pragma once
 
+// https://learn.microsoft.com/en-us/previous-versions/ff802693(v=msdn.10)
+
+// TODO: Check for available serial ports:
+// https://github.com/serialport/bindings-cpp/blob/main/src/serialport_win.cpp
+
 struct ldiSerialPort {
 	HANDLE descriptor = INVALID_HANDLE_VALUE;
 	bool connected = false;
 };
 
 bool serialPortDisconnect(ldiSerialPort* Port) {
-	if (Port->descriptor != INVALID_HANDLE_VALUE)
+	if (Port->descriptor != INVALID_HANDLE_VALUE) {
 		CloseHandle(Port->descriptor);
+	}
 
 	Port->descriptor = INVALID_HANDLE_VALUE;
 	Port->connected = false;
@@ -76,19 +82,24 @@ int serialPortWriteData(ldiSerialPort* Port, uint8_t* Buffer, int32_t BufferSize
 	DWORD bytesWritten = 0;
 
 	if (!WriteFile(Port->descriptor, Buffer, BufferSize, &bytesWritten, &overlapped)) {
-		if (GetLastError() != ERROR_IO_PENDING) {
-			std::cout << "Serial Write: Write Failed.\n";
-			serialPortDisconnect(Port);
+		DWORD lastError = GetLastError();
+		
+		if (lastError != ERROR_IO_PENDING) {
+			std::cout << "Serial Write: Write Failed: << " << lastError << "\n";
+			//serialPortDisconnect(Port);
 			return -1;
 		} else {
+			 //STATUS_PENDING
+			
 			if (!GetOverlappedResult(Port->descriptor, &overlapped, &bytesWritten, true)) {
 				std::cout << "Serial Write: Waiting Error.\n";
-				serialPortDisconnect(Port);
+				//serialPortDisconnect(Port);
 				return -1;
 			} else {
 				if (bytesWritten != BufferSize) {
-					std::cout << "Serial Write: Failed to write all bytes.\n";
-					serialPortDisconnect(Port);
+					// TODO: This can occur if some other IO operation on the same handle completes before this one. Need to unique hEvent.
+					std::cout << "Serial Write: Failed to write all bytes: " << bytesWritten << "/" << BufferSize << "\n";
+					//serialPortDisconnect(Port);
 					return -1;
 				}
 
@@ -97,8 +108,8 @@ int serialPortWriteData(ldiSerialPort* Port, uint8_t* Buffer, int32_t BufferSize
 		}
 	} else {
 		if (bytesWritten != BufferSize) {
-			std::cout << "Serial Write: Failed to write all bytes.\n";
-			serialPortDisconnect(Port);
+			std::cout << "Serial Write: Failed to write all bytes: " << bytesWritten << "/" << BufferSize << "\n";
+			//serialPortDisconnect(Port);
 			return -1;
 		}
 
@@ -120,12 +131,12 @@ int32_t serialPortReadData(ldiSerialPort* Port, uint8_t* Buffer, int32_t BufferS
 	if (!ReadFile(Port->descriptor, Buffer, BufferSize, &bytesRead, &overlapped)) {
 		if (GetLastError() != ERROR_IO_PENDING) {
 			std::cout << "Serial Read: IO Pending Error.\n";
-			serialPortDisconnect(Port);
+			//serialPortDisconnect(Port);
 			return -1;
 		} else {
 			if (!GetOverlappedResult(Port->descriptor, &overlapped, &bytesRead, true)) {
 				std::cout << "Serial Read: Waiting Error.\n";
-				serialPortDisconnect(Port);
+				//serialPortDisconnect(Port);
 				return -1;
 			} else if (bytesRead > 0) {
 				return bytesRead;

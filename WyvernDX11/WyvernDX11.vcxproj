@@ -120,6 +120,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -137,6 +138,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -170,8 +172,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\computerVision.h" />
+    <ClInclude Include="source\galvoInspector.h" />
     <ClInclude Include="source\modelEditor.h" />
+    <ClInclude Include="source\panther.h" />
     <ClInclude Include="source\spatialGrid.h" />
+    <ClInclude Include="source\utilities.h" />
     <ClInclude Include="source\visionSimulator.h" />
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />
