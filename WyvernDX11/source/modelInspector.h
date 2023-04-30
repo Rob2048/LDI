@@ -4,6 +4,7 @@
 #define min(a,b)            (((a) < (b)) ? (a) : (b))
 
 #include "spatialGrid.h"
+#include "lcms2.h"
 
 struct ldiLaserViewSurfel {
 	int id;
@@ -471,6 +472,8 @@ void surfelsCreateDistribution(ldiSpatialGrid* Grid, std::vector<ldiSurfel>* Sur
 	memset(mask, 0, Surfels->size() * sizeof(bool));
 	Result->points.clear();
 
+	// TOOD: Should group surfels based on normals too.
+
 	for (size_t i = 0; i < Surfels->size(); ++i) {
 		if (SurfelMask[i] > 0 || mask[i] == true) {
 			continue;
@@ -479,7 +482,6 @@ void surfelsCreateDistribution(ldiSpatialGrid* Grid, std::vector<ldiSurfel>* Sur
 		ldiSurfel* srcSurfel = &(*Surfels)[i];
 
 		vec3 avgNorm = srcSurfel->normal;
-
 		vec3 cell = spatialGridGetCellFromWorldPosition(Grid, srcSurfel->position);
 
 		int sX = (int)(cell.x - 0.5f) - 4;
@@ -812,7 +814,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
-	for (int viewIter = 0; viewIter < 1; ++viewIter) {
+	for (int viewIter = 0; viewIter < 100; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -1036,11 +1038,13 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 						//float lum = 1.0f;
 						//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+						//float lum = 1.0f - color.r;
+						float lum = color.r;
 						//lum = 1.0f - GammaToLinear(lum);
 
 						//float lum = 1.0f - pow(GammaToLinear(color.r), 1.4);
 						//float lum = 1.0f - GammaToLinear(color.r);
-						float lum = 1.0f - color.r;
+						//float lum = 1.0f - color.r;
 
 						// NOTE: Luminance cutoff. Can't represent values this light.
 						if (lum < 0.025f || lum > 1.0f) {
@@ -1114,12 +1118,11 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 								// NOTE: Distance diffusion.
 								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
-								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0060f;
+								float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0060f;
 								//float checkDist = 0.0060f;
 
-								// NOTE: Scaling.
-								float checkDist = 0.0050f;
-								cand->scale = 0.0075f * cand->color.r;
+								// NOTE: Uniform distance.
+								//float checkDist = 0.0050f;
 
 								if (mag <= checkDist) {
 									noconflicts = false;
@@ -1141,11 +1144,27 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				}
 
 				if (noconflicts) {
+					// NOTE: Scale based on intensity.
+					cand->scale = 0.0075f * cand->color.r;
+					//cand->scale = 0.0075f;
+					//cand->scale = 0.0050f;
+
+					//cand->color = viewRndCol;
 					//cand->color = vec3(0.0f, 0.72f, 0.92f);
 					//cand->color = vec3(0.8f, 0.0f, 0.56f);
 					//cand->color = vec3(0.96f, 0.9f, 0.09f);
-					cand->color = vec3(0.0f, 0.0f, 0.0f);
-					//cand->color = viewRndCol;
+
+					// Cyan
+					//cand->color = vec3(0, 166.0 / 255.0, 214.0 / 255.0);
+
+					// Magenta
+					cand->color = vec3(1.0f, 0, 144.0 / 255.0); 
+
+					// Yellow
+					//cand->color = vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0);
+
+					// Black
+					//cand->color = vec3(0.0f, 0.0f, 0.0f);
 					
 					poissonSamples.push_back(*cand);
 
@@ -1378,13 +1397,67 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	double t0 = _getTime(AppContext);
 	int x, y, n;
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
+
+	//hsRGB = cmsCreate_sRGBProfile();
+	cmsHPROFILE srgbProfile = cmsOpenProfileFromFile("../../assets/profiles/sRGB_v4_ICC_preference.icc", "r");
+	cmsHPROFILE cmykProfile = cmsOpenProfileFromFile("../../assets/profiles/USWebCoatedSWOP.icc", "r");
+
+	double versionInfo = cmsGetProfileVersion(srgbProfile);
+	std::cout << "sRGB olor profile info: " << versionInfo << "\n";
+
+	versionInfo = cmsGetProfileVersion(cmykProfile);
+	std::cout << "CMYK color profile info: " << versionInfo << "\n";
+
+	cmsHTRANSFORM colorTransform = cmsCreateTransform(srgbProfile, TYPE_RGBA_8, cmykProfile, TYPE_CMYK_8, INTENT_PERCEPTUAL, 0);
+
+	std::cout << "Converting sRGB image to CMYK\n";
+	uint8_t* cmykImagePixels = new uint8_t[x * y * 4];
+	cmsDoTransform(colorTransform, imageRawPixels, cmykImagePixels, x * y);
+
+	/*std::cout << "Writing image\n";
+	uint8_t* tempOutPixels = new uint8_t[x * y];
+	for (int i = 0; i < x * y; ++i) {
+		tempOutPixels[i] = cmykImagePixels[i * 4 + 0];
+	}
+	imageWrite("img_c.png", x, y, 1, x, tempOutPixels);
+
+	for (int i = 0; i < x * y; ++i) {
+		tempOutPixels[i] = cmykImagePixels[i * 4 + 1];
+	}
+	imageWrite("img_m.png", x, y, 1, x, tempOutPixels);
+
+	for (int i = 0; i < x * y; ++i) {
+		tempOutPixels[i] = cmykImagePixels[i * 4 + 2];
+	}
+	imageWrite("img_y.png", x, y, 1, x, tempOutPixels);
+
+	for (int i = 0; i < x * y; ++i) {
+		tempOutPixels[i] = cmykImagePixels[i * 4 + 3];
+	}
+	imageWrite("img_k.png", x, y, 1, x, tempOutPixels);*/
+
+	// NOTE: Copy a single CMYK channel to the full texture.
+	int cmykId = 1;
+	uint8_t* tempOutPixels = new uint8_t[x * y * 4];
+	for (int i = 0; i < x * y; ++i) {
+		tempOutPixels[i * 4 + 0] = cmykImagePixels[i * 4 + cmykId];
+		tempOutPixels[i * 4 + 1] = cmykImagePixels[i * 4 + cmykId];
+		tempOutPixels[i * 4 + 2] = cmykImagePixels[i * 4 + cmykId];
+		tempOutPixels[i * 4 + 3] = cmykImagePixels[i * 4 + cmykId];
+	}
+
+	cmsDeleteTransform(colorTransform);
+	cmsCloseProfile(srgbProfile);
+	cmsCloseProfile(cmykProfile);
+
 
 	ModelInspector->baseTexture.width = x;
 	ModelInspector->baseTexture.height = y;
-	ModelInspector->baseTexture.data = imageRawPixels;
+	//ModelInspector->baseTexture.data = imageRawPixels;
+	ModelInspector->baseTexture.data = tempOutPixels;
 
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
@@ -1486,7 +1559,8 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	{
 		D3D11_SUBRESOURCE_DATA texData = {};
-		texData.pSysMem = imageRawPixels;
+		/*texData.pSysMem = imageRawPixels;*/
+		texData.pSysMem = tempOutPixels;
 		texData.SysMemPitch = x * 4;
 
 		D3D11_TEXTURE2D_DESC tex2dDesc = {};

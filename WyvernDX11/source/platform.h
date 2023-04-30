@@ -120,6 +120,8 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	}
 
 	platformWorkerThreadJobComplete(Platform);
+
+	return true;
 }
 
 void platformWorkerThread(ldiPlatform* Platform) {

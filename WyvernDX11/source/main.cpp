@@ -821,10 +821,10 @@ int main() {
 		return 1;
 	}
 
-	/*if (modelInspectorLoad(appContext, modelInspector) != 0) {
+	if (modelInspectorLoad(appContext, modelInspector) != 0) {
 		std::cout << "Could not load model inspector\n";
 		return 1;
-	}*/
+	}
 
 	ldiSamplerTester* samplerTester = &_samplerTester;
 	if (samplerTesterInit(appContext, samplerTester) != 0) {
