@@ -50,7 +50,7 @@ struct ldiSurfel {
 	int id;
 	vec3 position;
 	vec3 normal;
-	vec3 color;
+	vec4 color;
 	vec3 smoothedNormal;
 	float scale;
 	float viewAngle;

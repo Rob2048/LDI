@@ -37,6 +37,8 @@ Laser direct imager.
 
 # Color process
 
+![Screenshot](resources/cmyk_dots2.png)
+
 ![Screenshot](resources/color_process_1.jpg)
 
 ![Screenshot](resources/color_process_2.jpg)
@@ -91,6 +93,18 @@ Laser direct imager.
 	- Directly related to kernel size?
 
 ![Screenshot](resources/wyvern.png)
+
+## Path planning
+
+![Screenshot](resources/path_01.png)
+
+![Screenshot](resources/path_02.png)
+
+![Screenshot](resources/path_03.png)
+
+![Screenshot](resources/path_04.png)
+
+![Screenshot](resources/path_05.png)
 
 ## Platform calibration
 - https://hackaday.io/project/11377-lego-optics-lab-laser-interferometer/details

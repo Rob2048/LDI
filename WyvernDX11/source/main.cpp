@@ -141,9 +141,10 @@ struct ldiApp {
 
 	ID3D11Buffer*				mvpConstantBuffer;
 	ID3D11Buffer*				pointcloudConstantBuffer;
-
+	
 	ID3D11BlendState*			defaultBlendState;
 	ID3D11BlendState*			alphaBlendState;
+	ID3D11BlendState*			multiplyBlendState;
 	ID3D11RasterizerState*		defaultRasterizerState;
 	ID3D11RasterizerState*		doubleSidedRasterizerState;
 	ID3D11RasterizerState*		wireframeRasterizerState;
@@ -151,6 +152,7 @@ struct ldiApp {
 	ID3D11DepthStencilState*	noDepthState;
 	ID3D11DepthStencilState*	wireframeDepthStencilState;
 	ID3D11DepthStencilState*	nowriteDepthStencilState;
+	ID3D11DepthStencilState*	rayMarchDepthStencilState;
 
 	ID3D11SamplerState*			defaultPointSamplerState;
 	ID3D11SamplerState*			defaultLinearSamplerState;
@@ -167,7 +169,7 @@ struct ldiApp {
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
-	bool						showModelInspector = false;
+	bool						showModelInspector = true;
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
 	bool						showModelEditor = false;
@@ -566,6 +568,28 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	{
+		D3D11_BLEND_DESC desc = {};
+		desc.AlphaToCoverageEnable = false;
+		desc.RenderTarget[0].BlendEnable = true;
+		desc.RenderTarget[0].SrcBlend = D3D11_BLEND_DEST_COLOR;
+		desc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+		desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+		desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+		desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		AppContext->d3dDevice->CreateBlendState(&desc, &AppContext->multiplyBlendState);
+
+		//rtBlend.SrcBlend = D3D11_BLEND_DEST_COLOR;
+		//rtBlend.DestBlend = D3D11_BLEND_ZERO;
+		//rtBlend.BlendOp = D3D11_BLEND_OP_ADD;
+		//rtBlend.SrcBlendAlpha = D3D11_BLEND_ZERO;// D3D11_BLEND_ONE;
+		//rtBlend.DestBlendAlpha = D3D11_BLEND_ONE;// D3D11_BLEND_ZERO;
+		//rtBlend.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		//rtBlend.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+	}
+
+	{
 		D3D11_RASTERIZER_DESC desc = {};
 		desc.FillMode = D3D11_FILL_SOLID;
 		desc.CullMode = D3D11_CULL_BACK;
@@ -609,6 +633,18 @@ bool _initResources(ldiApp* AppContext) {
 		desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
 		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 		desc.BackFace = desc.FrontFace;
+		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		desc.BackFace = desc.FrontFace;*/
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->rayMarchDepthStencilState);
+	}	
+
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = true;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.StencilEnable = false;
 		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
 		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 		desc.BackFace = desc.FrontFace;*/

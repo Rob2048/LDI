@@ -1202,7 +1202,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 		appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &Tool->sdfVolumeResourceView);
 		appContext->d3dDeviceContext->PSSetSamplers(0, 1, &Tool->sdfVolumeSamplerState);
 
-		gfxRenderBasicModel(appContext, &Tool->fullScreenQuad, Tool->raymarchInputLayout, Tool->raymarchVertexShader, Tool->raymarchPixelShader, appContext->nowriteDepthStencilState);
+		gfxRenderBasicModel(appContext, &Tool->fullScreenQuad, Tool->raymarchInputLayout, Tool->raymarchVertexShader, Tool->raymarchPixelShader, appContext->rayMarchDepthStencilState);
 	}
 
 	//----------------------------------------------------------------------------------------------------

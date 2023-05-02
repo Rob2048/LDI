@@ -210,7 +210,7 @@ void gfxReleaseRenderModel(ldiRenderModel* Model) {
 	}
 }
 
-ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, float NormalOffset = 0.001f) {
+ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, float NormalOffset = 0.001f, int ColorMode = 0) {
 	ldiRenderModel result = {};
 
 	int quadCount = (int)Surfels->size();
@@ -256,7 +256,13 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 		ldiBasicVertex* v3 = &verts[i * 4 + 3];
 
 		//vec3 color = s->normal * 0.5f + 0.5f;
-		vec3 color = s->color;
+		vec3 color(0, 0, 0);
+		
+		if (ColorMode == 0) {
+			color = s->color;
+		} else if (ColorMode == 1) {
+			color = vec3(s->color.r, s->color.r, s->color.r);
+		}
 
 		v0->position = p0;
 		v0->color = color;
@@ -680,7 +686,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 	return result;
 }
 
-ldiRenderModel gfxCreateRenderQuadModelWhite(ldiApp* AppContext, ldiQuadModel* ModelSource) {
+ldiRenderModel gfxCreateRenderQuadModelWhite(ldiApp* AppContext, ldiQuadModel* ModelSource, vec3 Color) {
 	ldiRenderModel result = {};
 
 	int quadCount = (int)(ModelSource->indices.size() / 4);
@@ -704,7 +710,7 @@ ldiRenderModel gfxCreateRenderQuadModelWhite(ldiApp* AppContext, ldiQuadModel* M
 
 		vec3 normal = glm::normalize(glm::cross(p1 - p0, p3 - p0));
 
-		vec3 color(1.0f, 1.0f, 1.0f);
+		//vec3 color(1.0f, 1.0f, 1.0f);
 
 		ldiSimpleVertex* v0 = &verts[i * 4 + 0];
 		ldiSimpleVertex* v1 = &verts[i * 4 + 1];
@@ -712,16 +718,16 @@ ldiRenderModel gfxCreateRenderQuadModelWhite(ldiApp* AppContext, ldiQuadModel* M
 		ldiSimpleVertex* v3 = &verts[i * 4 + 3];
 
 		v0->position = p0;
-		v0->color = color;
+		v0->color = Color;
 
 		v1->position = p1;
-		v1->color = color;
+		v1->color = Color;
 
 		v2->position = p2;
-		v2->color = color;
+		v2->color = Color;
 
 		v3->position = p3;
-		v3->color = color;
+		v3->color = Color;
 
 		indices[i * 6 + 0] = i * 4 + 2;
 		indices[i * 6 + 1] = i * 4 + 1;
@@ -1040,6 +1046,33 @@ void gfxRenderSurfelModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11Shade
 	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
 
 	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
+void gfxRenderMultiplySurfelModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
+	UINT lgStride = sizeof(ldiBasicVertex);
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(AppContext->surfelInputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(AppContext->surfelVertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(AppContext->surfelPixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->multiplyBlendState, NULL, 0xffffffff);
+	AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->nowriteDepthStencilState, 0);
 
 	if (ResourceView != NULL && Sampler != NULL) {
 		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);

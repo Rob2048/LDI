@@ -71,10 +71,16 @@ struct ldiModelInspector {
 	ldiRenderModel				dergnRenderModel;
 	ldiRenderModel				dergnDebugModel;
 	ldiRenderModel				quadModelWhite;
-	
+
+	ldiImage					baseTexture;
 	ID3D11Texture2D*			baseImageTexture;
-	ID3D11ShaderResourceView*	shaderResourceViewTest;
+	ID3D11ShaderResourceView*	baseImageSrv;
 	ID3D11SamplerState*			texSamplerState;
+
+	ldiImage					baseCmykFull;
+	ldiImage					baseCmykPixels[4];
+	ID3D11Texture2D*			baseCmykTexture[4];
+	ID3D11ShaderResourceView*	baseCmykSrv[4];
 
 	ID3D11Texture2D*			laserViewTex;
 	ID3D11ShaderResourceView*	laserViewTexView;
@@ -90,6 +96,9 @@ struct ldiModelInspector {
 	ldiRenderModel				surfelHighRenderModel;
 	ldiRenderModel				poissonSamplesRenderModel;
 
+	ldiRenderModel				poissonSamplesCmykRenderModel[4];
+	bool						showCmykModel[4] = { true, true, true, true };
+
 	ldiRenderPointCloud			pointCloudRenderModel;
 
 	ldiPhysicsMesh				cookedDergn;
@@ -99,10 +108,10 @@ struct ldiModelInspector {
 	// NOTE: High rank surfels.
 	std::vector<ldiSurfel>		surfelsHigh;
 
-	ldiImage					baseTexture;
+	
 
-	ldiSpatialGrid				spatialGrid;
-	ldiPoissonSpatialGrid		poissonSpatialGrid;
+	ldiSpatialGrid				spatialGrid = {};
+	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
 
 	ldiPointCloud				pointDistrib;
 	ldiRenderPointCloud			pointDistribCloud;
@@ -146,6 +155,10 @@ struct ldiModelInspector {
 	int							surfelViewCurrentId = -1;
 	ldiRenderModel				surfelViewPointsModel;
 	ldiDebugPrims				surfelViewDebug;
+
+	float						dotSizeArr[256];
+	float						dotSpacingArr[256];
+	float						dotMinDensity = 0.025f;
 };
 
 void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
@@ -187,7 +200,7 @@ void geoCreateSurfels(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 		surfel.id = i;
 		surfel.position = center;// + normal * normalAdjust;
 		surfel.normal = normal;
-		surfel.color = vec3(0, 0, 0);
+		surfel.color = vec4(0, 0, 0, 0);
 		surfel.scale = 0.0075f;
 
 		Result->push_back(surfel);
@@ -198,8 +211,8 @@ void geoCreateSurfelsHigh(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 	int quadCount = Model->indices.size() / 4;
 
 	Result->clear();
-	Result->reserve(quadCount);
-
+	Result->reserve(quadCount * 4);
+	
 	for (int i = 0; i < quadCount; ++i) {
 		vec3 p0 = Model->verts[Model->indices[i * 4 + 0]];
 		vec3 p1 = Model->verts[Model->indices[i * 4 + 1]];
@@ -237,7 +250,7 @@ void geoCreateSurfelsHigh(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
 			ldiSurfel surfel{};
 			surfel.id = i;
 			surfel.normal = normal;
-			surfel.color = vec3(0.5f, 0.5f, 0.5f);
+			surfel.color = vec4(0.5f, 0.5f, 0.5f, 0.0f);
 			surfel.scale = 0.0075f;
 			surfel.position = s[sIter];
 
@@ -280,11 +293,12 @@ void geoTransferThreadBatch(ldiColorTransferThreadContext Context) {
 			uint8_t r = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 0];
 			uint8_t g = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 1];
 			uint8_t b = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 2];
+			uint8_t a = Context.image->data[(pixX + pixY * Context.image->width) * 4 + 3];
 
-			s->color = vec3(r / 255.0, g / 255.0, b / 255.0);
+			s->color = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 		}
 		else {
-			s->color = vec3(1, 0, 0);
+			s->color = vec4(1, 0, 0, 0);
 		}
 	}
 }
@@ -314,9 +328,9 @@ void _geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, 
 			uint8_t g = Image->data[(pixX + pixY * Image->width) * 4 + 1];
 			uint8_t b = Image->data[(pixX + pixY * Image->width) * 4 + 2];
 
-			s->color = vec3(r / 255.0, g / 255.0, b / 255.0);
+			s->color = vec4(r / 255.0, g / 255.0, b / 255.0, 0);
 		} else {
-			s->color = vec3(1, 0, 0);
+			s->color = vec4(1, 0, 0, 0);
 		}
 	}
 }
@@ -343,7 +357,7 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 			tc.endIdx += batchRemainder;
 		}
 
-		workerThread[t] = std::move(std::thread(geoTransferThreadBatch, tc));
+		workerThread[t] = std::thread(geoTransferThreadBatch, tc);
 	}
 
 	for (int t = 0; t < threadCount; ++t) {
@@ -799,6 +813,231 @@ float LinearToGamma(float In) {
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
 }
 
+bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelInspector, int ChannelId, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
+	std::vector<ldiSurfel> poissonSamples;
+
+	double t0 = _getTime(AppContext);
+
+	//----------------------------------------------------------------------------------------------------
+	// Distribute poisson samples.
+	//----------------------------------------------------------------------------------------------------
+	{
+		// Create sample candidates.
+		int candidatesPerSide = 8;
+		int candidatesPerSurfel = candidatesPerSide * candidatesPerSide;
+		int totalCandidates = ModelInspector->surfels.size() * candidatesPerSurfel;
+		std::cout << "Total candidates: " << totalCandidates << "\n";
+
+		/*ldiPoissonSpatialGrid* sampleGrid = &ModelInspector->poissonSpatialGrid;*/
+		ldiPoissonSpatialGrid sampleGrid = {};
+		poissonSpatialGridInit(&sampleGrid, MinBounds, MaxBounds, CellSize);
+
+		std::vector<ldiSurfel> poissonCandidates;
+		poissonCandidates.reserve(totalCandidates);
+
+		// Generate candidates from low rank surfels.
+		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+			int surfelId = ModelInspector->surfels[i].id;
+				
+			// Get quad for this surfel.
+			vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 0]];
+			vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 1]];
+			vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 2]];
+			vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 3]];
+
+			vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
+
+			//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
+			vec3 normal = ModelInspector->surfels[surfelId].normal;
+
+			/*float s0 = glm::length(v0 - v1);
+			float s1 = glm::length(v1 - v2);
+			float s2 = glm::length(v2 - v3);
+			float s3 = glm::length(v3 - v0);*/
+
+			// For each required surfel, get the position.
+			float divSize = 1.0f / (candidatesPerSide);
+			float divHalf = divSize * 0.5f;
+
+			for (int iY = 0; iY < candidatesPerSide; ++iY) {
+				float lerpY = divSize * iY + divHalf;
+
+				for (int iX = 0; iX < candidatesPerSide; ++iX) {
+					float lerpX = divSize * iX + divHalf;
+					vec3 a = (v0 + (v1 - v0) * lerpX);
+					vec3 b = (v3 + (v2 - v3) * lerpX);
+
+					vec3 pos = (a + (b - a) * lerpY);
+
+					int idX = lerpX * 2.0f;
+					int idY = lerpY * 2.0f;
+					vec4 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
+
+					//float lum = 1.0f;
+					//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+					//float lum = 1.0f - color.r;
+					float lum = color[ChannelId];
+					//lum = 1.0f - GammaToLinear(lum);
+
+					//float lum = 1.0f - pow(GammaToLinear(color.r), 1.4);
+					//float lum = 1.0f - GammaToLinear(color.r);
+					//float lum = 1.0f - color.r;
+
+					// NOTE: Luminance cutoff. Can't represent values this light.
+					if (lum < ModelInspector->dotMinDensity || lum > 1.0f) {
+						continue;
+					}
+
+					ldiSurfel candidateSurfel = {};
+					candidateSurfel.color = vec4(lum, lum, lum, 0);
+					candidateSurfel.position = pos;
+					candidateSurfel.normal = normal;
+					//candidateSurfel.scale = 0.0075f * lum;
+					//candidateSurfel.scale = 0.0075f;
+					candidateSurfel.scale = 0.0050f;
+					//candidateSurfel.viewAngle = angle;
+
+					poissonCandidates.push_back(candidateSurfel);
+				}
+			}
+		}
+
+		// TODO: Check uniformity of this shuffle.
+		std::vector<int> candidateShuffles;
+		candidateShuffles.resize(poissonCandidates.size());
+
+		for (size_t iterShuff = 0; iterShuff < poissonCandidates.size(); ++iterShuff) {
+			candidateShuffles[iterShuff] = iterShuff;
+		}
+
+		for (size_t iterShuff = 0; iterShuff < poissonCandidates.size(); ++iterShuff) {
+			int swapIdx = rand() % poissonCandidates.size();
+
+			int temp = candidateShuffles[iterShuff];
+			candidateShuffles[iterShuff] = candidateShuffles[swapIdx];
+			candidateShuffles[swapIdx] = temp;
+		}
+
+		t0 = _getTime(AppContext) - t0;
+		std::cout << "Poisson create candidates: " << t0 * 1000.0f << " ms\n";
+
+		vec3 viewRndCol;
+		viewRndCol.x = (rand() % 255) / 255.0f;
+		viewRndCol.y = (rand() % 255) / 255.0f;
+		viewRndCol.z = (rand() % 255) / 255.0f;
+
+		//----------------------------------------------------------------------------------------------------
+		// Turn candidates into samples.
+		//----------------------------------------------------------------------------------------------------
+		t0 = _getTime(AppContext);
+
+		for (size_t iterCandidate = 0; iterCandidate < candidateShuffles.size(); ++iterCandidate) {
+			ldiSurfel* cand = &poissonCandidates[candidateShuffles[iterCandidate]];
+			vec3 cellPos = poissonSpatialGridGetCellFromWorldPosition(&sampleGrid, cand->position);
+
+			int cXs = (int)(cellPos.x - 0.5f);
+			int cXe = cXs + 1;
+			int cYs = (int)(cellPos.y - 0.5f);
+			int cYe = cYs + 1;
+			int cZs = (int)(cellPos.z - 0.5f);
+			int cZe = cZs + 1;
+
+			bool noconflicts = true;
+
+			for (int iterCz = cZs; iterCz <= cZe; ++iterCz) {
+				for (int iterCy = cYs; iterCy <= cYe; ++iterCy) {
+					for (int iterCx = cXs; iterCx <= cXe; ++iterCx) {
+						int cellId = poissonSpatialGridGetCellId(&sampleGrid, iterCx, iterCy, iterCz);
+
+						size_t sampleCount = sampleGrid.cells[cellId].samples.size();
+
+						for (size_t iterSamples = 0; iterSamples < sampleCount; ++iterSamples) {
+							// NOTE: Compare candidate against sample.
+
+							ldiPoissonSample* ps = &sampleGrid.cells[cellId].samples[iterSamples];
+
+							float mag = glm::distance(ps->position, cand->position);
+
+							// NOTE: Distance diffusion.
+							//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
+							//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0050f;
+							float checkDist = ModelInspector->dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+
+							//float checkDist = 0.0060f;
+
+							// NOTE: Uniform distance.
+							//float checkDist = 0.0050f;
+
+							if (mag <= checkDist) {
+								noconflicts = false;
+								break;
+							}
+						}
+
+						if (!noconflicts) {
+							break;
+						}
+					}
+					if (!noconflicts) {
+						break;
+					}
+				}
+				if (!noconflicts) {
+					break;
+				}
+			}
+
+			if (noconflicts) {
+				// NOTE: Scale based on intensity.
+				//cand->scale = 0.0075f * cand->color.r;
+				//cand->scale = 0.0075f;
+				//cand->scale = 0.0050f;
+				cand->scale = ModelInspector->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+
+				//cand->color = viewRndCol;
+				//cand->color = vec3(0.0f, 0.72f, 0.92f);
+				//cand->color = vec3(0.8f, 0.0f, 0.56f);
+				//cand->color = vec3(0.96f, 0.9f, 0.09f);
+
+				if (ChannelId == 0) {
+					// Cyan
+					cand->color = vec4(0, 166.0 / 255.0, 214.0 / 255.0, 0);
+				} else if (ChannelId == 1) {
+					// Magenta
+					cand->color = vec4(1.0f, 0, 144.0 / 255.0, 0);
+				} else if (ChannelId == 2) {
+					// Yellow
+					cand->color = vec4(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0, 0);
+				} else {
+					// Black
+					cand->color = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+				}
+
+				cand->color = cand->color * vec4(0.75f, 0.75f, 0.75f, 0.75f);
+
+				poissonSamples.push_back(*cand);
+
+				ldiPoissonSample ps = {};
+				ps.position = cand->position;
+				ps.value = cand->color.r;
+
+				sampleGrid.cells[poissonSpatialGridGetCellId(&sampleGrid, cellPos.x, cellPos.y, cellPos.z)].samples.push_back(ps);
+			}
+		}
+
+		t0 = _getTime(AppContext) - t0;
+		std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms\n";
+
+		poissonSpatialGridDestroy(&sampleGrid);
+	}
+
+	ModelInspector->poissonSamplesCmykRenderModel[ChannelId] = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
+
+	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
+
+	return true;
+}
+
 bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->laserViewPathPositions.clear();
 
@@ -814,7 +1053,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
-	for (int viewIter = 0; viewIter < 100; ++viewIter) {
+	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -997,7 +1236,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 			std::vector<ldiSurfel> poissonCandidates;
 			poissonCandidates.reserve(totalCandidates);
 
-			// Randomly walk valid low rank surfels.
+			// Generate candidates from low rank surfels.
 			for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
 				int surfelId = pathPos.surfelIds[i];
 				float angle = coverageBufferData[surfelId] / 1000.0f;
@@ -1034,7 +1273,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 						int idX = lerpX * 2.0f;
 						int idY = lerpY * 2.0f;
-						vec3 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
+						vec4 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
 
 						//float lum = 1.0f;
 						//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
@@ -1047,12 +1286,12 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						//float lum = 1.0f - color.r;
 
 						// NOTE: Luminance cutoff. Can't represent values this light.
-						if (lum < 0.025f || lum > 1.0f) {
+						if (lum < ModelInspector->dotMinDensity || lum > 1.0f) {
 							continue;
 						}
 
 						ldiSurfel candidateSurfel = {};
-						candidateSurfel.color = vec3(lum, lum, lum);
+						candidateSurfel.color = vec4(lum, lum, lum, 0);
 						candidateSurfel.position = pos;
 						candidateSurfel.normal = normal;
 						//candidateSurfel.scale = 0.0075f * lum;
@@ -1118,7 +1357,9 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 								// NOTE: Distance diffusion.
 								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
-								float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0060f;
+								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0050f;
+								float checkDist = ModelInspector->dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+
 								//float checkDist = 0.0060f;
 
 								// NOTE: Uniform distance.
@@ -1145,9 +1386,10 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 				if (noconflicts) {
 					// NOTE: Scale based on intensity.
-					cand->scale = 0.0075f * cand->color.r;
+					//cand->scale = 0.0075f * cand->color.r;
 					//cand->scale = 0.0075f;
 					//cand->scale = 0.0050f;
+					cand->scale = ModelInspector->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
 
 					//cand->color = viewRndCol;
 					//cand->color = vec3(0.0f, 0.72f, 0.92f);
@@ -1158,7 +1400,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->color = vec3(0, 166.0 / 255.0, 214.0 / 255.0);
 
 					// Magenta
-					cand->color = vec3(1.0f, 0, 144.0 / 255.0); 
+					cand->color = vec4(1.0f, 0, 144.0 / 255.0, 0); 
 
 					// Yellow
 					//cand->color = vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0);
@@ -1301,6 +1543,10 @@ void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 }
 
 void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	if (ModelInspector->pointDistrib.points.size() == 0) {
+		return;
+	}
+
 	ldiLaserViewCoveragePrep prep = modelInspectorLaserViewCoveragePrep(AppContext, ModelInspector);
 	ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
 	modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal, 0, false);
@@ -1318,8 +1564,8 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
-	//ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
-	ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
+	ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
 
 	float globalScale = 1.0f;
@@ -1387,20 +1633,23 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &ModelInspector->quadModel);
 
 	// TODO: Share verts and normals.
-	ModelInspector->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &ModelInspector->quadModel);
+	ModelInspector->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &ModelInspector->quadModel, vec3(0.9f, 0.9f, 0.9f));
 
 	geoCreateSurfels(&ModelInspector->quadModel, &ModelInspector->surfels);
 	geoCreateSurfelsHigh(&ModelInspector->quadModel, &ModelInspector->surfelsHigh);
 
-	std::cout << "High surfels: " << ModelInspector->surfelsHigh.size() << "\n";
+	std::cout << "High surfel count: " << ModelInspector->surfelsHigh.size() << "\n";
 
 	double t0 = _getTime(AppContext);
 	int x, y, n;
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
 
+	//----------------------------------------------------------------------------------------------------
+	// CMYK transformation.
+	//----------------------------------------------------------------------------------------------------
 	//hsRGB = cmsCreate_sRGBProfile();
 	cmsHPROFILE srgbProfile = cmsOpenProfileFromFile("../../assets/profiles/sRGB_v4_ICC_preference.icc", "r");
 	cmsHPROFILE cmykProfile = cmsOpenProfileFromFile("../../assets/profiles/USWebCoatedSWOP.icc", "r");
@@ -1417,52 +1666,60 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	uint8_t* cmykImagePixels = new uint8_t[x * y * 4];
 	cmsDoTransform(colorTransform, imageRawPixels, cmykImagePixels, x * y);
 
-	/*std::cout << "Writing image\n";
-	uint8_t* tempOutPixels = new uint8_t[x * y];
-	for (int i = 0; i < x * y; ++i) {
-		tempOutPixels[i] = cmykImagePixels[i * 4 + 0];
-	}
-	imageWrite("img_c.png", x, y, 1, x, tempOutPixels);
+	// NOTE: Copy a single CMYK channels to the full texture.
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
 
-	for (int i = 0; i < x * y; ++i) {
-		tempOutPixels[i] = cmykImagePixels[i * 4 + 1];
-	}
-	imageWrite("img_m.png", x, y, 1, x, tempOutPixels);
+		image->width = x;
+		image->height = y;
+		image->data = new uint8_t[x * y * 4];
 
-	for (int i = 0; i < x * y; ++i) {
-		tempOutPixels[i] = cmykImagePixels[i * 4 + 2];
+		for (int i = 0; i < x * y; ++i) {
+			image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
+			image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
+			image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
+			image->data[i * 4 + 3] = 255;
+		}
 	}
-	imageWrite("img_y.png", x, y, 1, x, tempOutPixels);
 
-	for (int i = 0; i < x * y; ++i) {
-		tempOutPixels[i] = cmykImagePixels[i * 4 + 3];
-	}
-	imageWrite("img_k.png", x, y, 1, x, tempOutPixels);*/
-
-	// NOTE: Copy a single CMYK channel to the full texture.
-	int cmykId = 1;
-	uint8_t* tempOutPixels = new uint8_t[x * y * 4];
-	for (int i = 0; i < x * y; ++i) {
-		tempOutPixels[i * 4 + 0] = cmykImagePixels[i * 4 + cmykId];
-		tempOutPixels[i * 4 + 1] = cmykImagePixels[i * 4 + cmykId];
-		tempOutPixels[i * 4 + 2] = cmykImagePixels[i * 4 + cmykId];
-		tempOutPixels[i * 4 + 3] = cmykImagePixels[i * 4 + cmykId];
-	}
+	ModelInspector->baseCmykFull.width = x;
+	ModelInspector->baseCmykFull.height = y;
+	ModelInspector->baseCmykFull.data = cmykImagePixels;
 
 	cmsDeleteTransform(colorTransform);
 	cmsCloseProfile(srgbProfile);
 	cmsCloseProfile(cmykProfile);
 
-
 	ModelInspector->baseTexture.width = x;
 	ModelInspector->baseTexture.height = y;
-	//ModelInspector->baseTexture.data = imageRawPixels;
-	ModelInspector->baseTexture.data = tempOutPixels;
-
+	ModelInspector->baseTexture.data = imageRawPixels;
+	
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
 
-	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseTexture, &ModelInspector->surfelsHigh);
+	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseCmykFull, &ModelInspector->surfelsHigh);
+
+	//----------------------------------------------------------------------------------------------------
+	// Calculate surfel distribution curves.
+	//----------------------------------------------------------------------------------------------------
+	float maxSize = 75.0f;
+
+	for (int i = 0; i < 256; ++i) {
+		float density = (float)i / 255.0f;
+
+		if (density < ModelInspector->dotMinDensity) {
+			ModelInspector->dotSizeArr[i] = 0;
+			ModelInspector->dotSpacingArr[i] = 0;
+		} else {
+			ModelInspector->dotSizeArr[i] = 50.0f;
+			//ModelInspector->dotSizeArr[i] = 75.0f * density;
+			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - density) + 50.0f;
+
+			//ModelInspector->dotSpacingArr[i] = 50.0f;
+			ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 1.0 / 4.2)) + 30.0f;
+			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 4.0)) + 30.0f;
+		}
+	}
 	
 	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
@@ -1546,7 +1803,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
 	
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
-	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh);
+	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh, 0.001f, 1);
 	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &ModelInspector->quadModel);
 	
 	ldiPointCloud pointCloud;
@@ -1560,12 +1817,12 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	{
 		D3D11_SUBRESOURCE_DATA texData = {};
 		/*texData.pSysMem = imageRawPixels;*/
-		texData.pSysMem = tempOutPixels;
-		texData.SysMemPitch = x * 4;
+		texData.pSysMem = ModelInspector->baseTexture.data;
+		texData.SysMemPitch = ModelInspector->baseTexture.width * 4;
 
 		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = x;
-		tex2dDesc.Height = y;
+		tex2dDesc.Width = ModelInspector->baseTexture.width;
+		tex2dDesc.Height = ModelInspector->baseTexture.height;
 		tex2dDesc.MipLevels = 1;
 		tex2dDesc.ArraySize = 1;
 		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1582,8 +1839,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 			return 1;
 		}
 		
-		//imageFree(imageRawPixels);
-		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->shaderResourceViewTest) != S_OK) {
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->baseImageSrv) != S_OK) {
 			std::cout << "CreateShaderResourceView failed\n";
 			return 1;
 		}
@@ -1598,6 +1854,37 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 	
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &ModelInspector->texSamplerState);
+	}
+
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
+
+		D3D11_SUBRESOURCE_DATA texData = {};
+		texData.pSysMem = image->data;
+		texData.SysMemPitch = image->width * 4;
+
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = image->width;
+		tex2dDesc.Height = image->height;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
+		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = 0;
+		tex2dDesc.MiscFlags = 0;
+
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseCmykTexture[channelIter]) != S_OK) {
+			std::cout << "Texture failed to create\n";
+			return 1;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseCmykTexture[channelIter], NULL, &ModelInspector->baseCmykSrv[channelIter]) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
 	}
 
 	{
@@ -1812,16 +2099,23 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	t0 = _getTime(AppContext);
 
-	if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
+	/*if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
 		return 1;
-	}
+	}*/
 
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "View path: " << t0 * 1000.0f << " ms\n";
 
 	ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
-
 	modelInspectorCalcLaserPath(ModelInspector);
+
+	t0 = _getTime(AppContext);
+	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 1, surfelsMin, surfelsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 2, surfelsMin, surfelsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
 
 	return 0;
 }
@@ -1881,6 +2175,10 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		pushDebugBoxSolid(&appContext->defaultDebug, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
 
 		pushDebugBox(&appContext->defaultDebug, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
+
+		for (int i = 0; i < 15; ++i) {
+			pushDebugLine(&appContext->defaultDebug, vec3(0, i, 0), vec3(3.0f, i, 0), vec3(0.5f, 0, 0.5f));
+		}
 	
 		displayTextAtPoint(&ModelInspector->camera, vec3(3, 0, 0), "0 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
 		displayTextAtPoint(&ModelInspector->camera, vec3(3, 5, 0), "50 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
@@ -2011,7 +2309,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		constantBuffer->color = vec4(1, 1, 1, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderModel(appContext, &ModelInspector->dergnRenderModel, false, ModelInspector->shaderResourceViewTest, ModelInspector->texSamplerState);
+		gfxRenderModel(appContext, &ModelInspector->dergnRenderModel, false, ModelInspector->baseImageSrv, ModelInspector->texSamplerState);
 	}
 
 	if (ModelInspector->primaryModelShowWireframe) {
@@ -2103,7 +2401,12 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderSurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+		//gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+		for (int i = 0; i < 4; ++i) {
+			if (ModelInspector->showCmykModel[i]) {
+				gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
+			}
+		}
 	}
 
 	// Area coverage result.
@@ -2272,7 +2575,7 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 
 				ldiSurfel s = {};
 				s.position = vec3(surfelPos.x, surfelPos.y, -0.5f);
-				s.color = col;
+				s.color = vec4(col, 0);
 				s.scale = surfelSize;
 				//s.scale = 50.0f * umToPixel;
 				s.normal = vec3(0, 0, -1);
@@ -2393,7 +2696,10 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
 
 		ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
-		
+		ImGui::Checkbox("C samples", &tool->showCmykModel[0]);
+		ImGui::Checkbox("M samples", &tool->showCmykModel[1]);
+		ImGui::Checkbox("Y samples", &tool->showCmykModel[2]);
+		ImGui::Checkbox("K samples", &tool->showCmykModel[3]);
 		
 		ImGui::Separator();
 		ImGui::Text("Point cloud");
@@ -2411,6 +2717,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Checkbox("Laser view show background", &tool->laserViewShowBackground);
 		
 		ImGui::Text("Coverage area: %d", tool->coverageValue);
+
 		ImGui::Image(tool->laserViewTexView, ImVec2(512, 512));
 	}
 		
@@ -2427,6 +2734,24 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		if (ImGui::Button("Quadralize")) {
 			modelInspectorCreateQuadMesh(tool);
 		}
+	}
+
+	if (ImGui::CollapsingHeader("Color management")) {
+		ImGui::PlotLines("Dot size", tool->dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
+		ImGui::PlotLines("Dot spacing", tool->dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
+
+		float w = ImGui::GetWindowWidth();
+
+		ImGui::Text("sRGB");
+		ImGui::Image(tool->baseImageSrv, ImVec2(w, w));
+		ImGui::Text("Cyan");
+		ImGui::Image(tool->baseCmykSrv[0], ImVec2(w, w));
+		ImGui::Text("Magenta");
+		ImGui::Image(tool->baseCmykSrv[1], ImVec2(w, w));
+		ImGui::Text("Yellow");
+		ImGui::Image(tool->baseCmykSrv[2], ImVec2(w, w));
+		ImGui::Text("Black");
+		ImGui::Image(tool->baseCmykSrv[3], ImVec2(w, w));
 	}
 
 	ImGui::End();
