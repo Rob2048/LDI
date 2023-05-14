@@ -1666,7 +1666,15 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	uint8_t* cmykImagePixels = new uint8_t[x * y * 4];
 	cmsDoTransform(colorTransform, imageRawPixels, cmykImagePixels, x * y);
 
+	vec3 cmykColor[4] = {
+		vec3(0, 166.0 / 255.0, 214.0 / 255.0),
+		vec3(1.0f, 0, 144.0 / 255.0),
+		vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0),
+		vec3(0.0f, 0.0f, 0.0f)
+	};
+
 	// NOTE: Copy a single CMYK channels to the full texture.
+	// NOTE: Converted to sRGB for viewing purposes.
 	for (int channelIter = 0; channelIter < 4; ++channelIter) {
 		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
 
@@ -1675,9 +1683,19 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		image->data = new uint8_t[x * y * 4];
 
 		for (int i = 0; i < x * y; ++i) {
-			image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
-			image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
-			image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
+			float v = ((float)cmykImagePixels[i * 4 + channelIter]) / 255.0f;
+			//float vi = LinearToGamma(v) * 255.0f;
+			float vi = LinearToGamma(v);
+
+			vec3 col = glm::mix(vec3(1, 1, 1), cmykColor[channelIter], vi);
+
+			image->data[i * 4 + 0] = (uint8_t)(col.r * 255);
+			image->data[i * 4 + 1] = (uint8_t)(col.g * 255);
+			image->data[i * 4 + 2] = (uint8_t)(col.b * 255);
+			
+			//image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
 			image->data[i * 4 + 3] = 255;
 		}
 	}

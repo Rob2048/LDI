@@ -1,12 +1,12 @@
 #pragma once
 
 // NOTE: OV9281
-#define CAM_IMG_WIDTH 1280
-#define CAM_IMG_HEIGHT 800
+//#define CAM_IMG_WIDTH 1280
+//#define CAM_IMG_HEIGHT 800
 
 // NOTE: OV2311
-//#define CAM_IMG_WIDTH 1600
-//#define CAM_IMG_HEIGHT 1300
+#define CAM_IMG_WIDTH 1600
+#define CAM_IMG_HEIGHT 1300
 
 // NOTE: IMX477
 //#define CAM_IMG_WIDTH 4056
