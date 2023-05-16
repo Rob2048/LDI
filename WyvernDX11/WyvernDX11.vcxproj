@@ -172,6 +172,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\computerVision.h" />
+    <ClInclude Include="source\elipseCollision.h" />
     <ClInclude Include="source\galvoInspector.h" />
     <ClInclude Include="source\modelEditor.h" />
     <ClInclude Include="source\panther.h" />

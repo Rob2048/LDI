@@ -112,10 +112,56 @@ inline void pushDebugCircleVert(ldiDebugPrims* Prims, vec3 Origin, float Radius,
 	pushDebugCirlcle(Prims, Origin, Radius, Color, Segs, vec3Right, vec3Up);
 }
 
+inline void pushDebugElipse(ldiDebugPrims* Prims, vec3 Origin, float Width, float Height, vec3 Color, int Segs, vec3 XAxis, vec3 YAxis) {
+	float divInc = glm::radians(360.0f / Segs);
+
+	vec3 lastPoint;
+
+	for (int i = 0; i < Segs + 1; ++i) {
+		float rad = divInc * i;
+		vec3 newPoint = XAxis * (float)sin(rad) * Width + YAxis * (float)cos(rad) * Height + Origin;
+
+		if (i > 0) {
+			pushDebugLine(Prims, lastPoint, newPoint, Color);
+		}
+
+		lastPoint = newPoint;
+	}
+}
+
 inline void pushDebugSphere(ldiDebugPrims* Prims, vec3 Origin, float Radius, vec3 Color, int Segs) {
 	pushDebugCirlcle(Prims, Origin, Radius, Color, Segs, vec3Right, vec3Up);
 	pushDebugCirlcle(Prims, Origin, Radius, Color, Segs, vec3Forward, vec3Up);
 	pushDebugCirlcle(Prims, Origin, Radius, Color, Segs, vec3Right, vec3Forward);
+}
+
+inline void pushDebugPlane(ldiDebugPrims* Prims, vec3 Origin, vec3 Normal, float Size, vec3 Color) {
+	vec3 up = vec3Up;
+
+	if (up == Normal) {
+		up = vec3Right;
+	}
+
+	vec3 side = glm::cross(Normal, up);
+	up = glm::cross(Normal, side);
+
+	//pushDebugSphere(Prims, Origin, 0.01f, vec3(1, 0, 1), 6);
+
+	pushDebugLine(Prims, Origin, Origin + up, vec3(1, 0, 0));
+	pushDebugLine(Prims, Origin, Origin + side, vec3(0, 1, 0));
+	pushDebugLine(Prims, Origin, Origin + Normal, vec3(0, 0, 1));
+
+	float hSize = Size * 0.5f;
+
+	vec3 v0 = -side * hSize - up * hSize + Origin;
+	vec3 v1 = side * hSize - up * hSize + Origin;
+	vec3 v2 = side * hSize + up * hSize + Origin;
+	vec3 v3 = -side * hSize + up * hSize + Origin;
+
+	pushDebugLine(Prims, v0, v1, Color);
+	pushDebugLine(Prims, v1, v2, Color);
+	pushDebugLine(Prims, v2, v3, Color);
+	pushDebugLine(Prims, v3, v0, Color);
 }
 
 inline void pushDebugBox(ldiDebugPrims* Prims, vec3 Origin, vec3 Size, vec3 Color) {

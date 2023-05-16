@@ -265,7 +265,7 @@ void geoBakeDisplacementTexture(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, 
 					tracePoint.world = v0->pos * tU + v1->pos * tV + v2->pos * tW;
 					tracePoint.normal = v0->normal * tU + v1->normal * tV + v2->normal * tW;
 
-					ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, tracePoint.world + tracePoint.normal * normalAdjust, tracePoint.normal, 1.0f);
+					ldiRaycastResult result = physicsRaycast(CookedMesh, tracePoint.world + tracePoint.normal * normalAdjust, tracePoint.normal, 1.0f);
 
 					if (result.hit) {
 						ldiMeshVertex v0 = TargetModel->verts[TargetModel->indices[result.faceIdx * 3 + 0]];
@@ -319,7 +319,7 @@ void geoBakeDisplacement(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiMode
 	
 	for (size_t i = 0; i < SrcModel->verts.size(); ++i) {
 		ldiMeshVertex* vert = &(SrcModel->verts)[i];
-		ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, vert->pos + vert->normal * normalAdjust, vert->normal, 1.0f);
+		ldiRaycastResult result = physicsRaycast(CookedMesh, vert->pos + vert->normal * normalAdjust, vert->normal, 1.0f);
 
 		if (result.hit) {
 			ldiMeshVertex v0 = DstModel->verts[DstModel->indices[result.faceIdx * 3 + 0]];

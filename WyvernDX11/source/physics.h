@@ -58,6 +58,14 @@ struct ldiPhysicsMesh {
 	PxTriangleMeshGeometry	cookedMesh;
 };
 
+inline vec3 physicsPv3ToGv3(PxVec3* Vec) {
+	return vec3(Vec->x, Vec->y, Vec->z);
+}
+
+inline PxVec3 physicsGv3ToPv3(vec3* Vec) {
+	return PxVec3(Vec->x, Vec->y, Vec->z);
+}
+
 int physicsInit(ldiApp* AppContext, ldiPhysics* Physics) {
 	Physics->appContext = AppContext;
 
@@ -84,7 +92,7 @@ int physicsInit(ldiApp* AppContext, ldiPhysics* Physics) {
 		std::cout << "Could not create PhysX cooking object\n";
 		return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -124,7 +132,7 @@ struct ldiRaycastResult {
 	float dist;
 };
 
-ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 RayOrigin, vec3 RayDir, float MaxDist = 0.02f) {
+ldiRaycastResult physicsRaycast(ldiPhysicsMesh* Mesh, vec3 RayOrigin, vec3 RayDir, float MaxDist = 0.02f) {
 	ldiRaycastResult hit{};
 	hit.hit = false;
 
@@ -143,6 +151,25 @@ ldiRaycastResult physicsRaycast(ldiPhysics* Physics, ldiPhysicsMesh* Mesh, vec3 
 		hit.barry = vec2(rayHit.u, rayHit.v);
 		hit.dist = rayHit.distance;
 		hit.normal = vec3(rayHit.normal.x, rayHit.normal.y, rayHit.normal.z);
+	}
+
+	return hit;
+}
+
+// NOTE: Creates a plane representation each time, maybe cache for faster?
+ldiRaycastResult physicsRaycastPlane(vec3 RayOrigin, vec3 RayDir, vec3 PlanePoint, vec3 PlaneNormal, float MaxDist) {
+	ldiRaycastResult hit{};
+	hit.hit = false;
+
+	PxRaycastHit rayHit;
+	PxHitFlags hitFlags = PxHitFlag::ePOSITION | PxHitFlag::eNORMAL;
+	PxTransform pose = PxTransformFromPlaneEquation(PxPlane(physicsGv3ToPv3(&PlanePoint), physicsGv3ToPv3(&PlaneNormal)));
+	PxU32 hitCount = PxGeometryQuery::raycast(physicsGv3ToPv3(&RayOrigin), physicsGv3ToPv3(&RayDir), PxPlaneGeometry(), pose, MaxDist, hitFlags, 1, &rayHit);
+
+	if (hitCount > 0) {
+		hit.hit = true;
+		hit.pos = physicsPv3ToGv3(&rayHit.position);
+		hit.normal = physicsPv3ToGv3(&rayHit.normal);
 	}
 
 	return hit;

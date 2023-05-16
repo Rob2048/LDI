@@ -5,6 +5,7 @@
 
 #include "spatialGrid.h"
 #include "lcms2.h"
+#include "elipseCollision.h"
 
 struct ldiLaserViewSurfel {
 	int id;
@@ -274,7 +275,7 @@ void geoTransferThreadBatch(ldiColorTransferThreadContext Context) {
 
 	for (size_t i = Context.startIdx; i < Context.endIdx; ++i) {
 		ldiSurfel* s = &(*Context.surfels)[i];
-		ldiRaycastResult result = physicsRaycast(Context.physics, Context.cookedMesh, s->position + s->normal * normalAdjust, -s->normal);
+		ldiRaycastResult result = physicsRaycast(Context.cookedMesh, s->position + s->normal * normalAdjust, -s->normal);
 
 		if (result.hit) {
 			ldiMeshVertex v0 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 0]];
@@ -308,7 +309,7 @@ void _geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, 
 	
 	for (size_t i = 0; i < Surfels->size(); ++i) {
 		ldiSurfel* s = &(*Surfels)[i];
-		ldiRaycastResult result = physicsRaycast(AppContext->physics, CookedMesh, s->position + s->normal * normalAdjust, -s->normal);
+		ldiRaycastResult result = physicsRaycast(CookedMesh, s->position + s->normal * normalAdjust, -s->normal);
 
 		if (result.hit) {
 			ldiMeshVertex v0 = SrcModel->verts[SrcModel->indices[result.faceIdx * 3 + 0]];
@@ -556,8 +557,10 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->mainViewHeight = 0;
 	
 	ModelInspector->camera = {};
-	ModelInspector->camera.position = vec3(0, 0, 10);
-	ModelInspector->camera.rotation = vec3(0, 0, 0);
+	// ModelInspector->camera.position = vec3(0, 0, 10);
+	// ModelInspector->camera.rotation = vec3(0, 0, 0);
+	ModelInspector->camera.position = vec3(1.5, 1.5, 1.5);
+	ModelInspector->camera.rotation = vec3(-45, 45, 0);
 	ModelInspector->camera.fov = 60.0f;
 
 	initDebugPrimitives(&ModelInspector->surfelViewDebug);
@@ -1805,7 +1808,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 				workerThread[t].join();
 			}
 
-			// Apply smoothed normal back to normal normal.
+			// Apply smoothed normal back to sufel normal.
 			for (int i = 0; i < ModelInspector->surfels.size(); ++i) {
 				ldiSurfel* srcSurfel = &ModelInspector->surfels[i];
 				srcSurfel->normal = srcSurfel->smoothedNormal;
@@ -2128,10 +2131,10 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	modelInspectorCalcLaserPath(ModelInspector);
 
 	t0 = _getTime(AppContext);
-	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
-	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 1, surfelsMin, surfelsMax, 0.05f);
-	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 2, surfelsMin, surfelsMax, 0.05f);
-	modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
+	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
+	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 1, surfelsMin, surfelsMax, 0.05f);
+	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 2, surfelsMin, surfelsMax, 0.05f);
+	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
 
@@ -2219,6 +2222,13 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 7.5f, vec3(0.8f, 0.8f, 0.0f), 64);
 		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 7.5f + 5.0f, vec3(0.5f, 0.8f, 0.0f), 64);
 		pushDebugSphere(&appContext->defaultDebug, vec3(0, 7.5f, 0), 27.5f, vec3(0.0f, 0.8f, 0.0f), 64);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Elipse collision testing.
+	//----------------------------------------------------------------------------------------------------
+	{
+		elipseCollisionRender(appContext);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -3054,11 +3064,12 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		// Viewport overlay widgets.
 		{
 			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 35), false, ImGuiWindowFlags_NoScrollbar);
+			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 			ImGui::Text("%.3f %.3f %.3f", tool->camera.position.x, tool->camera.position.y, tool->camera.position.z);
-
+			ImGui::Text("%.3f %.3f %.3f", tool->camera.rotation.x, tool->camera.rotation.y, tool->camera.rotation.z);
+			
 			ImGui::EndChild();
 		}
 	}

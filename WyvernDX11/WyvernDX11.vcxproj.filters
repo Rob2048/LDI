@@ -134,5 +134,8 @@
     <ClInclude Include="source\galvoInspector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\elipseCollision.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
