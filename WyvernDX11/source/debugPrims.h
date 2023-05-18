@@ -143,7 +143,9 @@ inline void pushDebugPlane(ldiDebugPrims* Prims, vec3 Origin, vec3 Normal, float
 	}
 
 	vec3 side = glm::cross(Normal, up);
+	side = glm::normalize(side);
 	up = glm::cross(Normal, side);
+	up = glm::normalize(up);
 
 	//pushDebugSphere(Prims, Origin, 0.01f, vec3(1, 0, 1), 6);
 

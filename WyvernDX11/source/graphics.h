@@ -210,7 +210,7 @@ void gfxReleaseRenderModel(ldiRenderModel* Model) {
 	}
 }
 
-ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, float NormalOffset = 0.001f, int ColorMode = 0) {
+ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, float NormalOffset = 0.001f, int ColorMode = 0, bool Elipse = false) {
 	ldiRenderModel result = {};
 
 	int quadCount = (int)Surfels->size();
@@ -229,6 +229,7 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 	for (int i = 0; i < quadCount; ++i) {
 		ldiSurfel* s = &(*Surfels)[i];
 
+		float hSizeF = s->scale * 0.5f;
 		float hSize = s->scale * 0.5f;
 		
 		vec3 upVec(0, 1, 0);
@@ -243,12 +244,16 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 		vec3 bitangent = glm::cross(s->normal, tangent);
 		bitangent = glm::normalize(bitangent);
 
-		//s->position += s->normal * 20.0f;
+		if (Elipse) {
+			tangent = s->axisForward;
+			bitangent = s->axisSide;
+			hSizeF *= s->aspect;
+		}
 
-		vec3 p0 = s->position - tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
-		vec3 p1 = s->position + tangent * hSize - bitangent * hSize + s->normal * normalAdjust;
-		vec3 p2 = s->position + tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
-		vec3 p3 = s->position - tangent * hSize + bitangent * hSize + s->normal * normalAdjust;
+		vec3 p0 = s->position - tangent * hSizeF - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p1 = s->position + tangent * hSizeF - bitangent * hSize + s->normal * normalAdjust;
+		vec3 p2 = s->position + tangent * hSizeF + bitangent * hSize + s->normal * normalAdjust;
+		vec3 p3 = s->position - tangent * hSizeF + bitangent * hSize + s->normal * normalAdjust;
 
 		ldiBasicVertex* v0 = &verts[i * 4 + 0];
 		ldiBasicVertex* v1 = &verts[i * 4 + 1];

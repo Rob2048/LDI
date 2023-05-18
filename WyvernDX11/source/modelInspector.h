@@ -160,7 +160,60 @@ struct ldiModelInspector {
 	float						dotSizeArr[256];
 	float						dotSpacingArr[256];
 	float						dotMinDensity = 0.025f;
+
+	ldiElipseCollisionTester	elipseTester = {};
 };
+
+vec3 getColorFromMap(float CosAngle) {
+	// 0 = perpendicular
+	// 1 = Facing
+	vec3 result(0, 0, 0);
+
+	vec3 col[3] = {
+		vec3(1, 0, 0),
+		vec3(0, 0, 1),
+		vec3(0, 1, 0),
+	};
+
+	float divs = sizeof(col) / sizeof(vec3) - 1;
+	float div = 1.0f / divs;
+
+	//std::cout << "Color lerp: " << CosAngle << " divs: " << divs << " div: " << div << "\n";
+
+	for (int i = 0; i < divs; ++i) {
+		float target = div * (i + 1);
+		if (CosAngle <= target) {
+			float t = (target - CosAngle) / div;
+			result = glm::mix(col[i + 1], col[i], t);
+			break;
+		}
+	}
+
+	//std::cout << result.r << ", " << result.g << ", " << result.b << "\n";
+
+	return result;
+}
+
+vec3 getColorFromCosAngle(float CosAngle) {
+	// 0 = perpendicular
+	// 1 = Facing
+	// 70: 0.34202014332
+
+	float degs = glm::degrees(acos(CosAngle));
+
+	if (degs <= 20) {
+		float t = (degs - 0) / (20 - 0);
+		return glm::mix(vec3(0, 1, 0), vec3(0, 1, 1), t);
+	} else if (degs <= 45) {
+		float t = (degs - 20) / (45 - 20);
+		return glm::mix(vec3(0, 1, 1), vec3(0, 0, 1), t);
+	} else if (degs <= 70) {
+		float t = (degs - 45) / (70 - 45);
+		return glm::mix(vec3(0, 0, 1), vec3(1, 0, 0), t);
+	} else {
+		return vec3(0, 0, 0);
+	}
+}
 
 void geoSmoothSurfels(std::vector<ldiSurfel>* Surfels) {
 	std::cout << "Run smooth\n";
@@ -1056,7 +1109,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
-	for (int viewIter = 0; viewIter < 1; ++viewIter) {
+	for (int viewIter = 0; viewIter < 100; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -1158,9 +1211,13 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		pathPos.surfaceNormal = vert->normal;
 
 		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
-			// NOTE: 707 == 45degrees to laser view.
-			// NOTE: 500 == 60degrees to laser view.
-			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 707) {
+			// NOTE: Values to degrees to laser view:
+			// 707 == 45degs
+			// 500 == 60degs
+			// 600 == 53degs
+			// 342 == 70degs
+
+			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 342) {
 				++activeSurfels;
 				ModelInspector->surfelMask[i] = viewIter + 1;
 				pathPos.surfelIds.push_back(i);
@@ -1223,7 +1280,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		//----------------------------------------------------------------------------------------------------
 		{
 			ldiMachineTransform machineTransform = modelInspectorGetLaserViewModelToView(prep.projMat, pathPos.surfacePos, pathPos.surfaceNormal);
-
+			
 			t0 = _getTime(AppContext);
 
 			// Create sample candidates.
@@ -1252,8 +1309,15 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 				vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
 
+				vec3 laserDir = glm::normalize(mid - machineTransform.modelLocalCamPos);
+
 				//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
 				vec3 normal = ModelInspector->surfels[surfelId].normal;
+
+				// TODO: If laserDir and normal are co-incident, then use diff calc.
+				vec3 axisSide = glm::normalize(glm::cross(laserDir, normal));
+				vec3 axisForward = glm::normalize(glm::cross(axisSide, normal));
+				float dotAspect = 1.0f / glm::dot(-laserDir, normal);
 
 				/*float s0 = glm::length(v0 - v1);
 				float s1 = glm::length(v1 - v2);
@@ -1281,7 +1345,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						//float lum = 1.0f;
 						//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
 						//float lum = 1.0f - color.r;
-						float lum = color.r;
+						float lum = color.g;
 						//lum = 1.0f - GammaToLinear(lum);
 
 						//float lum = 1.0f - pow(GammaToLinear(color.r), 1.4);
@@ -1301,6 +1365,10 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						//candidateSurfel.scale = 0.0075f;
 						candidateSurfel.scale = 0.0050f;
 						candidateSurfel.viewAngle = angle;
+
+						candidateSurfel.axisForward = axisForward;
+						candidateSurfel.axisSide = axisSide;
+						candidateSurfel.aspect = dotAspect;
 
 						poissonCandidates.push_back(candidateSurfel);
 					}
@@ -1400,7 +1468,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->color = vec3(0.96f, 0.9f, 0.09f);
 
 					// Cyan
-					//cand->color = vec3(0, 166.0 / 255.0, 214.0 / 255.0);
+					//cand->color = vec4(0, 166.0 / 255.0, 214.0 / 255.0, 0.0f);
 
 					// Magenta
 					cand->color = vec4(1.0f, 0, 144.0 / 255.0, 0); 
@@ -1409,7 +1477,9 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->color = vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0);
 
 					// Black
-					//cand->color = vec3(0.0f, 0.0f, 0.0f);
+					//cand->color = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
+					//cand->color = vec4(getColorFromCosAngle(cand->viewAngle), 0.0f);
 					
 					poissonSamples.push_back(*cand);
 
@@ -1441,11 +1511,11 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 			ModelInspector->laserViewPathPositions.push_back(pathPos);
 
 			t0 = _getTime(AppContext) - t0;
-			std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms\n";
+			std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms Count: " << pathPos.surfels.size() << "\n";
 		}
 	}
 
-	ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
+	ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0, 0, true);
 
 	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
 
@@ -1567,6 +1637,8 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	elipseCollisionSetup(AppContext, &ModelInspector->elipseTester);
+
 	ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
 	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
@@ -2120,9 +2192,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	t0 = _getTime(AppContext);
 
-	/*if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
+	if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
 		return 1;
-	}*/
+	}
 
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "View path: " << t0 * 1000.0f << " ms\n";
@@ -2137,6 +2209,10 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
+
+	/*getColorFromCosAngle(0.0f);
+	getColorFromCosAngle(0.25f);
+	getColorFromCosAngle(1.0f);*/
 
 	return 0;
 }
@@ -2228,7 +2304,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	// Elipse collision testing.
 	//----------------------------------------------------------------------------------------------------
 	{
-		elipseCollisionRender(appContext);
+		elipseCollisionRender(appContext, &ModelInspector->elipseTester);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -2429,7 +2505,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		//gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+		gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 		for (int i = 0; i < 4; ++i) {
 			if (ModelInspector->showCmykModel[i]) {
 				gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
@@ -2780,6 +2856,10 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Image(tool->baseCmykSrv[2], ImVec2(w, w));
 		ImGui::Text("Black");
 		ImGui::Image(tool->baseCmykSrv[3], ImVec2(w, w));
+	}
+
+	if (ImGui::CollapsingHeader("Elipse tester", ImGuiTreeNodeFlags_DefaultOpen)) {
+		elipseCollisionShowUi(tool->appContext, &tool->elipseTester);
 	}
 
 	ImGui::End();
