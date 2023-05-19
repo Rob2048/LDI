@@ -658,7 +658,7 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 	double singleDotArea = dotSize * dotSize;
 	double dotsInArea = totalArea / singleDotArea;
 
-	std::cout << "Total area: " << totalArea << " cm2 Dots: " << (int)dotsInArea << "\n";
+	std::cout << "Total area: " << totalArea << " cm2 Dots: " << (int)dotsInArea << " (" << (dotSize * 10000) << "um)\n";
 
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;

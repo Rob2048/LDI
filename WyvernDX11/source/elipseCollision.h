@@ -10,6 +10,8 @@ struct ldiElipse {
 };
 
 struct ldiElipseCollisionTester {
+	bool show;
+
 	vec3 planeOrigin;
 	vec3 planeRot;
 
@@ -29,7 +31,6 @@ void elipseRender(ldiApp* AppContext, ldiElipse* Elipse) {
 
 void elipseInit(ldiElipse* Elipse, vec3 Origin, vec3 Forward, float Width, float Height) {
 	Forward = glm::normalize(Forward);
-
 	Elipse->origin = Origin;
 	Elipse->forward = Forward;
 
@@ -42,18 +43,24 @@ void elipseInit(ldiElipse* Elipse, vec3 Origin, vec3 Forward, float Width, float
 }
 
 void elipseCollisionSetup(ldiApp* AppContext, ldiElipseCollisionTester* Tool) {
+	Tool->show = false;
 	Tool->planeOrigin = vec3(2, 1, 3);
 	//Tool->planeRot = vec3(-45.0f, 0.0f, 0.0f);
 	Tool->planeRot = vec3(-116.566, 90.0f, 0.0f);
 }
 
 void elipseCollisionShowUi(ldiApp* AppContext, ldiElipseCollisionTester* Tool) {
+	ImGui::Checkbox("Show elipse tester", &Tool->show);
 	ImGui::Text("%f %f %f", Tool->laserPlaneAngleDot, Tool->laserPlaneAngleDeg, Tool->laserPlaneAngleAspect);
 	ImGui::DragFloat3("Plane origin", (float*)&Tool->planeOrigin, 0.1f, -100.0f, 100.0f);
 	ImGui::DragFloat3("Plane rot", (float*)&Tool->planeRot, 0.1f, -360.0f, 360.0f);
 }
 
 void elipseCollisionRender(ldiApp* AppContext, ldiElipseCollisionTester* Tool) {
+	if (!Tool->show) {
+		return;
+	}
+
 	ldiElipse e1 = {};
 	elipseInit(&e1, vec3(1, 0, 1), vec3(1, 0, 1), 0.25f, 0.5f);
 

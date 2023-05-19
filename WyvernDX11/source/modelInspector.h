@@ -1109,7 +1109,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
-	for (int viewIter = 0; viewIter < 100; ++viewIter) {
+	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
 		//----------------------------------------------------------------------------------------------------
@@ -1212,10 +1212,11 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
 			// NOTE: Values to degrees to laser view:
-			// 707 == 45degs
-			// 500 == 60degs
-			// 600 == 53degs
-			// 342 == 70degs
+			// 866 = 30degs
+			// 707 = 45degs
+			// 500 = 60degs
+			// 600 = 53degs
+			// 342 = 70degs
 
 			if (ModelInspector->surfelMask[i] == 0 && coverageBufferData[i] >= 342) {
 				++activeSurfels;
@@ -1461,6 +1462,8 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->scale = 0.0075f;
 					//cand->scale = 0.0050f;
 					cand->scale = ModelInspector->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+					// NOTE: Account for power over area.
+					cand->scale *= sqrtf(1.0f / cand->aspect);
 
 					//cand->color = viewRndCol;
 					//cand->color = vec3(0.0f, 0.72f, 0.92f);
@@ -2609,9 +2612,9 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 	if (tool->laserViewPathPositions.size() > 0 && tool->selectedLaserView >= 0 && tool->selectedLaserView < tool->laserViewPathPositions.size()) {
 
 		if (tool->surfelViewCurrentId != tool->selectedLaserView) {
-			tool->surfelViewCurrentId = tool->selectedLaserView;
+			double t0 = _getTime(appContext);
 
-			std::cout << "Generate view: " << tool->surfelViewCurrentId << "\n";
+			tool->surfelViewCurrentId = tool->selectedLaserView;
 
 			ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
 			int laserViewSurfelCount = (int)laserView->surfels.size();
@@ -2717,6 +2720,9 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 
 			gfxReleaseRenderModel(&tool->surfelViewPointsModel);
 			tool->surfelViewPointsModel = gfxCreateSurfelRenderModel(appContext, &renderPoints, 0.0f);
+
+			t0 = _getTime(appContext) - t0;
+			std::cout << "Generate view: " << tool->surfelViewCurrentId << " in " << t0 * 1000.0f << " ms\n";
 		}
 
 		//gfxRenderSurfelModel(appContext, &tool->surfelViewPointsModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
@@ -2777,8 +2783,9 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::ColorEdit3("Grid", (float*)&tool->gridColor);
 		ImGui::SliderFloat("Camera speed", &tool->cameraSpeed, 0.0f, 4.0f);
 		ImGui::SliderFloat("Camera FOV", &tool->camera.fov, 1.0f, 180.0f);
+	}
 		
-		ImGui::Separator();
+	if (ImGui::CollapsingHeader("Model data")) {
 		ImGui::Text("Primary model");
 		ImGui::Checkbox("Shaded", &tool->primaryModelShowShaded);
 		ImGui::Checkbox("Wireframe", &tool->primaryModelShowWireframe);
@@ -2794,9 +2801,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Checkbox("Spatial occupied cells", &tool->showSpatialCells);
 
 		ImGui::Checkbox("Sample sites", &tool->showSampleSites);
-
 		ImGui::Checkbox("Bounds", &tool->showBounds);
-
 		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
 
 		ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
@@ -2807,24 +2812,12 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		
 		ImGui::Separator();
 		ImGui::Text("Point cloud");
-		ImGui::Checkbox("Show", &tool->showPointCloud);
+		ImGui::Checkbox("Show point cloud", &tool->showPointCloud);
 		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
 		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
 		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
 	}
 
-	if (ImGui::CollapsingHeader("Laser view")) {
-		ImGui::DragFloat3("Cam position", (float*)&tool->laserViewPos, 0.1f, -100.0f, 100.0f);
-		ImGui::DragFloat2("Cam rotation", (float*)&tool->laserViewRot, 0.1f, -360.0f, 360.0f);
-		ImGui::SliderInt("Surfel", &tool->selectedSurfel, 0, tool->pointDistrib.points.size() - 1);
-		ImGui::SliderInt("Laser view", &tool->selectedLaserView, 0, tool->laserViewPathPositions.size() - 1);
-		ImGui::Checkbox("Laser view show background", &tool->laserViewShowBackground);
-		
-		ImGui::Text("Coverage area: %d", tool->coverageValue);
-
-		ImGui::Image(tool->laserViewTexView, ImVec2(512, 512));
-	}
-		
 	if (ImGui::CollapsingHeader("Processing")) {
 		if (ImGui::Button("Process model")) {
 			modelInspectorVoxelize(tool);
@@ -2840,12 +2833,24 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		}
 	}
 
+	if (ImGui::CollapsingHeader("Laser view")) {
+		ImGui::DragFloat3("Cam position", (float*)&tool->laserViewPos, 0.1f, -100.0f, 100.0f);
+		ImGui::DragFloat2("Cam rotation", (float*)&tool->laserViewRot, 0.1f, -360.0f, 360.0f);
+		ImGui::SliderInt("Surfel", &tool->selectedSurfel, 0, tool->pointDistrib.points.size() - 1);
+		ImGui::SliderInt("Laser view", &tool->selectedLaserView, 0, tool->laserViewPathPositions.size() - 1);
+		ImGui::Checkbox("Laser view show background", &tool->laserViewShowBackground);
+		
+		ImGui::Text("Coverage area: %d", tool->coverageValue);
+
+		float w = ImGui::GetContentRegionAvail().x;
+		ImGui::Image(tool->laserViewTexView, ImVec2(w, w));
+	}
+
 	if (ImGui::CollapsingHeader("Color management")) {
 		ImGui::PlotLines("Dot size", tool->dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
 		ImGui::PlotLines("Dot spacing", tool->dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
 
-		float w = ImGui::GetWindowWidth();
-
+		float w = ImGui::GetContentRegionAvail().x;
 		ImGui::Text("sRGB");
 		ImGui::Image(tool->baseImageSrv, ImVec2(w, w));
 		ImGui::Text("Cyan");
@@ -2858,21 +2863,22 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Image(tool->baseCmykSrv[3], ImVec2(w, w));
 	}
 
-	if (ImGui::CollapsingHeader("Elipse tester", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Elipse tester")) {
 		elipseCollisionShowUi(tool->appContext, &tool->elipseTester);
 	}
 
 	ImGui::End();
 
+	// TODO: Update this somewhere else?
 	modelInspectorRenderLaserView(tool->appContext, tool);
 
-	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+	/*ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	if (ImGui::Begin("Laser view", 0, ImGuiWindowFlags_NoCollapse)) {
 		ImGui::Image(tool->laserViewTexView, ImVec2(tool->laserViewSize, tool->laserViewSize));
 	}
 	ImGui::End();
-	ImGui::PopStyleVar();
+	ImGui::PopStyleVar();*/
 
 	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
