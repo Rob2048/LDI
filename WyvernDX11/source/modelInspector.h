@@ -33,6 +33,12 @@ struct ldiCoverageConstantBuffer {
 	int __pad[3];
 };
 
+struct ldiPrintedDotDesc {
+	float						dotSizeArr[256];
+	float						dotSpacingArr[256];
+	float						dotMinDensity = 0.025f;
+};
+
 struct ldiModelInspector {
 	ldiApp*						appContext;
 	
@@ -67,21 +73,20 @@ struct ldiModelInspector {
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 	vec4						modelCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
 
-	ldiQuadModel				quadModel;
-	ldiModel					dergnModel;
-	ldiRenderModel				dergnRenderModel;
-	ldiRenderModel				dergnDebugModel;
-	ldiRenderModel				quadModelWhite;
+	//ldiQuadModel				quadModel;
+	//ldiModel					dergnModel;
+	//ldiRenderModel				dergnRenderModel;
+	//ldiRenderModel				dergnDebugModel;
+	//ldiRenderModel				quadModelWhite;
 
-	ldiImage					baseTexture;
-	ID3D11Texture2D*			baseImageTexture;
-	ID3D11ShaderResourceView*	baseImageSrv;
-	ID3D11SamplerState*			texSamplerState;
-
-	ldiImage					baseCmykFull;
-	ldiImage					baseCmykPixels[4];
-	ID3D11Texture2D*			baseCmykTexture[4];
-	ID3D11ShaderResourceView*	baseCmykSrv[4];
+	//ldiImage					baseTexture;
+	//ID3D11Texture2D*			baseImageTexture;
+	//ID3D11ShaderResourceView*	baseImageSrv;
+	
+	//ldiImage					baseCmykFull;
+	//ldiImage					baseCmykPixels[4];
+	//ID3D11Texture2D*			baseCmykTexture[4];
+	//ID3D11ShaderResourceView*	baseCmykSrv[4];
 
 	ID3D11Texture2D*			laserViewTex;
 	ID3D11ShaderResourceView*	laserViewTexView;
@@ -92,30 +97,28 @@ struct ldiModelInspector {
 	
 	int							laserViewSize = 1024;
 	
-	ldiRenderLines				quadMeshWire;
-	ldiRenderModel				surfelRenderModel;
-	ldiRenderModel				surfelHighRenderModel;
-	ldiRenderModel				poissonSamplesRenderModel;
+	//ldiRenderLines				quadMeshWire;
+	//ldiRenderModel				surfelRenderModel;
+	//ldiRenderModel				surfelHighRenderModel;
+	//ldiRenderModel				poissonSamplesRenderModel;
 
-	ldiRenderModel				poissonSamplesCmykRenderModel[4];
+	//ldiRenderModel				poissonSamplesCmykRenderModel[4];
 	bool						showCmykModel[4] = { true, true, true, true };
 
-	ldiRenderPointCloud			pointCloudRenderModel;
+	//ldiRenderPointCloud			pointCloudRenderModel;
 
-	ldiPhysicsMesh				cookedDergn;
+	//ldiPhysicsMesh				cookedDergn;
 
 	// NOTE: Low rank surfels.
-	std::vector<ldiSurfel>		surfels;
+	//std::vector<ldiSurfel>		surfels;
 	// NOTE: High rank surfels.
-	std::vector<ldiSurfel>		surfelsHigh;
+	//std::vector<ldiSurfel>		surfelsHigh;
 
-	
+	//ldiSpatialGrid			spatialGrid = {};
+	//ldiPoissonSpatialGrid		poissonSpatialGrid = {};
 
-	ldiSpatialGrid				spatialGrid = {};
-	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
-
-	ldiPointCloud				pointDistrib;
-	ldiRenderPointCloud			pointDistribCloud;
+	//ldiPointCloud				pointDistrib;
+	//ldiRenderPointCloud			pointDistribCloud;
 	vec3						laserViewRot;
 	vec3						laserViewPos;
 
@@ -123,27 +126,32 @@ struct ldiModelInspector {
 	int							selectedLaserView = 0;
 	bool						laserViewShowBackground = false;
 
+	ID3D11VertexShader*			coveragePointVertexShader;
+	ID3D11PixelShader*			coveragePointPixelShader;
+	ID3D11InputLayout*			coveragePointInputLayout;
 	ID3D11ComputeShader*		calcPointScoreComputeShader;
 	ID3D11ComputeShader*		accumulatePointScoreComputeShader;
+	ID3D11VertexShader*			coveragePointWriteVertexShader;
+	ID3D11PixelShader*			coveragePointWritePixelShader;
+	ID3D11PixelShader*			coveragePointWriteNoCoveragePixelShader;
+	ID3D11Buffer*				coverageConstantBuffer;
+
 	ID3D11Buffer*				coverageBuffer;
 	ID3D11UnorderedAccessView*	coverageBufferUav;
 	ID3D11ShaderResourceView*	coverageBufferSrv;
 	ID3D11Buffer*				coverageStagingBuffer;
-	ldiRenderModel				coveragePointModel;
-	ID3D11VertexShader*			coveragePointVertexShader;
-	ID3D11PixelShader*			coveragePointPixelShader;
-	ID3D11InputLayout*			coveragePointInputLayout;
-	ID3D11VertexShader*			coveragePointWriteVertexShader;
-	ID3D11PixelShader*			coveragePointWritePixelShader;
-	ID3D11PixelShader*			coveragePointWriteNoCoveragePixelShader;
 	ID3D11Buffer*				coverageAreaBuffer;
 	ID3D11UnorderedAccessView*	coverageAreaBufferUav;
 	ID3D11Buffer*				coverageAreaStagingBuffer;
-	ID3D11Buffer*				coverageConstantBuffer;
+
+	int*						surfelMask;
 	ID3D11Buffer*				surfelMaskBuffer;
 	ID3D11ShaderResourceView*	surfelMaskBufferSrv;
+
+	ldiPointCloud				pointDistrib;
+	ldiRenderPointCloud			pointDistribCloud;
+
 	int							coverageValue;
-	int*						surfelMask;
 
 	std::vector<ldiLaserViewPathPos> laserViewPathPositions;
 	std::vector<int>			laserViewPath;
@@ -157,11 +165,52 @@ struct ldiModelInspector {
 	ldiRenderModel				surfelViewPointsModel;
 	ldiDebugPrims				surfelViewDebug;
 
-	float						dotSizeArr[256];
-	float						dotSpacingArr[256];
-	float						dotMinDensity = 0.025f;
+	ldiPrintedDotDesc			dotDesc;
 
 	ldiElipseCollisionTester	elipseTester = {};
+};
+
+struct ldiProjectContext {
+	std::string					dir;
+
+	bool						sourceModelLoaded = false;
+	ldiModel					sourceModel;
+	float						sourceModelScale = 1.0f;
+	vec3						sourceModelTranslate = vec3(0.0f, 0.0f, 0.0f);
+	ldiRenderModel				sourceRenderModel;
+	ldiPhysicsMesh				sourceCookedModel;
+
+	bool						sourceTextureLoaded = false;
+	ldiImage					sourceTextureRaw;
+	ID3D11Texture2D*			sourceTexture;
+	ID3D11ShaderResourceView*	sourceTextureSrv;
+	ldiImage					sourceTextureCmyk;
+	ldiImage					sourceTextureCmykChannels[4];
+	ID3D11Texture2D*			sourceTextureCmykTexture[4];
+	ID3D11ShaderResourceView*	sourceTextureCmykSrv[4];
+
+	bool						quadModelLoaded = false;
+	ldiQuadModel				quadModel;
+	ldiRenderModel				quadDebugModel;
+	ldiRenderModel				quadModelWhite;
+	ldiRenderLines				quadMeshWire;
+
+	bool						surfelsLoaded = false;
+	vec3						surfelsBoundsMin;
+	vec3						surfelsBoundsMax;
+	std::vector<ldiSurfel>		surfelsLow;
+	std::vector<ldiSurfel>		surfelsHigh;
+	ldiSpatialGrid				surfelLowSpatialGrid = {};
+	ldiRenderModel				surfelLowRenderModel;
+	ldiRenderModel				surfelHighRenderModel;
+	ldiRenderModel				coveragePointModel;
+
+	bool						poissonSamplesLoaded = false;
+	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
+	ldiRenderModel				poissonSamplesRenderModel;
+	ldiRenderModel				poissonSamplesCmykRenderModel[4];
+
+	ldiRenderPointCloud			pointCloudRenderModel;
 };
 
 vec3 getColorFromMap(float CosAngle) {
@@ -422,10 +471,50 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
 }
 
-void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
-	double t0 = _getTime(ModelInspector->appContext);
-	stlSaveModel("../cache/source.stl", &ModelInspector->dergnModel);
-	t0 = _getTime(ModelInspector->appContext) - t0;
+void geoPrintQuadModelInfo(ldiQuadModel* Model) {
+	int quadCount = Model->indices.size() / 4;
+
+	double totalSideLengths = 0.0;
+	int totalSideCount = 0;
+	float maxSide = FLT_MIN;
+	float minSide = FLT_MAX;
+
+	// Side lengths.
+	for (int i = 0; i < quadCount; ++i) {
+		vec3 v0 = Model->verts[Model->indices[i * 4 + 0]];
+		vec3 v1 = Model->verts[Model->indices[i * 4 + 1]];
+		vec3 v2 = Model->verts[Model->indices[i * 4 + 2]];
+		vec3 v3 = Model->verts[Model->indices[i * 4 + 3]];
+
+		float s0 = glm::length(v0 - v1);
+		float s1 = glm::length(v1 - v2);
+		float s2 = glm::length(v2 - v3);
+		float s3 = glm::length(v3 - v0);
+
+		maxSide = max(maxSide, s0);
+		maxSide = max(maxSide, s1);
+		maxSide = max(maxSide, s2);
+		maxSide = max(maxSide, s3);
+
+		minSide = min(minSide, s0);
+		minSide = min(minSide, s1);
+		minSide = min(minSide, s2);
+		minSide = min(minSide, s3);
+
+		totalSideLengths += s0 + s1 + s2 + s3;
+		totalSideCount += 4;
+	}
+
+	totalSideLengths /= double(totalSideCount);
+
+	std::cout << "Quad model - quads: " << quadCount << " sideAvg: " << (totalSideLengths * 10000.0) << " um \n";
+	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
+}
+
+void modelInspectorVoxelize(ldiApp* AppContext, ldiModel* Model) {
+	double t0 = _getTime(AppContext);
+	stlSaveModel("../cache/source.stl", Model);
+	t0 = _getTime(AppContext) - t0;
 	std::cout << "Save STL: " << t0 * 1000.0f << " ms\n";
 
 	STARTUPINFOA si;
@@ -453,7 +542,7 @@ void modelInspectorVoxelize(ldiModelInspector* ModelInspector) {
 	WaitForSingleObject(pi.hProcess, INFINITE);
 }
 
-void modelInspectorCreateQuadMesh(ldiModelInspector* ModelInspector) {
+void modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;
 
@@ -461,12 +550,16 @@ void modelInspectorCreateQuadMesh(ldiModelInspector* ModelInspector) {
 	si.cb = sizeof(si);
 	ZeroMemory(&pi, sizeof(pi));
 
-	// 100um sides and smoothing.
-	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.02 --smooth 2";
 	// 75um sides.
 	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.015";
+	// 100um sides and smoothing.
+	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.02 --smooth 2";
 	// 150um sides for multi-resolution surfels.
-	char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.030";
+	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.030";
+
+	char args[2048];
+	//../../bin/cache/output.ply
+	sprintf_s(args, "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o %s --scale 0.030", OutputPath);
 	
 	CreateProcessA(
 		"../../assets/bin/Instant Meshes.exe",
@@ -610,10 +703,10 @@ int modelInspectorInit(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->mainViewHeight = 0;
 	
 	ModelInspector->camera = {};
-	// ModelInspector->camera.position = vec3(0, 0, 10);
-	// ModelInspector->camera.rotation = vec3(0, 0, 0);
-	ModelInspector->camera.position = vec3(1.5, 1.5, 1.5);
-	ModelInspector->camera.rotation = vec3(-45, 45, 0);
+	ModelInspector->camera.position = vec3(9, 14, 9);
+	ModelInspector->camera.rotation = vec3(-45, 35, 0);
+	//ModelInspector->camera.position = vec3(1.5, 1.5, 1.5);
+	//ModelInspector->camera.rotation = vec3(-45, 45, 0);
 	ModelInspector->camera.fov = 60.0f;
 
 	initDebugPrimitives(&ModelInspector->surfelViewDebug);
@@ -696,7 +789,7 @@ ldiLaserViewCoveragePrep modelInspectorLaserViewCoveragePrep(ldiApp* AppContext,
 	return result;
 }
 
-void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiLaserViewCoveragePrep* Prep, vec3 SurfacePos, vec3 SurfaceNormal, int SlotId, bool UpdateCoverage) {
+void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project, ldiLaserViewCoveragePrep* Prep, vec3 SurfacePos, vec3 SurfaceNormal, int SlotId, bool UpdateCoverage) {
 	ID3D11RenderTargetView* renderTargets[] = {
 		ModelInspector->laserViewTexRtView
 	};
@@ -728,7 +821,7 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 	}
 
 	{
-		ldiRenderModel* Model = &ModelInspector->dergnDebugModel;
+		ldiRenderModel* Model = &Project->quadDebugModel;
 		UINT lgStride = sizeof(ldiSimpleVertex);
 		UINT lgOffset = 0;
 
@@ -769,8 +862,8 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 		AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, NULL, 1, 2, uavs, 0);
 
 		AppContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
-		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &ModelInspector->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
-		AppContext->d3dDeviceContext->IASetIndexBuffer(ModelInspector->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(Project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		AppContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointWriteVertexShader, 0, 0);
 		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
@@ -790,14 +883,14 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
 		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
-		AppContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+		AppContext->d3dDeviceContext->DrawIndexed(Project->coveragePointModel.indexCount, 0, 0);
 
 		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
 		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, nullSRV);
 	}
 }
 
-bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project) {
 	double t0 = _getTime(AppContext);
 
 	D3D11_QUERY_DESC queryDesc = {};
@@ -813,7 +906,7 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 	for (size_t i = 0; i < ModelInspector->pointDistrib.points.size(); ++i) {
 	//for (size_t i = 0; i < 100; ++i) {
 		ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[i];
-		modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal, i, true);
+		modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, Project, &prep, vert->position, vert->normal, i, true);
 	}
 
 	AppContext->d3dDeviceContext->End(query);
@@ -856,32 +949,19 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 	return true;
 }
 
-float GammaToLinear(float In) {
-	float linearRGBLo = In / 12.92f;
-	float linearRGBHi = pow(max(abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
-
-	return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
-}
-
-float LinearToGamma(float In) {
-	float sRGBLo = In * 12.92f;
-	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
-	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
-}
-
-bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelInspector, int ChannelId, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
+bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Project, ldiPrintedDotDesc* DotDesc, int ChannelId, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
 	std::vector<ldiSurfel> poissonSamples;
-
-	double t0 = _getTime(AppContext);
 
 	//----------------------------------------------------------------------------------------------------
 	// Distribute poisson samples.
 	//----------------------------------------------------------------------------------------------------
 	{
+		double t0 = _getTime(AppContext);
+		
 		// Create sample candidates.
 		int candidatesPerSide = 8;
 		int candidatesPerSurfel = candidatesPerSide * candidatesPerSide;
-		int totalCandidates = ModelInspector->surfels.size() * candidatesPerSurfel;
+		int totalCandidates = Project->surfelsLow.size() * candidatesPerSurfel;
 		std::cout << "Total candidates: " << totalCandidates << "\n";
 
 		/*ldiPoissonSpatialGrid* sampleGrid = &ModelInspector->poissonSpatialGrid;*/
@@ -892,19 +972,19 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 		poissonCandidates.reserve(totalCandidates);
 
 		// Generate candidates from low rank surfels.
-		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
-			int surfelId = ModelInspector->surfels[i].id;
+		for (size_t i = 0; i < Project->surfelsLow.size(); ++i) {
+			int surfelId = Project->surfelsLow[i].id;
 				
 			// Get quad for this surfel.
-			vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 0]];
-			vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 1]];
-			vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 2]];
-			vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 3]];
+			vec3 v0 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 0]];
+			vec3 v1 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 1]];
+			vec3 v2 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 2]];
+			vec3 v3 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 3]];
 
 			vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
 
 			//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
-			vec3 normal = ModelInspector->surfels[surfelId].normal;
+			vec3 normal = Project->surfelsLow[surfelId].normal;
 
 			/*float s0 = glm::length(v0 - v1);
 			float s1 = glm::length(v1 - v2);
@@ -927,7 +1007,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 
 					int idX = lerpX * 2.0f;
 					int idY = lerpY * 2.0f;
-					vec4 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
+					vec4 color = Project->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
 
 					//float lum = 1.0f;
 					//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
@@ -940,7 +1020,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 					//float lum = 1.0f - color.r;
 
 					// NOTE: Luminance cutoff. Can't represent values this light.
-					if (lum < ModelInspector->dotMinDensity || lum > 1.0f) {
+					if (lum < DotDesc->dotMinDensity || lum > 1.0f) {
 						continue;
 					}
 
@@ -986,7 +1066,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 		// Turn candidates into samples.
 		//----------------------------------------------------------------------------------------------------
 		t0 = _getTime(AppContext);
-
+		
 		for (size_t iterCandidate = 0; iterCandidate < candidateShuffles.size(); ++iterCandidate) {
 			ldiSurfel* cand = &poissonCandidates[candidateShuffles[iterCandidate]];
 			vec3 cellPos = poissonSpatialGridGetCellFromWorldPosition(&sampleGrid, cand->position);
@@ -1017,7 +1097,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 							// NOTE: Distance diffusion.
 							//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
 							//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0050f;
-							float checkDist = ModelInspector->dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+							float checkDist = DotDesc->dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
 
 							//float checkDist = 0.0060f;
 
@@ -1048,7 +1128,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 				//cand->scale = 0.0075f * cand->color.r;
 				//cand->scale = 0.0075f;
 				//cand->scale = 0.0050f;
-				cand->scale = ModelInspector->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+				cand->scale = DotDesc->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
 
 				//cand->color = viewRndCol;
 				//cand->color = vec3(0.0f, 0.72f, 0.92f);
@@ -1087,14 +1167,14 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiModelInspector* ModelI
 		poissonSpatialGridDestroy(&sampleGrid);
 	}
 
-	ModelInspector->poissonSamplesCmykRenderModel[ChannelId] = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
+	//ModelInspector->poissonSamplesCmykRenderModel[ChannelId] = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
 
 	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
 
 	return true;
 }
 
-bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project) {
 	ModelInspector->laserViewPathPositions.clear();
 
 	struct ldiSurfelViewCoverage {
@@ -1109,6 +1189,93 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 	std::vector<ldiSurfel> poissonSamples;
 
+	poissonSpatialGridInit(&Project->poissonSpatialGrid, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
+
+	//----------------------------------------------------------------------------------------------------
+	// Setup surfel mask and coverage buffer.
+	//----------------------------------------------------------------------------------------------------
+	// TODO: Make sure all buffers are free before we create new ones.
+	{
+		int numSurfels = (int)Project->surfelsLow.size();
+		std::cout << "Create coverage buffer: " << numSurfels << "\n";
+
+		ModelInspector->surfelMask = new int[numSurfels];
+		memset(ModelInspector->surfelMask, 0, sizeof(int)* numSurfels);
+
+		//if (!gfxCreateStructuredBuffer(AppContext, 1, numSurfels, ModelInspector->surfelMask, &ModelInspector->surfelMaskBuffer)) {
+			//std::cout << "Could not gfxCreateStructuredBuffer\n";
+			//return 1;
+		//}
+
+		{
+			D3D11_BUFFER_DESC desc = {};
+			desc.Usage = D3D11_USAGE_DEFAULT;
+			desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			desc.ByteWidth = sizeof(int) * numSurfels;
+			desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+			desc.StructureByteStride = sizeof(int);
+
+			if (AppContext->d3dDevice->CreateBuffer(&desc, NULL, &ModelInspector->surfelMaskBuffer) != S_OK) {
+				std::cout << "Could not gfxCreateStructuredBuffer\n";
+				return 1;
+			}
+		}
+
+		if (!gfxCreateBufferShaderResourceView(AppContext, ModelInspector->surfelMaskBuffer, &ModelInspector->surfelMaskBufferSrv)) {
+			std::cout << "Could not gfxCreateBufferShaderResourceView\n";
+			return 1;
+		}
+
+		if (!gfxCreateStructuredBuffer(AppContext, 4, numSurfels, NULL, &ModelInspector->coverageBuffer)) {
+			return 1;
+		}
+
+		if (!gfxCreateBufferUav(AppContext, ModelInspector->coverageBuffer, &ModelInspector->coverageBufferUav)) {
+			return 1;
+		}
+
+		if (!gfxCreateBufferShaderResourceView(AppContext, ModelInspector->coverageBuffer, &ModelInspector->coverageBufferSrv)) {
+			return 1;
+		}
+
+		{
+			D3D11_BUFFER_DESC desc = {};
+			desc.ByteWidth = 4 * numSurfels;
+			desc.Usage = D3D11_USAGE_STAGING;
+			desc.BindFlags = 0;
+			desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			desc.MiscFlags = 0;
+			HRESULT r;
+			if ((r = AppContext->d3dDevice->CreateBuffer(&desc, NULL, &ModelInspector->coverageStagingBuffer)) != S_OK) {
+				return 1;
+			}
+		}
+
+		{
+			D3D11_BUFFER_DESC desc = {};
+			desc.ByteWidth = 4 * 5000;
+			desc.Usage = D3D11_USAGE_STAGING;
+			desc.BindFlags = 0;
+			desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			desc.MiscFlags = 0;
+			HRESULT r;
+			if ((r = AppContext->d3dDevice->CreateBuffer(&desc, NULL, &ModelInspector->coverageAreaStagingBuffer)) != S_OK) {
+				return 1;
+			}
+		}
+
+		if (!gfxCreateStructuredBuffer(AppContext, 4, 5000, NULL, &ModelInspector->coverageAreaBuffer)) {
+			return 1;
+		}
+
+		if (!gfxCreateBufferUav(AppContext, ModelInspector->coverageAreaBuffer, &ModelInspector->coverageAreaBufferUav)) {
+			return 1;
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Perform iterations.
+	//----------------------------------------------------------------------------------------------------
 	for (int viewIter = 0; viewIter < 1; ++viewIter) {
 		std::cout << "Pass: " << viewIter << "\n";
 
@@ -1116,7 +1283,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		// Generate view sites.
 		//----------------------------------------------------------------------------------------------------
 		double t0 = _getTime(AppContext);
-		surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
+		surfelsCreateDistribution(&Project->surfelLowSpatialGrid, &Project->surfelsLow, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
 		t0 = _getTime(AppContext) - t0;
 		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 
@@ -1141,7 +1308,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 		for (size_t i = 0; i < ModelInspector->pointDistrib.points.size(); ++i) {
 			ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[i];
-			modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal, i, false);
+			modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, Project, &prep, vert->position, vert->normal, i, false);
 		}
 
 		AppContext->d3dDeviceContext->End(query);
@@ -1198,7 +1365,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		prep = modelInspectorLaserViewCoveragePrep(AppContext, ModelInspector);
 	
 		ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[maxAreaId];
-		modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal, 0, true);
+		modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, Project, &prep, vert->position, vert->normal, 0, true);
 
 		AppContext->d3dDeviceContext->CopyResource(ModelInspector->coverageStagingBuffer, ModelInspector->coverageBuffer);
 		AppContext->d3dDeviceContext->Map(ModelInspector->coverageStagingBuffer, 0, D3D11_MAP_READ, 0, &ms);
@@ -1210,7 +1377,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		pathPos.surfacePos = vert->position;
 		pathPos.surfaceNormal = vert->normal;
 
-		for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+		for (size_t i = 0; i < Project->surfelsLow.size(); ++i) {
 			// NOTE: Values to degrees to laser view:
 			// 866 = 30degs
 			// 707 = 45degs
@@ -1249,7 +1416,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 				for (size_t j = 0; j < 4; ++j) {
 					//ldiSurfel* s = &ModelInspector->surfels[surfelId];
-					ldiSurfel* s = &ModelInspector->surfelsHigh[surfelId * 4 + j];
+					ldiSurfel* s = &Project->surfelsHigh[surfelId * 4 + j];
 
 					ldiLaserViewSurfel viewSurfel = {};
 					viewSurfel.id = surfelId;
@@ -1292,7 +1459,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 			std::cout << "Total candidates: " << totalCandidates << "\n";
 
-			ldiPoissonSpatialGrid* sampleGrid = &ModelInspector->poissonSpatialGrid;
+			ldiPoissonSpatialGrid* sampleGrid = &Project->poissonSpatialGrid;
 
 			std::vector<ldiSurfel> poissonCandidates;
 			poissonCandidates.reserve(totalCandidates);
@@ -1303,17 +1470,17 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				float angle = coverageBufferData[surfelId] / 1000.0f;
 
 				// Get quad for this surfel.
-				vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 0]];
-				vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 1]];
-				vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 2]];
-				vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[surfelId * 4 + 3]];
+				vec3 v0 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 0]];
+				vec3 v1 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 1]];
+				vec3 v2 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 2]];
+				vec3 v3 = Project->quadModel.verts[Project->quadModel.indices[surfelId * 4 + 3]];
 
 				vec3 mid = (v0 + v1 + v2 + v3) / 4.0f;
 
 				vec3 laserDir = glm::normalize(mid - machineTransform.modelLocalCamPos);
 
 				//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
-				vec3 normal = ModelInspector->surfels[surfelId].normal;
+				vec3 normal = Project->surfelsLow[surfelId].normal;
 
 				// TODO: If laserDir and normal are co-incident, then use diff calc.
 				vec3 axisSide = glm::normalize(glm::cross(laserDir, normal));
@@ -1341,7 +1508,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 						int idX = lerpX * 2.0f;
 						int idY = lerpY * 2.0f;
-						vec4 color = ModelInspector->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
+						vec4 color = Project->surfelsHigh[surfelId * 4 + (idX * 2 + idY)].color;
 
 						//float lum = 1.0f;
 						//float lum = (color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
@@ -1354,7 +1521,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 						//float lum = 1.0f - color.r;
 
 						// NOTE: Luminance cutoff. Can't represent values this light.
-						if (lum < ModelInspector->dotMinDensity || lum > 1.0f) {
+						if (lum < ModelInspector->dotDesc.dotMinDensity || lum > 1.0f) {
 							continue;
 						}
 
@@ -1430,7 +1597,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 								// NOTE: Distance diffusion.
 								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0030f;
 								//float checkDist = 0.02f * (1.0f - cand->color.r) + 0.0050f;
-								float checkDist = ModelInspector->dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+								float checkDist = ModelInspector->dotDesc.dotSpacingArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
 
 								//float checkDist = 0.0060f;
 
@@ -1461,7 +1628,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 					//cand->scale = 0.0075f * cand->color.r;
 					//cand->scale = 0.0075f;
 					//cand->scale = 0.0050f;
-					cand->scale = ModelInspector->dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
+					cand->scale = ModelInspector->dotDesc.dotSizeArr[(int)(cand->color.r * 255.0f)] / 10000.0f;
 					// NOTE: Account for power over area.
 					cand->scale *= sqrtf(1.0f / cand->aspect);
 
@@ -1518,7 +1685,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		}
 	}
 
-	ModelInspector->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0, 0, true);
+	Project->poissonSamplesRenderModel = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0, 0, true);
 
 	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
 
@@ -1618,14 +1785,14 @@ void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 	std::cout << "Calc path: " << t0 * 1000.0f << " ms\n";
 }
 
-void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project) {
 	if (ModelInspector->pointDistrib.points.size() == 0) {
 		return;
 	}
 
 	ldiLaserViewCoveragePrep prep = modelInspectorLaserViewCoveragePrep(AppContext, ModelInspector);
 	ldiPointCloudVertex* vert = &ModelInspector->pointDistrib.points[ModelInspector->selectedSurfel];
-	modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, &prep, vert->position, vert->normal, 0, false);
+	modelInspectorLaserViewCoverageRender(AppContext, ModelInspector, Project, &prep, vert->position, vert->normal, 0, false);
 
 	AppContext->d3dDeviceContext->CopyResource(ModelInspector->coverageAreaStagingBuffer, ModelInspector->coverageAreaBuffer);
 
@@ -1639,91 +1806,64 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 	AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageAreaStagingBuffer, 0);
 }
 
-int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
-	elipseCollisionSetup(AppContext, &ModelInspector->elipseTester);
+void projectInit(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Dir) {
+	*Project = {};
+	Project->dir = Dir;
+}
 
-	ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
-	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
-	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
+void projectInvalidateModelData(ldiApp* AppContext, ldiProjectContext* Project) {
+	Project->sourceModelLoaded = false;
+	//sourceRenderModel
+	Project->quadModelLoaded = false;
+	//quadModel
+}
 
-	float globalScale = 1.0f;
-	vec3 globalTranslate(0.0f, 0.0f, 0.0f);
-	
-	// Scale model.
-	/*for (int i = 0; i < ModelInspector->dergnModel.verts.size(); ++i) {
-		ldiMeshVertex* vert = &ModelInspector->dergnModel.verts[i];
-		vert->pos = vert->pos * globalScale + globalTranslate;
-	}*/
+bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+	projectInvalidateModelData(AppContext, Project);
+	std::cout << "Project source mesh path: " << Path << "\n";
 
-	physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
-
-	ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
-
-	// Import PLY quad mesh.
-	if (!plyLoadQuadMesh("../cache/output.ply", &ModelInspector->quadModel)) {
-		return 1;
+	if (!copyFile(Path, Project->dir + "source_mesh.obj")) {
+		std::cout << "Project import model could not copy source mesh file\n";
+		return false;
 	}
 
-	int quadCount = ModelInspector->quadModel.indices.size() / 4;
+	Project->sourceModel = objLoadModel(Path);
 
-	double totalSideLengths = 0.0;
-	int totalSideCount = 0;
-	float maxSide = FLT_MIN;
-	float minSide = FLT_MAX;
-
-	// NOTE: Should already be correctly sized after quad bake.
-	/*for (size_t i = 0; i < ModelInspector->quadModel.verts.size(); ++i) {
-		vec3* vert = &ModelInspector->quadModel.verts[i];
-		*vert = *vert * globalScale + globalTranslate;
-	}*/
-
-	// Side lengths.
-	for (int i = 0; i < quadCount; ++i) {
-		vec3 v0 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 0]];
-		vec3 v1 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 1]];
-		vec3 v2 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 2]];
-		vec3 v3 = ModelInspector->quadModel.verts[ModelInspector->quadModel.indices[i * 4 + 3]];
-
-		float s0 = glm::length(v0 - v1);
-		float s1 = glm::length(v1 - v2);
-		float s2 = glm::length(v2 - v3);
-		float s3 = glm::length(v3 - v0);
-
-		maxSide = max(maxSide, s0);
-		maxSide = max(maxSide, s1);
-		maxSide = max(maxSide, s2);
-		maxSide = max(maxSide, s3);
-
-		minSide = min(minSide, s0);
-		minSide = min(minSide, s1);
-		minSide = min(minSide, s2);
-		minSide = min(minSide, s3);
-
-		totalSideLengths += s0 + s1 + s2 + s3;
-		totalSideCount += 4;
+	// Scale and translate model.
+	for (int i = 0; i < Project->sourceModel.verts.size(); ++i) {
+		ldiMeshVertex* vert = &Project->sourceModel.verts[i];
+		vert->pos = vert->pos * Project->sourceModelScale + Project->sourceModelTranslate;
 	}
 
-	totalSideLengths /= double(totalSideCount);
+	Project->sourceRenderModel = gfxCreateRenderModel(AppContext, &Project->sourceModel);
+	Project->sourceModelLoaded = true;
 
-	std::cout << "Quad model - quads: " << quadCount << " sideAvg: " << (totalSideLengths * 10000.0) << " um \n";
-	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
+	return true;
+}
 
-	ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &ModelInspector->quadModel);
-
-	// TODO: Share verts and normals.
-	ModelInspector->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &ModelInspector->quadModel, vec3(0.9f, 0.9f, 0.9f));
-
-	geoCreateSurfels(&ModelInspector->quadModel, &ModelInspector->surfels);
-	geoCreateSurfelsHigh(&ModelInspector->quadModel, &ModelInspector->surfelsHigh);
-
-	std::cout << "High surfel count: " << ModelInspector->surfelsHigh.size() << "\n";
+bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+	Project->sourceTextureLoaded = false;
+	// TODO: Destroy other texture resources.
+	std::cout << "Project source texture path: " << Path << "\n";
 
 	double t0 = _getTime(AppContext);
+
+	if (!copyFile(Path, Project->dir + "source_texture.png")) {
+		std::cout << "Project import model could not copy source texture file\n";
+		return false;
+	}
+
 	int x, y, n;
-	uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
-	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
+	uint8_t* imageRawPixels = imageLoadRgba(Path, &x, &y, &n);
+
+	Project->sourceTextureRaw.width = x;
+	Project->sourceTextureRaw.height = y;
+	Project->sourceTextureRaw.data = imageRawPixels;
+
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
+
+	Project->sourceTextureLoaded = true;
 
 	//----------------------------------------------------------------------------------------------------
 	// CMYK transformation.
@@ -1744,6 +1884,10 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	uint8_t* cmykImagePixels = new uint8_t[x * y * 4];
 	cmsDoTransform(colorTransform, imageRawPixels, cmykImagePixels, x * y);
 
+	Project->sourceTextureCmyk.width = x;
+	Project->sourceTextureCmyk.height = y;
+	Project->sourceTextureCmyk.data = cmykImagePixels;
+
 	vec3 cmykColor[4] = {
 		vec3(0, 166.0 / 255.0, 214.0 / 255.0),
 		vec3(1.0f, 0, 144.0 / 255.0),
@@ -1751,10 +1895,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		vec3(0.0f, 0.0f, 0.0f)
 	};
 
-	// NOTE: Copy a single CMYK channels to the full texture.
 	// NOTE: Converted to sRGB for viewing purposes.
 	for (int channelIter = 0; channelIter < 4; ++channelIter) {
-		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
+		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
 
 		image->width = x;
 		image->height = y;
@@ -1770,7 +1913,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 			image->data[i * 4 + 0] = (uint8_t)(col.r * 255);
 			image->data[i * 4 + 1] = (uint8_t)(col.g * 255);
 			image->data[i * 4 + 2] = (uint8_t)(col.b * 255);
-			
+
 			//image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
 			//image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
 			//image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
@@ -1778,54 +1921,83 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		}
 	}
 
-	ModelInspector->baseCmykFull.width = x;
-	ModelInspector->baseCmykFull.height = y;
-	ModelInspector->baseCmykFull.data = cmykImagePixels;
-
 	cmsDeleteTransform(colorTransform);
 	cmsCloseProfile(srgbProfile);
 	cmsCloseProfile(cmykProfile);
 
-	ModelInspector->baseTexture.width = x;
-	ModelInspector->baseTexture.height = y;
-	ModelInspector->baseTexture.data = imageRawPixels;
-	
-	t0 = _getTime(AppContext) - t0;
-	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
+	if (!gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->sourceTextureRaw, &Project->sourceTexture, &Project->sourceTextureSrv)) {
+		return false;
+	}
 
-	geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseCmykFull, &ModelInspector->surfelsHigh);
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
 
-	//----------------------------------------------------------------------------------------------------
-	// Calculate surfel distribution curves.
-	//----------------------------------------------------------------------------------------------------
-	float maxSize = 75.0f;
-
-	for (int i = 0; i < 256; ++i) {
-		float density = (float)i / 255.0f;
-
-		if (density < ModelInspector->dotMinDensity) {
-			ModelInspector->dotSizeArr[i] = 0;
-			ModelInspector->dotSpacingArr[i] = 0;
-		} else {
-			ModelInspector->dotSizeArr[i] = 50.0f;
-			//ModelInspector->dotSizeArr[i] = 75.0f * density;
-			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - density) + 50.0f;
-
-			//ModelInspector->dotSpacingArr[i] = 50.0f;
-			ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 1.0 / 4.2)) + 30.0f;
-			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 4.0)) + 30.0f;
+		if (!gfxCreateTextureR8G8B8A8Basic(AppContext, image, &Project->sourceTextureCmykTexture[channelIter], &Project->sourceTextureCmykSrv[channelIter])) {
+			return false;
 		}
 	}
-	
+
+	return true;
+}
+
+bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+	Project->quadModelLoaded = false;
+
+	if (!plyLoadQuadMesh(Path, &Project->quadModel)) {
+		return false;
+	}
+
+	Project->quadDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &Project->quadModel);
+	// TODO: Share verts and normals.
+	Project->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &Project->quadModel, vec3(0.9f, 0.9f, 0.9f));
+	Project->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &Project->quadModel);
+	Project->quadModelLoaded = true;
+
+	return true;
+}
+
+bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (!Project->sourceModelLoaded) {
+		return false;
+	}
+
+	Project->quadModelLoaded = false;
+
+	std::string quadMeshPath = AppContext->currentWorkingDir + "\\" + Project->dir + "quad_mesh.ply";
+
+	modelInspectorVoxelize(AppContext, &Project->sourceModel);
+	modelInspectorCreateQuadMesh(AppContext, quadMeshPath.c_str());
+
+	if (!projectLoadQuadModel(AppContext, Project, quadMeshPath.c_str())) {
+		return false;
+	 }
+
+	return true;
+}
+
+bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (!Project->quadModelLoaded || !Project->sourceTextureLoaded) {
+		return false;
+	}
+
+	Project->surfelsLoaded = false;
+
+	geoCreateSurfels(&Project->quadModel, &Project->surfelsLow);
+	geoCreateSurfelsHigh(&Project->quadModel, &Project->surfelsHigh);
+	std::cout << "High res surfel count: " << Project->surfelsHigh.size() << "\n";
+
+	physicsCookMesh(AppContext->physics, &Project->sourceModel, &Project->sourceCookedModel);
+	geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsHigh);
+
 	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
 	//----------------------------------------------------------------------------------------------------
-	t0 = _getTime(AppContext) - t0;
+	double t0 = _getTime(AppContext);
 	vec3 surfelsMin(10000, 10000, 10000);
 	vec3 surfelsMax(-10000, -10000, -10000);
 
-	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
-		ldiSurfel* s = &ModelInspector->surfels[i];
+	for (size_t i = 0; i < Project->surfelsLow.size(); ++i) {
+		ldiSurfel* s = &Project->surfelsLow[i];
 
 		surfelsMin.x = min(surfelsMin.x, s->position.x);
 		surfelsMin.y = min(surfelsMin.y, s->position.y);
@@ -1839,17 +2011,19 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ldiSpatialGrid spatialGrid{};
 	spatialGridInit(&spatialGrid, surfelsMin, surfelsMax, 0.05f);
 
-	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
-		spatialGridPrepEntry(&spatialGrid, ModelInspector->surfels[i].position);
+	for (size_t i = 0; i < Project->surfelsLow.size(); ++i) {
+		spatialGridPrepEntry(&spatialGrid, Project->surfelsLow[i].position);
 	}
 
 	spatialGridCompile(&spatialGrid);
 
-	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
-		spatialGridAddEntry(&spatialGrid, ModelInspector->surfels[i].position, (int)i);
+	for (size_t i = 0; i < Project->surfelsLow.size(); ++i) {
+		spatialGridAddEntry(&spatialGrid, Project->surfelsLow[i].position, (int)i);
 	}
 
-	ModelInspector->spatialGrid = spatialGrid;
+	Project->surfelLowSpatialGrid = spatialGrid;
+	Project->surfelsBoundsMin = surfelsMin;
+	Project->surfelsBoundsMax = surfelsMax;
 
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
@@ -1860,15 +2034,15 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	t0 = _getTime(AppContext);
 	{
 		const int threadCount = 20;
-		int batchSize = ModelInspector->surfels.size() / threadCount;
-		int batchRemainder = ModelInspector->surfels.size() - (batchSize * threadCount);
+		int batchSize = Project->surfelsLow.size() / threadCount;
+		int batchRemainder = Project->surfelsLow.size() - (batchSize * threadCount);
 		std::thread workerThread[threadCount];
 
 		for (int n = 0; n < 4; ++n) {
 			for (int t = 0; t < threadCount; ++t) {
 				ldiSmoothNormalsThreadContext tc{};
 				tc.grid = &spatialGrid;
-				tc.surfels = &ModelInspector->surfels;
+				tc.surfels = &Project->surfelsLow;
 				tc.startIdx = t * batchSize;
 				tc.endIdx = (t + 1) * batchSize;
 
@@ -1883,9 +2057,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 				workerThread[t].join();
 			}
 
-			// Apply smoothed normal back to sufel normal.
-			for (int i = 0; i < ModelInspector->surfels.size(); ++i) {
-				ldiSurfel* srcSurfel = &ModelInspector->surfels[i];
+			// Apply smoothed normal back to surfel normal.
+			for (int i = 0; i < Project->surfelsLow.size(); ++i) {
+				ldiSurfel* srcSurfel = &Project->surfelsLow[i];
 				srcSurfel->normal = srcSurfel->smoothedNormal;
 			}
 		}
@@ -1893,96 +2067,74 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
 
+	Project->surfelLowRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsLow);
+	Project->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsHigh, 0.001f, 1);
+	Project->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &Project->surfelsLow, &Project->quadModel);
+
+	Project->surfelsLoaded = true;
+
+	return true;
+}
+
+bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+	projectInvalidateModelData(AppContext, Project);
+	//Project->dir = std::string(Path);
+
+	//char pathStr[1024];
+	//sprintf_s(pathStr, "%ssource_mesh.obj", Project->dir.c_str());
+	//projectLoadModel(AppContext, Project, pathStr);
+
+	//// TODO: Check if processed model exists.
+	//sprintf_s(pathStr, "%squad.ply", Project->dir.c_str());
+	//if (!plyLoadQuadMesh(pathStr, &Project->quadModel)) {
+	//	return 1;
+	//}
+
+	//geoPrintQuadModelInfo(&Project->quadModel);
+}
+
+void projectSave(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+	// ...
+}
+
+int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
+	elipseCollisionSetup(AppContext, &ModelInspector->elipseTester);
+
 	//----------------------------------------------------------------------------------------------------
-	// Create spatial structure for poisson samples.
+	// Calculate printed dot distribution curves.
 	//----------------------------------------------------------------------------------------------------
-	poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
-	
-	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
-	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh, 0.001f, 1);
-	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &ModelInspector->quadModel);
-	
-	ldiPointCloud pointCloud;
+	float maxSize = 75.0f;
+
+	for (int i = 0; i < 256; ++i) {
+		float density = (float)i / 255.0f;
+
+		if (density < ModelInspector->dotDesc.dotMinDensity) {
+			ModelInspector->dotDesc.dotSizeArr[i] = 0;
+			ModelInspector->dotDesc.dotSpacingArr[i] = 0;
+		} else {
+			ModelInspector->dotDesc.dotSizeArr[i] = 50.0f;
+			//ModelInspector->dotSizeArr[i] = 75.0f * density;
+			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - density) + 50.0f;
+
+			//ModelInspector->dotSpacingArr[i] = 50.0f;
+			ModelInspector->dotDesc.dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 1.0 / 4.2)) + 30.0f;
+			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 4.0)) + 30.0f;
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Load scan point cloud.
+	//----------------------------------------------------------------------------------------------------
+	/*ldiPointCloud pointCloud;
 	if (!plyLoadPoints("../../assets/models/dergnScan.ply", &pointCloud)) {
 		return 1;
 	}
 
-	ModelInspector->pointCloudRenderModel = gfxCreateRenderPointCloud(AppContext, &pointCloud);
-	ModelInspector->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &ModelInspector->quadModel);
+	ModelInspector->pointCloudRenderModel = gfxCreateRenderPointCloud(AppContext, &pointCloud); */
 
-	{
-		D3D11_SUBRESOURCE_DATA texData = {};
-		/*texData.pSysMem = imageRawPixels;*/
-		texData.pSysMem = ModelInspector->baseTexture.data;
-		texData.SysMemPitch = ModelInspector->baseTexture.width * 4;
-
-		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = ModelInspector->baseTexture.width;
-		tex2dDesc.Height = ModelInspector->baseTexture.height;
-		tex2dDesc.MipLevels = 1;
-		tex2dDesc.ArraySize = 1;
-		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		tex2dDesc.SampleDesc.Count = 1;
-		tex2dDesc.SampleDesc.Quality = 0;
-		tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
-		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		tex2dDesc.CPUAccessFlags = 0;
-		tex2dDesc.MiscFlags = 0;
-
-		// TODO: Move this to app context.
-		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseImageTexture) != S_OK) {
-			std::cout << "Texture failed to create\n";
-			return 1;
-		}
-		
-		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->baseImageSrv) != S_OK) {
-			std::cout << "CreateShaderResourceView failed\n";
-			return 1;
-		}
-
-		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT; // D3D11_FILTER_MIN_MAG_MIP_LINEAR
-		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.MipLODBias = 0;
-		samplerDesc.MaxAnisotropy = 16;
-		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	
-		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &ModelInspector->texSamplerState);
-	}
-
-	for (int channelIter = 0; channelIter < 4; ++channelIter) {
-		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
-
-		D3D11_SUBRESOURCE_DATA texData = {};
-		texData.pSysMem = image->data;
-		texData.SysMemPitch = image->width * 4;
-
-		D3D11_TEXTURE2D_DESC tex2dDesc = {};
-		tex2dDesc.Width = image->width;
-		tex2dDesc.Height = image->height;
-		tex2dDesc.MipLevels = 1;
-		tex2dDesc.ArraySize = 1;
-		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		tex2dDesc.SampleDesc.Count = 1;
-		tex2dDesc.SampleDesc.Quality = 0;
-		tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
-		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		tex2dDesc.CPUAccessFlags = 0;
-		tex2dDesc.MiscFlags = 0;
-
-		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseCmykTexture[channelIter]) != S_OK) {
-			std::cout << "Texture failed to create\n";
-			return 1;
-		}
-
-		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseCmykTexture[channelIter], NULL, &ModelInspector->baseCmykSrv[channelIter]) != S_OK) {
-			std::cout << "CreateShaderResourceView failed\n";
-			return 1;
-		}
-	}
-
+	//----------------------------------------------------------------------------------------------------
+	// Laser view resources.
+	//----------------------------------------------------------------------------------------------------
 	{
 		D3D11_TEXTURE2D_DESC tex2dDesc = {};
 		tex2dDesc.Width = ModelInspector->laserViewSize;
@@ -2050,7 +2202,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}
 
 	//----------------------------------------------------------------------------------------------------
-	// Coverage buffer compute shaders.
+	// Coverage.
 	//----------------------------------------------------------------------------------------------------
 	if (!gfxCreateComputeShader(AppContext, L"../../assets/shaders/calcPointScore.hlsl", "mainCs", &ModelInspector->calcPointScoreComputeShader)) {
 		return 1;
@@ -2060,16 +2212,312 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		return 1;
 	}
 
+	D3D11_INPUT_ELEMENT_DESC coveragePointLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32_UINT,			0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	16,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoverageVs", &ModelInspector->coveragePointVertexShader, coveragePointLayout, 3, &ModelInspector->coveragePointInputLayout)) {
+		return 1;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoveragePs", &ModelInspector->coveragePointPixelShader)) {
+		return 1;
+	}
+
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoverageVs", &ModelInspector->coveragePointWriteVertexShader)) {
+		return 1;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoveragePs", &ModelInspector->coveragePointWritePixelShader)) {
+		return 1;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeNoCoveragePs", &ModelInspector->coveragePointWriteNoCoveragePixelShader)) {
+		return 1;
+	}
+
+	{
+		D3D11_BUFFER_DESC desc = {};
+		desc.ByteWidth = sizeof(ldiCoverageConstantBuffer);
+		desc.Usage = D3D11_USAGE_DYNAMIC;
+		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		desc.MiscFlags = 0;
+		HRESULT r;
+		if ((r = AppContext->d3dDevice->CreateBuffer(&desc, NULL, &ModelInspector->coverageConstantBuffer)) != S_OK) {
+			std::cout << "Could not CreateBuffer\n";
+			return 1;
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// REMOVE:
+	//----------------------------------------------------------------------------------------------------
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/taryk.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/dergn.obj");
+	//ModelInspector->dergnModel = objLoadModel("../../assets/models/materialball.obj");
+	//ModelInspector->dergnRenderModel = gfxCreateRenderModel(AppContext, &ModelInspector->dergnModel);
+
+	// Import PLY quad mesh.
+	//if (!plyLoadQuadMesh("../cache/output.ply", &ModelInspector->quadModel)) {
+		//return 1;
+	//}
+
+	//ModelInspector->dergnDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &ModelInspector->quadModel);
+	// TODO: Share verts and normals.
+	//ModelInspector->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &ModelInspector->quadModel, vec3(0.9f, 0.9f, 0.9f));
+
+	//geoCreateSurfels(&ModelInspector->quadModel, &ModelInspector->surfels);
+	//geoCreateSurfelsHigh(&ModelInspector->quadModel, &ModelInspector->surfelsHigh);
+	//std::cout << "High surfel count: " << ModelInspector->surfelsHigh.size() << "\n";
+
+	//double t0 = _getTime(AppContext);
+	//int x, y, n;
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergn_m.png", &x, &y, &n);
+	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/materialballTextureGrid.png", &x, &y, &n);
+
+	/*
+	//----------------------------------------------------------------------------------------------------
+	// CMYK transformation.
+	//----------------------------------------------------------------------------------------------------
+	//hsRGB = cmsCreate_sRGBProfile();
+	cmsHPROFILE srgbProfile = cmsOpenProfileFromFile("../../assets/profiles/sRGB_v4_ICC_preference.icc", "r");
+	cmsHPROFILE cmykProfile = cmsOpenProfileFromFile("../../assets/profiles/USWebCoatedSWOP.icc", "r");
+
+	double versionInfo = cmsGetProfileVersion(srgbProfile);
+	std::cout << "sRGB olor profile info: " << versionInfo << "\n";
+
+	versionInfo = cmsGetProfileVersion(cmykProfile);
+	std::cout << "CMYK color profile info: " << versionInfo << "\n";
+
+	cmsHTRANSFORM colorTransform = cmsCreateTransform(srgbProfile, TYPE_RGBA_8, cmykProfile, TYPE_CMYK_8, INTENT_PERCEPTUAL, 0);
+
+	std::cout << "Converting sRGB image to CMYK\n";
+	uint8_t* cmykImagePixels = new uint8_t[x * y * 4];
+	cmsDoTransform(colorTransform, imageRawPixels, cmykImagePixels, x * y);
+
+	vec3 cmykColor[4] = {
+		vec3(0, 166.0 / 255.0, 214.0 / 255.0),
+		vec3(1.0f, 0, 144.0 / 255.0),
+		vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0),
+		vec3(0.0f, 0.0f, 0.0f)
+	};
+
+	// NOTE: Copy a single CMYK channels to the full texture.
+	// NOTE: Converted to sRGB for viewing purposes.
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
+
+		image->width = x;
+		image->height = y;
+		image->data = new uint8_t[x * y * 4];
+
+		for (int i = 0; i < x * y; ++i) {
+			float v = ((float)cmykImagePixels[i * 4 + channelIter]) / 255.0f;
+			//float vi = LinearToGamma(v) * 255.0f;
+			float vi = LinearToGamma(v);
+
+			vec3 col = glm::mix(vec3(1, 1, 1), cmykColor[channelIter], vi);
+
+			image->data[i * 4 + 0] = (uint8_t)(col.r * 255);
+			image->data[i * 4 + 1] = (uint8_t)(col.g * 255);
+			image->data[i * 4 + 2] = (uint8_t)(col.b * 255);
+			
+			//image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
+			image->data[i * 4 + 3] = 255;
+		}
+	}
+
+	ModelInspector->baseCmykFull.width = x;
+	ModelInspector->baseCmykFull.height = y;
+	ModelInspector->baseCmykFull.data = cmykImagePixels;
+
+	cmsDeleteTransform(colorTransform);
+	cmsCloseProfile(srgbProfile);
+	cmsCloseProfile(cmykProfile);
+	*/
+
+	/*ModelInspector->baseTexture.width = x;
+	ModelInspector->baseTexture.height = y;
+	ModelInspector->baseTexture.data = imageRawPixels;*/
+	
+	//t0 = _getTime(AppContext) - t0;
+	/*std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";*/
+
+	//physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
+	//geoTransferColorToSurfels(ModelInspector->appContext, &ModelInspector->cookedDergn, &ModelInspector->dergnModel, &ModelInspector->baseCmykFull, &ModelInspector->surfelsHigh);
+	
+	/*
+	//----------------------------------------------------------------------------------------------------
+	// Create spatial structure for surfels.
+	//----------------------------------------------------------------------------------------------------
+	t0 = _getTime(AppContext) - t0;
+	vec3 surfelsMin(10000, 10000, 10000);
+	vec3 surfelsMax(-10000, -10000, -10000);
+
+	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+		ldiSurfel* s = &ModelInspector->surfels[i];
+
+		surfelsMin.x = min(surfelsMin.x, s->position.x);
+		surfelsMin.y = min(surfelsMin.y, s->position.y);
+		surfelsMin.z = min(surfelsMin.z, s->position.z);
+
+		surfelsMax.x = max(surfelsMax.x, s->position.x);
+		surfelsMax.y = max(surfelsMax.y, s->position.y);
+		surfelsMax.z = max(surfelsMax.z, s->position.z);
+	}
+
+	ldiSpatialGrid spatialGrid{};
+	spatialGridInit(&spatialGrid, surfelsMin, surfelsMax, 0.05f);
+
+	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+		spatialGridPrepEntry(&spatialGrid, ModelInspector->surfels[i].position);
+	}
+
+	spatialGridCompile(&spatialGrid);
+
+	for (size_t i = 0; i < ModelInspector->surfels.size(); ++i) {
+		spatialGridAddEntry(&spatialGrid, ModelInspector->surfels[i].position, (int)i);
+	}
+
+	ModelInspector->spatialGrid = spatialGrid;
+
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
+
+	//----------------------------------------------------------------------------------------------------
+	// Smooth normals.
+	//----------------------------------------------------------------------------------------------------
+	t0 = _getTime(AppContext);
+	{
+		const int threadCount = 20;
+		int batchSize = ModelInspector->surfels.size() / threadCount;
+		int batchRemainder = ModelInspector->surfels.size() - (batchSize * threadCount);
+		std::thread workerThread[threadCount];
+
+		for (int n = 0; n < 4; ++n) {
+			for (int t = 0; t < threadCount; ++t) {
+				ldiSmoothNormalsThreadContext tc{};
+				tc.grid = &spatialGrid;
+				tc.surfels = &ModelInspector->surfels;
+				tc.startIdx = t * batchSize;
+				tc.endIdx = (t + 1) * batchSize;
+
+				if (t == threadCount - 1) {
+					tc.endIdx += batchRemainder;
+				}
+
+				workerThread[t] = std::move(std::thread(surfelsSmoothNormalsThreadBatch, tc));
+			}
+
+			for (int t = 0; t < threadCount; ++t) {
+				workerThread[t].join();
+			}
+
+			// Apply smoothed normal back to surfel normal.
+			for (int i = 0; i < ModelInspector->surfels.size(); ++i) {
+				ldiSurfel* srcSurfel = &ModelInspector->surfels[i];
+				srcSurfel->normal = srcSurfel->smoothedNormal;
+			}
+		}
+	}
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
+
+	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
+	ModelInspector->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfelsHigh, 0.001f, 1);
+	ModelInspector->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &ModelInspector->surfels, &ModelInspector->quadModel);
+	*/
+
+	//----------------------------------------------------------------------------------------------------
+	// Create spatial structure for poisson samples.
+	//----------------------------------------------------------------------------------------------------
+	//poissonSpatialGridInit(&ModelInspector->poissonSpatialGrid, surfelsMin, surfelsMax, 0.05f);
+
+	//ModelInspector->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &ModelInspector->quadModel);
+
+	//{
+	//	D3D11_SUBRESOURCE_DATA texData = {};
+	//	/*texData.pSysMem = imageRawPixels;*/
+	//	texData.pSysMem = ModelInspector->baseTexture.data;
+	//	texData.SysMemPitch = ModelInspector->baseTexture.width * 4;
+
+	//	D3D11_TEXTURE2D_DESC tex2dDesc = {};
+	//	tex2dDesc.Width = ModelInspector->baseTexture.width;
+	//	tex2dDesc.Height = ModelInspector->baseTexture.height;
+	//	tex2dDesc.MipLevels = 1;
+	//	tex2dDesc.ArraySize = 1;
+	//	tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	//	tex2dDesc.SampleDesc.Count = 1;
+	//	tex2dDesc.SampleDesc.Quality = 0;
+	//	tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	//	tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	//	tex2dDesc.CPUAccessFlags = 0;
+	//	tex2dDesc.MiscFlags = 0;
+
+	//	// TODO: Move this to app context.
+	//	if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseImageTexture) != S_OK) {
+	//		std::cout << "Texture failed to create\n";
+	//		return 1;
+	//	}
+	//	
+	//	if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseImageTexture, NULL, &ModelInspector->baseImageSrv) != S_OK) {
+	//		std::cout << "CreateShaderResourceView failed\n";
+	//		return 1;
+	//	}
+	//}
+
+	/*for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &ModelInspector->baseCmykPixels[channelIter];
+
+		D3D11_SUBRESOURCE_DATA texData = {};
+		texData.pSysMem = image->data;
+		texData.SysMemPitch = image->width * 4;
+
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = image->width;
+		tex2dDesc.Height = image->height;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
+		tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = 0;
+		tex2dDesc.MiscFlags = 0;
+
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, &ModelInspector->baseCmykTexture[channelIter]) != S_OK) {
+			std::cout << "Texture failed to create\n";
+			return 1;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(ModelInspector->baseCmykTexture[channelIter], NULL, &ModelInspector->baseCmykSrv[channelIter]) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return 1;
+		}
+	}*/
+
+	//----------------------------------------------------------------------------------------------------
+	// Coverage buffer compute shaders.
+	//----------------------------------------------------------------------------------------------------
+	/*
 	int numSurfels = (int)ModelInspector->surfels.size();
 	std::cout << "Create coverage buffer: " << numSurfels << "\n";
 
 	ModelInspector->surfelMask = new int[numSurfels];
 	memset(ModelInspector->surfelMask, 0, sizeof(int) * numSurfels);
 	
-	/*if (!gfxCreateStructuredBuffer(AppContext, 1, numSurfels, ModelInspector->surfelMask, &ModelInspector->surfelMaskBuffer)) {
-		std::cout << "Could not gfxCreateStructuredBuffer\n";
-		return 1;
-	}*/
+	//if (!gfxCreateStructuredBuffer(AppContext, 1, numSurfels, ModelInspector->surfelMask, &ModelInspector->surfelMaskBuffer)) {
+		//std::cout << "Could not gfxCreateStructuredBuffer\n";
+		//return 1;
+	//}
 
 	{
 		D3D11_BUFFER_DESC desc = {};
@@ -2128,56 +2576,13 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		}
 	}
 
-	{
-		D3D11_BUFFER_DESC desc = {};
-		desc.ByteWidth = sizeof(ldiCoverageConstantBuffer);
-		desc.Usage = D3D11_USAGE_DYNAMIC;
-		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-		desc.MiscFlags = 0;
-		HRESULT r;
-		if ((r = AppContext->d3dDevice->CreateBuffer(&desc, NULL, &ModelInspector->coverageConstantBuffer)) != S_OK) {
-			std::cout << "Could not CreateBuffer\n";
-			return 1;
-		}
-	}
-
 	if (!gfxCreateStructuredBuffer(AppContext, 4, 5000, NULL, &ModelInspector->coverageAreaBuffer)) {
 		return 1;
 	}
 	
 	if (!gfxCreateBufferUav(AppContext, ModelInspector->coverageAreaBuffer, &ModelInspector->coverageAreaBufferUav)) {
 		return 1;
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Coverage point shaders.
-	//----------------------------------------------------------------------------------------------------
-	D3D11_INPUT_ELEMENT_DESC coveragePointLayout[] = {
-		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD",	0,	DXGI_FORMAT_R32_UINT,			0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	16,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	};
-
-	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoverageVs", &ModelInspector->coveragePointVertexShader, coveragePointLayout, 3, &ModelInspector->coveragePointInputLayout)) {
-		return 1;
-	}
-
-	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "showCoveragePs", &ModelInspector->coveragePointPixelShader)) {
-		return 1;
-	}
-
-	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoverageVs", &ModelInspector->coveragePointWriteVertexShader)) {
-		return 1;
-	}
-
-	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeCoveragePs", &ModelInspector->coveragePointWritePixelShader)) {
-		return 1;
-	}
-
-	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/coveragePoint.hlsl", "writeNoCoveragePs", &ModelInspector->coveragePointWriteNoCoveragePixelShader)) {
-		return 1;
-	}
+	}*/
 
 	//----------------------------------------------------------------------------------------------------
 	// Run full coverage test.
@@ -2193,17 +2598,16 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 	}*/
 
-	t0 = _getTime(AppContext);
-
-	if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
+	double t0 = _getTime(AppContext);
+	/*if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
 		return 1;
-	}
-
+	}*/
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "View path: " << t0 * 1000.0f << " ms\n";
 
-	ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
-	modelInspectorCalcLaserPath(ModelInspector);
+	// TODO: Final point distrib from modelInspectorCalculateLaserViewPath.
+	//ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
+	//modelInspectorCalcLaserPath(ModelInspector);
 
 	t0 = _getTime(AppContext);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
@@ -2243,6 +2647,7 @@ void displayTextAtPoint(ldiCamera* Camera, vec3 Position, std::string Text, vec4
 
 void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = ModelInspector->appContext;
+	ldiProjectContext* project = appContext->projectContext;
 
 	if (Width != ModelInspector->mainViewWidth || Height != ModelInspector->mainViewHeight) {
 		ModelInspector->mainViewWidth = Width;
@@ -2314,11 +2719,11 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	// Spatial accel structure.
 	//----------------------------------------------------------------------------------------------------
 	if (ModelInspector->showSpatialCells) {
-		spatialGridRenderOccupied(appContext, &ModelInspector->spatialGrid);
+		spatialGridRenderOccupied(appContext, &project->surfelLowSpatialGrid);
 	}
 
 	if (ModelInspector->showSpatialBounds) {
-		spatialGridRenderDebug(appContext, &ModelInspector->spatialGrid, true, false);
+		spatialGridRenderDebug(appContext, &project->surfelLowSpatialGrid, true, false);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -2408,110 +2813,118 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		gfxRenderPointCloud(appContext, &ModelInspector->pointDistribCloud);
 	}
 
-	if (ModelInspector->primaryModelShowShaded) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(1, 1, 1, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	//if (ModelInspector->showPointCloud) {
+	//	{
+	//		D3D11_MAPPED_SUBRESOURCE ms;
+	//		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	//		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	//		constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
+	//		constantBuffer->mvp = ModelInspector->camera.projViewMat;
+	//		constantBuffer->color = vec4(0, 0, 0, 1);
+	//		constantBuffer->view = ModelInspector->camera.viewMat;
+	//		constantBuffer->proj = ModelInspector->camera.projMat;
+	//		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	//	}
+	//	{
+	//		D3D11_MAPPED_SUBRESOURCE ms;
+	//		appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	//		ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+	//		//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
+	//		//constantBuffer->size = vec4(16, 16, 1, 0);
+	//		constantBuffer->size = vec4(ModelInspector->pointWorldSize, ModelInspector->pointScreenSize, ModelInspector->pointScreenSpaceBlend, 0);
+	//		appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+	//	}
 
-		gfxRenderModel(appContext, &ModelInspector->dergnRenderModel, false, ModelInspector->baseImageSrv, ModelInspector->texSamplerState);
-	}
+	//	gfxRenderPointCloud(appContext, &ModelInspector->pointCloudRenderModel);
+	//}
 
-	if (ModelInspector->primaryModelShowWireframe) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(0, 0, 0, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-		gfxRenderModel(appContext, &ModelInspector->dergnRenderModel, true);
-	}
-
-	if (ModelInspector->showPointCloud) {
-		{
+	if (project->sourceModelLoaded) {
+		if (ModelInspector->primaryModelShowShaded) {
 			D3D11_MAPPED_SUBRESOURCE ms;
 			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-			constantBuffer->screenSize = vec4(ModelInspector->mainViewWidth, ModelInspector->mainViewHeight, 0, 0);
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = vec4(1, 1, 1, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderModel(appContext, &project->sourceRenderModel, false, project->sourceTextureSrv, appContext->defaultPointSamplerState);
+		}
+
+		if (ModelInspector->primaryModelShowWireframe) {
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 			constantBuffer->mvp = ModelInspector->camera.projViewMat;
 			constantBuffer->color = vec4(0, 0, 0, 1);
-			constantBuffer->view = ModelInspector->camera.viewMat;
-			constantBuffer->proj = ModelInspector->camera.projMat;
 			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderModel(appContext, &project->sourceRenderModel, true);
 		}
-		{
+	}
+
+	if (project->quadModelLoaded) {
+		if (ModelInspector->quadMeshShowDebug) {
 			D3D11_MAPPED_SUBRESOURCE ms;
-			appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
-			//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
-			//constantBuffer->size = vec4(16, 16, 1, 0);
-			constantBuffer->size = vec4(ModelInspector->pointWorldSize, ModelInspector->pointScreenSize, ModelInspector->pointScreenSpaceBlend, 0);
-			appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = vec4(0, 0, 0, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderDebugModel(appContext, &project->quadDebugModel);
 		}
 
-		gfxRenderPointCloud(appContext, &ModelInspector->pointCloudRenderModel);
+		if (ModelInspector->quadMeshShowWireframe) {	
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = vec4(0, 0, 0, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderWireModel(appContext, &project->quadMeshWire);
+		}
+
+		if (ModelInspector->showQuadMeshWhite) {
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = ModelInspector->modelCanvasColor;
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderDebugModel(appContext, &project->quadModelWhite);
+		}
 	}
 
-	if (ModelInspector->quadMeshShowDebug) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(0, 0, 0, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	if (project->surfelsLoaded) {
+		if (ModelInspector->showSurfels) {
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = vec4(ModelInspector->camera.position, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderDebugModel(appContext, &ModelInspector->dergnDebugModel);
+			//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+			gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+		}
 	}
 
-	if (ModelInspector->quadMeshShowWireframe) {	
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(0, 0, 0, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	if (project->poissonSamplesLoaded) {
+		if (ModelInspector->showPoissonSamples) {
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = ModelInspector->camera.projViewMat;
+			constantBuffer->color = vec4(ModelInspector->camera.position, 1);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-		gfxRenderWireModel(appContext, &ModelInspector->quadMeshWire);
-	}
-
-	if (ModelInspector->showQuadMeshWhite) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = ModelInspector->modelCanvasColor;
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-		gfxRenderDebugModel(appContext, &ModelInspector->quadModelWhite);
-	}
-
-	if (ModelInspector->showSurfels) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-		//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-		gfxRenderSurfelModel(appContext, &ModelInspector->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-	}
-
-	if (ModelInspector->showPoissonSamples) {
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = ModelInspector->camera.projViewMat;
-		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-		gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-		for (int i = 0; i < 4; ++i) {
-			if (ModelInspector->showCmykModel[i]) {
-				gfxRenderMultiplySurfelModel(appContext, &ModelInspector->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
+			gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+			for (int i = 0; i < 4; ++i) {
+				if (ModelInspector->showCmykModel[i]) {
+					gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
+				}
 			}
 		}
 	}
@@ -2529,8 +2942,8 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		UINT lgOffset = 0;
 
 		appContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
-		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &ModelInspector->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
-		appContext->d3dDeviceContext->IASetIndexBuffer(ModelInspector->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		appContext->d3dDeviceContext->IASetIndexBuffer(project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		
 		appContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointVertexShader, 0, 0);
@@ -2554,7 +2967,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		/*appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
 		appContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);*/
 		
-		appContext->d3dDeviceContext->DrawIndexed(ModelInspector->coveragePointModel.indexCount, 0, 0);
+		appContext->d3dDeviceContext->DrawIndexed(project->coveragePointModel.indexCount, 0, 0);
 	}
 }
 
@@ -2777,6 +3190,9 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 }
 
 void modelInspectorShowUi(ldiModelInspector* tool) {
+	ldiApp* appContext = tool->appContext;
+	ldiProjectContext* project = appContext->projectContext;
+
 	ImGui::Begin("Model inspector controls");
 	if (ImGui::CollapsingHeader("Viewport", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::ColorEdit3("Background", (float*)&tool->viewBackgroundColor);
@@ -2785,7 +3201,48 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::SliderFloat("Camera FOV", &tool->camera.fov, 1.0f, 180.0f);
 	}
 		
-	if (ImGui::CollapsingHeader("Model data")) {
+	if (ImGui::CollapsingHeader("Source data", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Text("Source model");
+		
+		ImGui::SliderFloat("Scale", &project->sourceModelScale, 0.001f, 100.0f);
+		ImGui::DragFloat3("Translation", (float*)&project->sourceModelTranslate, 0.1f, -100.0f, 100.0f);
+		if (ImGui::Button("Import model")) {
+			std::string filePath;
+			if (showOpenFileDialog(tool->appContext->hWnd, tool->appContext->currentWorkingDir, filePath, L"OBJ file", L"*.obj")) {
+				std::cout << "Import model: " << filePath << "\n";
+				projectImportModel(appContext, project, filePath.c_str());
+			}
+		}
+
+		if (project->sourceModelLoaded) {
+			ImGui::Text("Vertex count: %d", project->sourceModel.verts.size());
+			ImGui::Text("Triangle count: %d", project->sourceModel.indices.size() / 3);
+		}
+
+		ImGui::Separator();
+
+		ImGui::Text("Source texture");
+		if (ImGui::Button("Import texture")) {
+			std::string filePath;
+			if (showOpenFileDialog(tool->appContext->hWnd, tool->appContext->currentWorkingDir, filePath, L"PNG file", L"*.png")) {
+				std::cout << "Import texture: " << filePath << "\n";
+				projectImportTexture(appContext, project, filePath.c_str());
+			}
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Processing")) {
+		if (ImGui::Button("Create quad model")) {
+			projectCreateQuadModel(appContext, project);
+		}
+
+		if (ImGui::Button("Create surfels")) {
+			projectCreateSurfels(appContext, project);
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Model data", ImGuiTreeNodeFlags_DefaultOpen)) {
+
 		ImGui::Text("Primary model");
 		ImGui::Checkbox("Shaded", &tool->primaryModelShowShaded);
 		ImGui::Checkbox("Wireframe", &tool->primaryModelShowWireframe);
@@ -2818,21 +3275,6 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
 	}
 
-	if (ImGui::CollapsingHeader("Processing")) {
-		if (ImGui::Button("Process model")) {
-			modelInspectorVoxelize(tool);
-			modelInspectorCreateQuadMesh(tool);
-		}
-
-		if (ImGui::Button("Voxelize")) {
-			modelInspectorVoxelize(tool);
-		}
-
-		if (ImGui::Button("Quadralize")) {
-			modelInspectorCreateQuadMesh(tool);
-		}
-	}
-
 	if (ImGui::CollapsingHeader("Laser view")) {
 		ImGui::DragFloat3("Cam position", (float*)&tool->laserViewPos, 0.1f, -100.0f, 100.0f);
 		ImGui::DragFloat2("Cam rotation", (float*)&tool->laserViewRot, 0.1f, -360.0f, 360.0f);
@@ -2847,20 +3289,22 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	}
 
 	if (ImGui::CollapsingHeader("Color management")) {
-		ImGui::PlotLines("Dot size", tool->dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
-		ImGui::PlotLines("Dot spacing", tool->dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
+		ImGui::PlotLines("Dot size", tool->dotDesc.dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
+		ImGui::PlotLines("Dot spacing", tool->dotDesc.dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
 
-		float w = ImGui::GetContentRegionAvail().x;
-		ImGui::Text("sRGB");
-		ImGui::Image(tool->baseImageSrv, ImVec2(w, w));
-		ImGui::Text("Cyan");
-		ImGui::Image(tool->baseCmykSrv[0], ImVec2(w, w));
-		ImGui::Text("Magenta");
-		ImGui::Image(tool->baseCmykSrv[1], ImVec2(w, w));
-		ImGui::Text("Yellow");
-		ImGui::Image(tool->baseCmykSrv[2], ImVec2(w, w));
-		ImGui::Text("Black");
-		ImGui::Image(tool->baseCmykSrv[3], ImVec2(w, w));
+		if (project->sourceTextureLoaded) {
+			float w = ImGui::GetContentRegionAvail().x;
+			ImGui::Text("sRGB");
+			ImGui::Image(project->sourceTextureSrv, ImVec2(w, w));
+			ImGui::Text("Cyan");
+			ImGui::Image(project->sourceTextureCmykSrv[0], ImVec2(w, w));
+			ImGui::Text("Magenta");
+			ImGui::Image(project->sourceTextureCmykSrv[1], ImVec2(w, w));
+			ImGui::Text("Yellow");
+			ImGui::Image(project->sourceTextureCmykSrv[2], ImVec2(w, w));
+			ImGui::Text("Black");
+			ImGui::Image(project->sourceTextureCmykSrv[3], ImVec2(w, w));
+		}
 	}
 
 	if (ImGui::CollapsingHeader("Elipse tester")) {
@@ -2870,7 +3314,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	ImGui::End();
 
 	// TODO: Update this somewhere else?
-	modelInspectorRenderLaserView(tool->appContext, tool);
+	modelInspectorRenderLaserView(tool->appContext, tool, project);
 
 	/*ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));

@@ -30,8 +30,6 @@ void spatialGridDestroy(ldiSpatialGrid* Grid) {
 }
 
 void spatialGridInit(ldiSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
-	spatialGridDestroy(Grid);
-
 	Grid->cellSize = CellSize;
 
 	Grid->origin = MinBounds + (MaxBounds - MinBounds) * 0.5f;
@@ -217,12 +215,10 @@ void poissonSpatialGridDestroy(ldiPoissonSpatialGrid* Grid) {
 		delete[] Grid->cells;
 	}
 
-	memset(Grid, 0, sizeof(ldiSpatialGrid));
+	memset(Grid, 0, sizeof(ldiPoissonSpatialGrid));
 }
 
 void poissonSpatialGridInit(ldiPoissonSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
-	poissonSpatialGridDestroy(Grid);
-
 	Grid->cellSize = CellSize;
 
 	Grid->origin = MinBounds + (MaxBounds - MinBounds) * 0.5f;

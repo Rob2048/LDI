@@ -105,6 +105,37 @@ ldiRenderPointCloud gfxCreateRenderPointCloud(ldiApp* AppContext, ldiPointCloud*
 	return result;
 }
 
+bool gfxCreateTextureR8G8B8A8Basic(ldiApp* AppContext, ldiImage* Image, ID3D11Texture2D** Texture, ID3D11ShaderResourceView** Srv) {
+	D3D11_SUBRESOURCE_DATA texData = {};
+	texData.pSysMem = Image->data;
+	texData.SysMemPitch = Image->width * 4;
+
+	D3D11_TEXTURE2D_DESC tex2dDesc = {};
+	tex2dDesc.Width = Image->width;
+	tex2dDesc.Height = Image->height;
+	tex2dDesc.MipLevels = 1;
+	tex2dDesc.ArraySize = 1;
+	tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	tex2dDesc.SampleDesc.Count = 1;
+	tex2dDesc.SampleDesc.Quality = 0;
+	tex2dDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	tex2dDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	tex2dDesc.CPUAccessFlags = 0;
+	tex2dDesc.MiscFlags = 0;
+
+	if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, &texData, Texture) != S_OK) {
+		std::cout << "Texture failed to create\n";
+		return false;
+	}
+
+	if (AppContext->d3dDevice->CreateShaderResourceView(*Texture, NULL, Srv) != S_OK) {
+		std::cout << "CreateShaderResourceView failed\n";
+		return false;
+	}
+
+	return true;
+}
+
 void gfxRenderPointCloud(ldiApp* AppContext, ldiRenderPointCloud* PointCloud) {
 	UINT lgStride = sizeof(ldiMeshVertex);
 	UINT lgOffset = 0;

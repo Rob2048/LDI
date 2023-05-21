@@ -81,6 +81,7 @@ struct ldiPlatformTransform {
 struct ldiPhysics;
 struct ldiImageInspector;
 struct ldiPanther;
+struct ldiProjectContext;
 
 struct ldiDebugPrims {
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
@@ -104,6 +105,8 @@ struct ldiApp {
 	int64_t						timeFrequency;
 	int64_t						timeCounterStart;
 
+	std::string					currentWorkingDir;
+	
 	ID3D11Device*				d3dDevice;
 	ID3D11DeviceContext*		d3dDeviceContext;
 	IDXGISwapChain*				SwapChain;
@@ -179,6 +182,8 @@ struct ldiApp {
 	ldiPhysics*					physics = 0;
 	ldiImageInspector*			imageInspector = 0;
 	ldiPanther*					panther = 0;
+
+	ldiProjectContext*			projectContext;
 };
 
 double _getTime(ldiApp* AppContext) {
@@ -227,6 +232,7 @@ ldiImageInspector	_imageInspector = {};
 ldiModelEditor		_modelEditor = {};
 ldiPanther			_panther = {};
 ldiGalvoInspector	_galvoInspector = {};
+ldiProjectContext	_projectContext = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing and GUI helpers.
@@ -866,14 +872,16 @@ int main() {
 	//			- print progress
 
 	std::cout << "Starting WyvernDX11\n";
+	ldiApp* appContext = &_appContext;
+	_initTiming(appContext);
+
+	appContext->projectContext = &_projectContext;
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
-	std::cout << "Working directory: " << dirBuff << "\n";
-
-	ldiApp* appContext = &_appContext;
-
-	_initTiming(appContext);
+	appContext->currentWorkingDir = std::string(dirBuff);
+	std::cout << "Working directory: " << appContext->currentWorkingDir << "\n";
+	
 	_createWindow(appContext);
 
 	// Initialize Direct3D.
@@ -972,6 +980,13 @@ int main() {
 		return 1;
 	}
 
+	projectInit(appContext, appContext->projectContext, "..\\project_deer\\");
+
+	/*if (!projectLoad(appContext, appContext->projectContext, "..\\project_deer\\")) {
+		std::cout << "Failed to load project\n";
+		return 1;
+	}*/
+
 	// Main loop
 	bool running = true;
 	while (running) {
@@ -1008,8 +1023,6 @@ int main() {
 				if (ImGui::MenuItem("Save project")) {}
 				if (ImGui::MenuItem("Save project as...")) {}
 				ImGui::Separator();
-				if (ImGui::MenuItem("Import model")) {}
-				ImGui::Separator();
 				if (ImGui::MenuItem("Quit", "Alt+F4")) {
 					running = false;
 				}
@@ -1033,7 +1046,6 @@ int main() {
 				if (ImGui::MenuItem("Run")) {}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Model inspector")) {}
-				if (ImGui::MenuItem("Test bench")) {}
 				if (ImGui::MenuItem("Image inspector")) {}
 				ImGui::EndMenu();
 			}

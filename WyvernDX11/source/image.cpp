@@ -9,6 +9,7 @@
 #define __STDC_LIB_EXT1__
 #include "stb_image_write.h"
 
+// NOTE: Always returns a 4 channel image!
 uint8_t* imageLoadRgba(const char* FileName, int* Width, int* Height, int* Channels) {
 	return stbi_load(FileName, Width, Height, Channels, 4);
 }
