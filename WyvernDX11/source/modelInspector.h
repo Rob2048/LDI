@@ -511,9 +511,11 @@ void geoPrintQuadModelInfo(ldiQuadModel* Model) {
 	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
 }
 
-void modelInspectorVoxelize(ldiApp* AppContext, ldiModel* Model) {
+bool modelInspectorCreateVoxelMesh(ldiApp* AppContext, ldiModel* Model) {
 	double t0 = _getTime(AppContext);
-	stlSaveModel("../cache/source.stl", Model);
+	if (!stlSaveModel("../cache/source.stl", Model)) {
+		return false;
+	}
 	t0 = _getTime(AppContext) - t0;
 	std::cout << "Save STL: " << t0 * 1000.0f << " ms\n";
 
@@ -524,25 +526,35 @@ void modelInspectorVoxelize(ldiApp* AppContext, ldiModel* Model) {
 	si.cb = sizeof(si);
 	ZeroMemory(&pi, sizeof(pi));
 
-	char args[] = "PolyMender-clean.exe ../../bin/cache/source.stl 11 0.9 ../../bin/cache/voxel.ply";
+	//char args[] = "PolyMender-clean.exe ../../bin/cache/source.stl 11 0.9 ../../bin/cache/voxel.ply";
+	char args[] = "vdb_tool.exe -read ../../../bin/cache/source.stl -m2ls voxel=0.01 -l2m -write ../../../bin/cache/voxel.ply";
 
 	CreateProcessA(
-		"../../assets/bin/PolyMender-clean.exe",
+		//"../../assets/bin/PolyMender-clean.exe",
+		"../../assets/bin/openvdb/vdb_tool.exe",
 		args,
 		NULL,
 		NULL,
 		FALSE,
 		0, //CREATE_NEW_CONSOLE,
 		NULL,
-		"../../assets/bin/",
+		//"../../assets/bin",
+		"../../assets/bin/openvdb",
 		&si,
 		&pi
 	);
 
 	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	ldiModel model;
+	plyLoadModel("../cache/voxel.ply", &model);
+	//stlSaveModel("../cache/voxel_read.stl", &model);
+	plySaveModel("../cache/voxel_tri_invert.ply", &model);
+
+	return true;
 }
 
-void modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
+bool modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;
 
@@ -559,7 +571,7 @@ void modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
 
 	char args[2048];
 	//../../bin/cache/output.ply
-	sprintf_s(args, "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o %s --scale 0.030", OutputPath);
+	sprintf_s(args, "\"Instant Meshes.exe\" ../../bin/cache/voxel_tri_invert.ply -o %s --scale 0.030", OutputPath);
 	
 	CreateProcessA(
 		"../../assets/bin/Instant Meshes.exe",
@@ -575,6 +587,8 @@ void modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
 	);
 
 	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	return true;
 }
 
 struct ldiSmoothNormalsThreadContext {
@@ -1953,6 +1967,8 @@ bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const 
 	Project->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &Project->quadModel);
 	Project->quadModelLoaded = true;
 
+	geoPrintQuadModelInfo(&Project->quadModel);
+
 	return true;
 }
 
@@ -1965,12 +1981,17 @@ bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 
 	std::string quadMeshPath = AppContext->currentWorkingDir + "\\" + Project->dir + "quad_mesh.ply";
 
-	modelInspectorVoxelize(AppContext, &Project->sourceModel);
-	modelInspectorCreateQuadMesh(AppContext, quadMeshPath.c_str());
+	if (!modelInspectorCreateVoxelMesh(AppContext, &Project->sourceModel)) {
+		return false;
+	}
+
+	if (!modelInspectorCreateQuadMesh(AppContext, quadMeshPath.c_str())) {
+		return false;
+	}
 
 	if (!projectLoadQuadModel(AppContext, Project, quadMeshPath.c_str())) {
 		return false;
-	 }
+	}
 
 	return true;
 }
