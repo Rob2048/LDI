@@ -567,11 +567,11 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 		ldiModel dergnModel = objLoadModel("../../assets/models/dergn.obj");
 		//ldiModel dergnModel = objLoadModel("../../assets/models/test.obj");
 
-		float scale = 50;
+		float scale = 10;
 		for (int i = 0; i < dergnModel.verts.size(); ++i) {
 			ldiMeshVertex* vert = &dergnModel.verts[i];
 			vert->pos = vert->pos * scale;
-			vert->pos += vec3(80.0f / 2.0f, -860 / 2.0f, 128.0f / 2.0f);
+			vert->pos += vec3(80.0f / 2.0f, -100 / 2.0f, 256.0f / 2.0f);
 		}
 
 		// Create tri list.
