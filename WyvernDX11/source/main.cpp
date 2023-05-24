@@ -172,7 +172,7 @@ struct ldiApp {
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
-	bool						showModelInspector = true;
+	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
 	bool						showVisionSimulator = false;
 	bool						showModelEditor = false;

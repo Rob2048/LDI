@@ -3220,9 +3220,13 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::ColorEdit3("Grid", (float*)&tool->gridColor);
 		ImGui::SliderFloat("Camera speed", &tool->cameraSpeed, 0.0f, 4.0f);
 		ImGui::SliderFloat("Camera FOV", &tool->camera.fov, 1.0f, 180.0f);
+		
+		ImGui::Separator();
+		ImGui::Checkbox("Bounds", &tool->showBounds);
+		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
 	}
 		
-	if (ImGui::CollapsingHeader("Source data", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Source model", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Text("Source model");
 		
 		ImGui::SliderFloat("Scale", &project->sourceModelScale, 0.001f, 100.0f);
@@ -3238,11 +3242,13 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		if (project->sourceModelLoaded) {
 			ImGui::Text("Vertex count: %d", project->sourceModel.verts.size());
 			ImGui::Text("Triangle count: %d", project->sourceModel.indices.size() / 3);
+
+			ImGui::Checkbox("Shaded", &tool->primaryModelShowShaded);
+			ImGui::Checkbox("Wireframe", &tool->primaryModelShowWireframe);
 		}
+	}
 
-		ImGui::Separator();
-
-		ImGui::Text("Source texture");
+	if (ImGui::CollapsingHeader("Source texture", ImGuiTreeNodeFlags_DefaultOpen)) {
 		if (ImGui::Button("Import texture")) {
 			std::string filePath;
 			if (showOpenFileDialog(tool->appContext->hWnd, tool->appContext->currentWorkingDir, filePath, L"PNG file", L"*.png")) {
@@ -3250,50 +3256,94 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 				projectImportTexture(appContext, project, filePath.c_str());
 			}
 		}
+
+		if (project->sourceTextureLoaded) {
+			float w = ImGui::GetContentRegionAvail().x;
+
+			if (ImGui::BeginTabBar("textureChannelsTabs")) {
+				if (ImGui::BeginTabItem("sRGB")) {
+					ImGui::Image(project->sourceTextureSrv, ImVec2(w, w));
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("C")) {
+					ImGui::Image(project->sourceTextureCmykSrv[0], ImVec2(w, w));
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("M")) {
+					ImGui::Image(project->sourceTextureCmykSrv[1], ImVec2(w, w));
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Y")) {
+					ImGui::Image(project->sourceTextureCmykSrv[2], ImVec2(w, w));
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("K")) {
+					ImGui::Image(project->sourceTextureCmykSrv[3], ImVec2(w, w));
+					ImGui::EndTabItem();
+				}
+				ImGui::EndTabBar();
+			}
+
+			
+			/*ImGui::Text("sRGB");
+			ImGui::Image(project->sourceTextureSrv, ImVec2(w, w));
+			ImGui::Text("Cyan");
+			ImGui::Image(project->sourceTextureCmykSrv[0], ImVec2(w, w));
+			ImGui::Text("Magenta");
+			ImGui::Image(project->sourceTextureCmykSrv[1], ImVec2(w, w));
+			ImGui::Text("Yellow");
+			ImGui::Image(project->sourceTextureCmykSrv[2], ImVec2(w, w));
+			ImGui::Text("Black");
+			ImGui::Image(project->sourceTextureCmykSrv[3], ImVec2(w, w));*/
+		}
 	}
 
-	if (ImGui::CollapsingHeader("Processing")) {
+	if (ImGui::CollapsingHeader("Quad model")) {
 		if (ImGui::Button("Create quad model")) {
 			projectCreateQuadModel(appContext, project);
 		}
 
-		if (ImGui::Button("Create surfels")) {
-			projectCreateSurfels(appContext, project);
+		if (project->quadModelLoaded) {
+			ImGui::Checkbox("Canvas model", &tool->showQuadMeshWhite);
+			ImGui::ColorEdit3("Canvas", (float*)&tool->modelCanvasColor);
+			ImGui::Checkbox("Area debug", &tool->quadMeshShowDebug);
+			ImGui::Checkbox("Quad wireframe", &tool->quadMeshShowWireframe);
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Model data", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Scan")) {
+		ImGui::Text("Point cloud");
+		ImGui::Checkbox("Show point cloud", &tool->showPointCloud);
+		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
+		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
+		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+	}
 
-		ImGui::Text("Primary model");
-		ImGui::Checkbox("Shaded", &tool->primaryModelShowShaded);
-		ImGui::Checkbox("Wireframe", &tool->primaryModelShowWireframe);
+	if (ImGui::CollapsingHeader("Surfels")) {
+		if (ImGui::Button("Create surfels")) {
+			projectCreateSurfels(appContext, project);
+		}
 
-		ImGui::Separator();
-		ImGui::Text("Quad model");
-		ImGui::Checkbox("Canvas model", &tool->showQuadMeshWhite);
-		ImGui::ColorEdit3("Canvas", (float*)&tool->modelCanvasColor);
-		ImGui::Checkbox("Area debug", &tool->quadMeshShowDebug);
-		ImGui::Checkbox("Quad wireframe", &tool->quadMeshShowWireframe);
-		ImGui::Checkbox("Surfels", &tool->showSurfels);
-		ImGui::Checkbox("Spatial bounds", &tool->showSpatialBounds);
-		ImGui::Checkbox("Spatial occupied cells", &tool->showSpatialCells);
+		if (project->surfelsLoaded) {
+			ImGui::Checkbox("Show surfels (high res)", &tool->showSurfels);
+			ImGui::Checkbox("Show spatial bounds", &tool->showSpatialBounds);
+			ImGui::Checkbox("Show spatial occupied cells", &tool->showSpatialCells);
+		}
+	}
 
+	if (ImGui::CollapsingHeader("Print management")) {
+		ImGui::PlotLines("Dot size", tool->dotDesc.dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
+		ImGui::PlotLines("Dot spacing", tool->dotDesc.dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
+	}
+
+	if (ImGui::CollapsingHeader("Print plan")) {
 		ImGui::Checkbox("Sample sites", &tool->showSampleSites);
-		ImGui::Checkbox("Bounds", &tool->showBounds);
-		ImGui::Checkbox("Scale helpers", &tool->showScaleHelper);
 
 		ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
 		ImGui::Checkbox("C samples", &tool->showCmykModel[0]);
 		ImGui::Checkbox("M samples", &tool->showCmykModel[1]);
 		ImGui::Checkbox("Y samples", &tool->showCmykModel[2]);
 		ImGui::Checkbox("K samples", &tool->showCmykModel[3]);
-		
-		ImGui::Separator();
-		ImGui::Text("Point cloud");
-		ImGui::Checkbox("Show point cloud", &tool->showPointCloud);
-		ImGui::SliderFloat("World size", &tool->pointWorldSize, 0.0f, 1.0f);
-		ImGui::SliderFloat("Screen size", &tool->pointScreenSize, 0.0f, 32.0f);
-		ImGui::SliderFloat("Screen blend", &tool->pointScreenSpaceBlend, 0.0f, 1.0f);
 	}
 
 	if (ImGui::CollapsingHeader("Laser view")) {
@@ -3307,25 +3357,6 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 
 		float w = ImGui::GetContentRegionAvail().x;
 		ImGui::Image(tool->laserViewTexView, ImVec2(w, w));
-	}
-
-	if (ImGui::CollapsingHeader("Color management")) {
-		ImGui::PlotLines("Dot size", tool->dotDesc.dotSizeArr, 256, 0, 0, 0, 75.0f, ImVec2(0, 120.0f));
-		ImGui::PlotLines("Dot spacing", tool->dotDesc.dotSpacingArr, 256, 0, 0, 0, 300.0f, ImVec2(0, 120.0f));
-
-		if (project->sourceTextureLoaded) {
-			float w = ImGui::GetContentRegionAvail().x;
-			ImGui::Text("sRGB");
-			ImGui::Image(project->sourceTextureSrv, ImVec2(w, w));
-			ImGui::Text("Cyan");
-			ImGui::Image(project->sourceTextureCmykSrv[0], ImVec2(w, w));
-			ImGui::Text("Magenta");
-			ImGui::Image(project->sourceTextureCmykSrv[1], ImVec2(w, w));
-			ImGui::Text("Yellow");
-			ImGui::Image(project->sourceTextureCmykSrv[2], ImVec2(w, w));
-			ImGui::Text("Black");
-			ImGui::Image(project->sourceTextureCmykSrv[3], ImVec2(w, w));
-		}
 	}
 
 	if (ImGui::CollapsingHeader("Elipse tester")) {

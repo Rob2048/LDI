@@ -297,7 +297,7 @@ ldiRenderModel gfxCreateSurfelRenderModel(ldiApp* AppContext, std::vector<ldiSur
 		if (ColorMode == 0) {
 			color = s->color;
 		} else if (ColorMode == 1) {
-			color = vec3(s->color.r, s->color.r, s->color.r);
+			color = vec3(1.0f - s->color.a, 1.0f - s->color.a, 1.0f - s->color.a);
 		}
 
 		v0->position = p0;

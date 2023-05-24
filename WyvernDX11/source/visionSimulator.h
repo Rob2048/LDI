@@ -219,9 +219,9 @@ void _visionSimulatorCopyRenderToBuffer(ldiVisionSimulator* Tool) {
 }
 
 void _visionSimulatorBuildTargetLocalPoints(ldiVisionSimulator* Tool) {
-	const float cubeSize = 5.0f;
+	const float cubeSize = 4.0f;
 	const float chs = cubeSize * 0.5f;
-	const float squareCount = 6.0f;
+	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
 	Tool->targetLocalPoints.clear();
@@ -375,7 +375,7 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	// NOTE: Create cube model.
 	ldiModel targetModel;
 
-	float cubeSize = 5.0f;
+	float cubeSize = 4.0f;
 	float chs = cubeSize * 0.5f;
 
 	targetModel.verts.push_back({{-chs, +chs, -chs}, {0, 1, 0}, {0, 1}});
@@ -536,9 +536,9 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	//----------------------------------------------------------------------------------------------------
 	// Calibration visualilzation.
 	//----------------------------------------------------------------------------------------------------
-	const float cubeSize = 5.0f;
+	const float cubeSize = 4.0f;
 	const float chs = cubeSize * 0.5f;
-	const float squareCount = 6.0f;
+	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
 	if (Tool->calibSampleSelectId != -1) {
@@ -707,9 +707,9 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 }
 
 vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int CornerId) {
-	const float cubeSize = 5.0f;
+	const float cubeSize = 4.0f;
 	const float chs = cubeSize * 0.5f;
-	const float squareCount = 6.0f;
+	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
@@ -737,9 +737,9 @@ vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int
 }
 
 vec3 visionSimulatorGetTargetCamPos(ldiVisionSimulator* Tool, int BoardId, int CornerId) {
-	const float cubeSize = 5.0f;
+	const float cubeSize = 4.0f;
 	const float chs = cubeSize * 0.5f;
-	const float squareCount = 6.0f;
+	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
@@ -1334,7 +1334,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
 				vec2 o = charucos->boards[b].corners[i].position;
 
-				// TODO: Do we need half pixel offset? Check debug drawing commands.
+				// NOTE: Half pixel offset required.
 				ImVec2 offset = pos;
 				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
 				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;

@@ -194,6 +194,9 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 	fread(&Tool->calibJobImage, width * height, 1, file);
 	fclose(file);
 
+	// Copy image to fullpixel input.
+	memcpy(Tool->camPixelsFinal, Tool->calibJobImage, width * height);
+
 	_imageInspectorCopyFrameDataToTexture(Tool, Tool->calibJobImage);
 }
 
@@ -477,7 +480,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
 				vec2 o = charucos->boards[b].corners[i].position;
 
-				// TODO: Do we need half pixel offset? Check debug drawing commands.
+				// NOTE: Half pixel offset required.
 				ImVec2 offset = pos;
 				offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
 				offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
@@ -496,7 +499,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale - 15;
 
 				char strBuf[256];
-				sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+				sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x + 0.5f, o.y + 0.5f);
 
 				draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
 			}
