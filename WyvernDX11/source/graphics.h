@@ -136,6 +136,47 @@ bool gfxCreateTextureR8G8B8A8Basic(ldiApp* AppContext, ldiImage* Image, ID3D11Te
 	return true;
 }
 
+bool gfxCreateTextureR8G8B8A8GenerateMips(ldiApp* AppContext, ldiImage* Image, ID3D11Texture2D** Texture, ID3D11ShaderResourceView** Srv) {
+	D3D11_SUBRESOURCE_DATA texData = {};
+	texData.pSysMem = Image->data;
+	texData.SysMemPitch = Image->width * 4;
+
+	D3D11_TEXTURE2D_DESC tex2dDesc = {};
+	tex2dDesc.Width = Image->width;
+	tex2dDesc.Height = Image->height;
+	tex2dDesc.MipLevels = 0;
+	tex2dDesc.ArraySize = 1;
+	tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	tex2dDesc.SampleDesc.Count = 1;
+	tex2dDesc.SampleDesc.Quality = 0;
+	tex2dDesc.Usage = D3D11_USAGE_DEFAULT;
+	tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	tex2dDesc.CPUAccessFlags = 0;
+	tex2dDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+	if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, Texture) != S_OK) {
+		std::cout << "CreateTexture2D failed\n";
+		return false;
+	}
+
+	AppContext->d3dDeviceContext->UpdateSubresource(*Texture, 0, NULL, Image->data, Image->width * 4, 0);
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
+	viewDesc.Format = tex2dDesc.Format;
+	viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	viewDesc.Texture2D.MostDetailedMip = 0;
+	viewDesc.Texture2D.MipLevels = -1;
+
+	if (AppContext->d3dDevice->CreateShaderResourceView(*Texture, &viewDesc, Srv) != S_OK) {
+		std::cout << "CreateShaderResourceView failed\n";
+		return false;
+	}
+
+	AppContext->d3dDeviceContext->GenerateMips(*Srv);
+
+	return true;
+}
+
 void gfxRenderPointCloud(ldiApp* AppContext, ldiRenderPointCloud* PointCloud) {
 	UINT lgStride = sizeof(ldiMeshVertex);
 	UINT lgOffset = 0;

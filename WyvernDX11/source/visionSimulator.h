@@ -56,12 +56,13 @@ struct ldiVisionSimulator {
 
 	ID3D11Texture2D*			targetTexFace[6];
 	ID3D11ShaderResourceView*	targetShaderViewFace[6];
-	ID3D11SamplerState*			targetTexSampler;
-
+	
 	ldiRenderModel				targetModel;
 	mat4						targetFaceMat[6];
 	ldiTransform				targetModelMat;
 	std::vector<vec3>			targetLocalPoints;
+	std::vector<int>			targetLocalPointsBoard;
+	std::vector<int>			targetLocalPointsGlobalId;
 	
 	bool						showTargetMain = true;
 	
@@ -77,6 +78,20 @@ struct ldiVisionSimulator {
 	cv::Mat						calibCameraDist;
 
 	ldiHorse					horse;
+
+	// Bundle adjust results.
+	bool						barLoaded = false;
+	ldiCalibCube				barCalibCube;
+	std::vector<mat4>			barViews;
+	std::vector<int>			barViewIds;
+
+	bool						cameraCalibTargetShow = true;
+	ID3D11Texture2D*			cameraCalibTargetTexture;
+	ID3D11ShaderResourceView*	cameraCalibTargetSrv;
+	ldiRenderModel				cameraCalibTargetModel;
+	ldiTransform				cameraCalibTargetTransform;
+	std::vector<ldiCameraCalibSample> cameraCalibSamples;
+	int							cameraCalibSampleSelectId = -1;
 };
 
 void transformUpdateLocal(ldiTransform* Transform) {
@@ -151,47 +166,6 @@ void _visionSimulatorSetStateCallback(const ImDrawList* parent_list, const ImDra
 	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
 }
 
-int _visionSimulatorLoadCubeFaceTexture(ldiVisionSimulator* Tool, uint8_t* ImageData, int ImageWidth, int ImageHeight, int FaceId) {
-	D3D11_SUBRESOURCE_DATA texData = {};
-	texData.pSysMem = ImageData;
-	texData.SysMemPitch = ImageWidth * 4;
-
-	D3D11_TEXTURE2D_DESC tex2dDesc = {};
-	tex2dDesc.Width = ImageWidth;
-	tex2dDesc.Height = ImageHeight;
-	tex2dDesc.MipLevels = 0;
-	tex2dDesc.ArraySize = 1;
-	tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	tex2dDesc.SampleDesc.Count = 1;
-	tex2dDesc.SampleDesc.Quality = 0;
-	tex2dDesc.Usage = D3D11_USAGE_DEFAULT;
-	tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	tex2dDesc.CPUAccessFlags = 0;
-	tex2dDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-
-	if (Tool->appContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->targetTexFace[FaceId]) != S_OK) {
-		std::cout << "CreateTexture2D failed\n";
-		return 1;
-	}
-
-	Tool->appContext->d3dDeviceContext->UpdateSubresource(Tool->targetTexFace[FaceId], 0, NULL, ImageData, ImageWidth * 4, 0);
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
-	viewDesc.Format = tex2dDesc.Format;
-	viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	viewDesc.Texture2D.MostDetailedMip = 0;
-	viewDesc.Texture2D.MipLevels = -1;
-
-	if (Tool->appContext->d3dDevice->CreateShaderResourceView(Tool->targetTexFace[FaceId], &viewDesc, &Tool->targetShaderViewFace[FaceId]) != S_OK) {
-		std::cout << "CreateShaderResourceView failed\n";
-		return 1;
-	}
-
-	Tool->appContext->d3dDeviceContext->GenerateMips(Tool->targetShaderViewFace[FaceId]);
-
-	return 0;
-}
-
 void _visionSimulatorCopyRenderToBuffer(ldiVisionSimulator* Tool) {
 	Tool->appContext->d3dDeviceContext->CopyResource(Tool->renderViewCopyStaging, Tool->renderViewBuffers.mainViewTexture);
 	
@@ -225,8 +199,11 @@ void _visionSimulatorBuildTargetLocalPoints(ldiVisionSimulator* Tool) {
 	const float oneCellSize = cubeSize / squareCount;
 
 	Tool->targetLocalPoints.clear();
+	Tool->targetLocalPointsBoard.clear();
+	Tool->targetLocalPointsGlobalId.clear();
 
 	for (int boardIter = 0; boardIter < 6; ++boardIter) {
+		// NOTE: This just ignores final board.
 		if (boardIter == 5) {
 			continue;
 		}
@@ -240,6 +217,8 @@ void _visionSimulatorBuildTargetLocalPoints(ldiVisionSimulator* Tool) {
 			vec3 localPos = Tool->targetFaceMat[boardIter] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 			Tool->targetLocalPoints.push_back(localPos);
+			Tool->targetLocalPointsBoard.push_back(boardIter);
+			Tool->targetLocalPointsGlobalId.push_back(boardIter * 9 + cornerIter);
 		}
 	}
 }
@@ -332,6 +311,9 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 		}
 	}
 
+	//----------------------------------------------------------------------------------------------------
+	// Calibration cube.
+	//----------------------------------------------------------------------------------------------------
 	// NOTE: Board size must allow number of squares to evenly divide.
 	const int boardSize = 600;
 	static uint8_t boardBuffer[boardSize * boardSize * 4];
@@ -351,25 +333,15 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 			boardBuffer[p * 4 + 2] = v;
 			boardBuffer[p * 4 + 3] = 255;
 		}
+
+		ldiImage boardImage = {};
+		boardImage.data = boardBuffer;
+		boardImage.width = boardSize;
+		boardImage.height = boardSize;
 	
-		if (_visionSimulatorLoadCubeFaceTexture(Tool, boardBuffer, boardSize, boardSize, i) != 0) {
+		if (!gfxCreateTextureR8G8B8A8GenerateMips(AppContext, &boardImage, &Tool->targetTexFace[i], &Tool->targetShaderViewFace[i])) {
 			return 1;
 		}
-	}
-
-	{
-		D3D11_SAMPLER_DESC samplerDesc = {};
-		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC; 
-		//samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-		//samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-		samplerDesc.MipLODBias = 0;
-		samplerDesc.MaxAnisotropy = 16;
-		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-
-		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &Tool->targetTexSampler);
 	}
 
 	// NOTE: Create cube model.
@@ -409,6 +381,56 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	Tool->targetModelMat.localPos = vec3(0, 0, 7.5f);
 	Tool->targetModelMat.localRot = vec3(90, 0, 0);
 	transformUpdateLocal(&Tool->targetModelMat);
+
+	//----------------------------------------------------------------------------------------------------
+	// Camera calibration target.
+	//----------------------------------------------------------------------------------------------------
+	{
+		//_calibrationTargetImage.
+		// Create R8 version of texture.
+		uint8_t* tempTexture = new uint8_t[_calibrationTargetImage.width * _calibrationTargetImage.height * 4];
+		ldiImage tempImage = {};
+		tempImage.data = tempTexture;
+		tempImage.width = _calibrationTargetImage.width;
+		tempImage.height = _calibrationTargetImage.height;
+
+		for (int p = 0; p < _calibrationTargetImage.width * _calibrationTargetImage.height; ++p) {
+			uint8_t v = _calibrationTargetImage.data[p];
+
+			tempTexture[p * 4 + 0] = v;
+			tempTexture[p * 4 + 1] = v;
+			tempTexture[p * 4 + 2] = v;
+			tempTexture[p * 4 + 3] = 255;
+		}
+
+		if (!gfxCreateTextureR8G8B8A8GenerateMips(AppContext, &tempImage, &Tool->cameraCalibTargetTexture, &Tool->cameraCalibTargetSrv)) {
+			delete[] tempTexture;
+			return 1;
+		}
+
+		delete[] tempTexture;
+
+		ldiModel targetModel;
+		vec2 targetSize(_calibrationTargetFullWidthCm, _calibrationTargetFullHeightCm);
+		vec2 tsh = targetSize * 0.5f;
+
+		targetModel.verts.push_back({ {-tsh.x, 0, -tsh.y}, {0, 1, 0}, {0, 1} });
+		targetModel.verts.push_back({ {+tsh.x, 0, -tsh.y}, {0, 1, 0}, {1, 1} });
+		targetModel.verts.push_back({ {+tsh.x, 0, +tsh.y}, {0, 1, 0}, {1, 0} });
+		targetModel.verts.push_back({ {-tsh.x, 0, +tsh.y}, {0, 1, 0}, {0, 0} });
+		targetModel.indices.push_back(0);
+		targetModel.indices.push_back(1);
+		targetModel.indices.push_back(2);
+		targetModel.indices.push_back(0);
+		targetModel.indices.push_back(2);
+		targetModel.indices.push_back(3);
+
+		Tool->cameraCalibTargetModel = gfxCreateRenderModel(AppContext, &targetModel);
+		
+		Tool->cameraCalibTargetTransform.localPos = vec3(0, 0, -10);
+		Tool->cameraCalibTargetTransform.localRot = vec3(45, 0, 0);
+		transformUpdateLocal(&Tool->cameraCalibTargetTransform);
+	}
 
 	return 0;
 }
@@ -542,7 +564,6 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	const float oneCellSize = cubeSize / squareCount;
 
 	if (Tool->calibSampleSelectId != -1) {
-
 		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
 		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
 		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
@@ -611,7 +632,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			}
 
 			gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
-			gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
+			gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], appContext->defaultAnisotropicSamplerState);
 		}
 	}
 
@@ -629,6 +650,8 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			continue;
 		}
 
+		displayTextAtPoint(&Tool->mainCamera, faceOrigin + faceWorldNormal * 0.5f, "<" + std::to_string(b) + ">", vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
+
 		for (size_t i = 0; i < _charucoBoards[b]->chessboardCorners.size(); ++i) {
 			cv::Point3f p = _charucoBoards[b]->chessboardCorners[i];
 
@@ -636,7 +659,87 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 			pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
-			displayTextAtPoint(&Tool->mainCamera, worldOrigin, std::to_string(i), vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
+			int globalId = b * 9 + i;
+			displayTextAtPoint(&Tool->mainCamera, worldOrigin, std::to_string(i) + " (" + std::to_string(globalId) + ")", vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Loaded bundle adjust results.
+	//----------------------------------------------------------------------------------------------------
+	if (Tool->barLoaded) {
+		mat4 calibCubeWorldMat = glm::identity<mat4>();
+
+		if (Tool->calibSampleSelectId != -1) {
+			mat4 viewRotMat = mat4(1.0f);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(180.0f), vec3Up);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(180.0f), vec3Forward);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.y), vec3Right);
+			viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+			mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+			
+			for (size_t i = 0; i < Tool->barViews.size(); ++i) {
+				if (Tool->barViewIds[i] == Tool->calibSampleSelectId) {
+					calibCubeWorldMat = glm::inverse(camViewMat) * Tool->barViews[i];
+					break;
+				}
+			}
+		}
+
+		for (size_t i = 0; i < Tool->barCalibCube.points.size(); ++i) {
+			ldiCalibCubePoint* point = &Tool->barCalibCube.points[i];
+			vec3 worldOrigin = calibCubeWorldMat * vec4(point->position, 1.0f);
+
+			pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
+			displayTextAtPoint(&Tool->mainCamera, worldOrigin, std::to_string(point->id) + " (" + std::to_string(point->globalId) + ")", vec4(targetFaceColorBright[point->boardId], 1.0f), TextBuffer);
+		}
+
+		for (int i = 0; i < 5; ++i) {
+			ldiPlane* plane = &Tool->barCalibCube.sidePlanes[i];
+			pushDebugLine(&appContext->defaultDebug, plane->point, plane->point + plane->normal, vec3(255, 255, 0));
+		}
+
+		for (size_t i = 0; i < Tool->barViews.size(); ++i) {
+			ldiTransform boardTransform = {};
+			boardTransform.world = glm::inverse(Tool->barViews[i]);
+			_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->barViewIds[i]), TextBuffer);
+
+			//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Camera calibration target.
+	//----------------------------------------------------------------------------------------------------
+	if (Tool->cameraCalibTargetShow) {
+		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+		mat4 camWorldMat = glm::inverse(camViewMat);
+
+		transformUpdateLocal(&Tool->cameraCalibTargetTransform);
+		mat4 calibTargetLocalMat = Tool->cameraCalibTargetTransform.local;
+
+		if (Tool->cameraCalibSampleSelectId != -1) {
+			calibTargetLocalMat = Tool->cameraCalibSamples[Tool->cameraCalibSampleSelectId].simTargetCamLocalMat;
+		}
+
+		ldiBasicConstantBuffer constantBuffer;
+		constantBuffer.mvp = Tool->mainCamera.projMat * Tool->mainCamera.viewMat * camWorldMat * calibTargetLocalMat;
+		constantBuffer.color = vec4(1, 1, 1, 1);
+		gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
+		gfxRenderModel(appContext, &Tool->cameraCalibTargetModel, false, Tool->cameraCalibTargetSrv, appContext->defaultAnisotropicSamplerState);
+
+		//for (size_t i = 0; i < Tool->cameraCalibSamples.size(); ++i) {
+		if (Tool->cameraCalibSampleSelectId != -1) {
+			ldiTransform boardTransform = {};
+			boardTransform.world = camWorldMat * Tool->cameraCalibSamples[Tool->cameraCalibSampleSelectId].camLocalMat;
+			_renderTransformOrigin(appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->cameraCalibSampleSelectId), TextBuffer);
+
+			for (size_t pointIter = 0; pointIter < _calibrationTargetLocalPoints.size(); ++pointIter) {
+				vec3 pWorld = boardTransform.world * vec4(_calibrationTargetLocalPoints[pointIter], 1.0f);
+				pushDebugBox(&appContext->defaultDebug, pWorld, vec3(0.05f, 0.05f, 0.05f), vec3(255, 0, 0));
+			}
 		}
 	}
 
@@ -692,17 +795,31 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Render cube model.
 	//----------------------------------------------------------------------------------------------------
-	for (int i = 0; i < 6; ++i) {
-		ldiBasicConstantBuffer constantBuffer;
-		constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
-		constantBuffer.color = vec4(1, 1, 1, 1);
+	if (Tool->showTargetMain) {
+		for (int i = 0; i < 6; ++i) {
+			ldiBasicConstantBuffer constantBuffer;
+			constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
+			constantBuffer.color = vec4(1, 1, 1, 1);
 
-		if (i == 5) {
-			constantBuffer.color = vec4(0, 0, 0, 1);
+			if (i == 5) {
+				constantBuffer.color = vec4(0, 0, 0, 1);
+			}
+
+			gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
+			gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], appContext->defaultAnisotropicSamplerState);
 		}
+	}
 
+	//----------------------------------------------------------------------------------------------------
+	// Camera calibration target.
+	//----------------------------------------------------------------------------------------------------
+	if (Tool->cameraCalibTargetShow) {
+		transformUpdateLocal(&Tool->cameraCalibTargetTransform);
+		ldiBasicConstantBuffer constantBuffer;
+		constantBuffer.mvp = projMat * Tool->cameraCalibTargetTransform.local;
+		constantBuffer.color = vec4(1, 1, 1, 1);
 		gfxMapConstantBuffer(appContext, appContext->mvpConstantBuffer, &constantBuffer, sizeof(ldiBasicConstantBuffer));
-		gfxRenderModel(appContext, &Tool->targetModel, false, Tool->targetShaderViewFace[i], Tool->targetTexSampler);
+		gfxRenderModel(appContext, &Tool->cameraCalibTargetModel, false, Tool->cameraCalibTargetSrv, appContext->defaultAnisotropicSamplerState);
 	}
 }
 
@@ -768,9 +885,9 @@ void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	char filePath[256];
 	sprintf_s(filePath, sizeof(filePath), "../cache/calib/%d", Tool->calibSamples.size());
 
-	char fileExt[256];
-	sprintf_s(fileExt, sizeof(filePath), "%s.png", filePath);
-	imageWrite(fileExt, Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
+	//char fileExt[256];
+	//sprintf_s(fileExt, sizeof(filePath), "%s.png", filePath);
+	//imageWrite(fileExt, Tool->imageWidth, Tool->imageHeight, 1, Tool->imageWidth, Tool->renderViewCopy);
 
 	ldiCalibSample calibSample;
 	calibSample.x = Horse->x;
@@ -805,12 +922,76 @@ void visionSimulatorLoadImageSetInfo(ldiVisionSimulator* Tool) {
 
 }
 
+void visionSimulatorCameraCalibRenderAndProcess(ldiVisionSimulator* Tool) {
+	visionSimulatorRender(Tool);
+	_visionSimulatorCopyRenderToBuffer(Tool);
+	ldiImage img = {};
+	img.data = Tool->renderViewCopy;
+	img.width = Tool->imageWidth;
+	img.height = Tool->imageHeight;
+
+	ldiCameraCalibSample sample;
+	if (cameraCalibFindChessboard(Tool->appContext, img, &sample)) {
+		sample.simTargetCamLocalMat = Tool->cameraCalibTargetTransform.local;
+		Tool->cameraCalibSamples.push_back(sample);
+	}
+}
+
+void visionSimulatorCreateCameraCalibImageSet(ldiVisionSimulator* Tool) {
+	Tool->cameraCalibSamples.clear();
+
+	vec3 positions[] = {
+		{0.00, 0.00, -10.00}, {45.00, 0.00, 0.00},
+		
+		// Flat on.
+		{0.00, 0.00, -10.00}, {90.00, 0.00, 0.00},
+		{-2.60, 2.50, -16.00}, {90.00, 0.00, 0.00},
+		{2.80, 2.50, -16.00}, {90.00, 0.00, 0.00},
+		{2.80, -2.50, -16.00}, {90.00, 0.00, 0.00},
+		{-2.60, -2.50, -16.00}, {90.00, 0.00, 0.00},
+		{0.20, -0.10, -16.00}, {90.00, 0.00, 0.00},
+
+		// Facing right.
+		{-3.20, 1.50, -16.00}, {90.90, 0.00, -61.60},
+		{-3.20, -1.20, -16.00}, {90.90, 0.00, -61.60},
+		{3.90, -1.20, -15.80}, {90.90, 0.00, -41.50},
+		{3.90, 1.60, -15.80}, {90.90, 0.00, -41.50},
+		{0.00, 1.60, -15.80}, {90.90, 0.00, -41.50},
+
+		// Facing left.
+		{2.80, 1.60, -15.80}, {90.90, 0.00, 57.60},
+		{-4.80, 1.60, -15.80}, {90.90, 0.00, 39.40},
+		{-5.00, -1.60, -15.80}, {90.90, 0.00, 39.40},
+		{3.00, -1.60, -15.80}, {90.90, 0.00, 58.30},
+
+		// Facing down.
+		{-2.00, 2.90, -15.80}, {89.90, 89.80, 74.90},
+		{2.50, 2.90, -15.80}, {89.90, 89.80, 74.90},
+		{2.60, -3.10, -15.80}, {89.90, 89.80, 50.30},
+		{-2.80, -3.10, -15.80}, {89.90, 89.80, 50.30},
+
+		// Facing up.
+		{-2.30, -2.30, -15.80}, {69.30, -89.50, 50.30},
+		{2.20, -2.30, -15.80}, {69.30, -89.50, 50.30},
+		{2.70, 4.00, -15.80}, {69.30, -89.50, 29.00},
+		{-2.90, 4.00, -15.80}, {69.30, -89.50, 29.00},
+	};
+
+	std::cout << sizeof(positions) / 24 << "\n";
+
+	int posCount = sizeof(positions) / 24;
+	for (int i = 0; i < posCount; ++i) {
+		transformInit(&Tool->cameraCalibTargetTransform, positions[i * 2 + 0], positions[i * 2 + 1]);
+		visionSimulatorCameraCalibRenderAndProcess(Tool);
+	}
+}
+
 void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 	Tool->calibSamples.clear();
 
 	srand(_getTime(Tool->appContext));
 
-	/*for (int i = 0; i < 20; ++i) {
+	for (int i = 0; i < 1000; ++i) {
 		Tool->horse.x = rand() % 16 - 8.0f;
 		Tool->horse.y = rand() % 16 - 8.0f;
 		Tool->horse.z = rand() % 16 - 8.0f;
@@ -819,7 +1000,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 
 		horseUpdate(&Tool->horse);
 		visionSimulatorRenderAndSave(Tool, &Tool->horse);
-	}*/
+	}
 
 	/*for (int iX = 0; iX <= 4; ++iX) {
 		for (int iY = 0; iY <= 4; ++iY) {
@@ -847,7 +1028,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 		}
 	}*/
 
-	for (int iX = 0; iX <= 20; ++iX) {
+	/*for (int iX = 0; iX <= 20; ++iX) {
 		for (int iY = 0; iY <= 20; ++iY) {
 			Tool->horse.x = iX - 10.0f;
 			Tool->horse.y = iY - 10.0f;
@@ -871,7 +1052,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 			horseUpdate(&Tool->horse);
 			visionSimulatorRenderAndSave(Tool, &Tool->horse);
 		}
-	}
+	}*/
 }
 
 void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
@@ -910,9 +1091,11 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 			for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
 				ldiCharucoCorner* corner = &board->corners[cornerIter];
 
-				int cornerGlobalId = (board->id * 25) + corner->id;
+				//int cornerGlobalId = (board->id * 25) + corner->id;
+				int cornerGlobalId = (board->id * 9) + corner->id;
 				vec3 targetPoint = Tool->targetLocalPoints[cornerGlobalId];
 
+				// NOTE: Basic tests have shown that the SSBA utility considers 0,0 to be corner of a pixel.
 				imagePoints.push_back(cv::Point2f(corner->position.x + 0.5f, corner->position.y + 0.5f));
 				worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
 				imagePointIds.push_back(cornerGlobalId);
@@ -924,7 +1107,9 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 		if (imagePoints.size() >= 6) {
 			mat4 pose;
 
+			std::cout << "Find pose - Sample: " << sampleIter << " :\n";
 			if (computerVisionFindGeneralPose(&Tool->calibCameraMatrix, &Tool->calibCameraDist, &imagePoints, &worldPoints, &pose)) {
+				std::cout << "Pose:\n" << GetMat4DebugString(&pose);
 				poses.push_back(pose);
 				viewImageIds.push_back(sampleIter);
 				viewImagePoints.push_back(imagePoints);
@@ -1011,10 +1196,8 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 	si.cb = sizeof(si);
 	ZeroMemory(&pi, sizeof(pi));
 
-	// 100um sides and smoothing.
-	//char args[] = "\"Instant Meshes.exe\" ../../bin/cache/voxel.ply -o ../../bin/cache/output.ply --scale 0.02 --smooth 2";
-	// 75um sides.
-	char args[] = "\"BundleCommon.exe\" ../../bin/cache/ssba_input.txt tangential";
+	// <mode> is one of metric, focal, prinipal, radial, tangental.
+	char args[] = "\"BundleCommon.exe\" ../../bin/cache/ssba_input.txt metric";
 
 	CreateProcessA(
 		"../../assets/bin/BundleCommon.exe",
@@ -1024,13 +1207,112 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 		FALSE,
 		0, //CREATE_NEW_CONSOLE,
 		NULL,
-		//"../../assets/bin",
 		"../cache",
 		&si,
 		&pi
 	);
 
 	WaitForSingleObject(pi.hProcess, INFINITE);
+}
+
+bool visionSimulatorLoadBundleAdjustResults(ldiVisionSimulator* Tool) {
+	FILE* file;
+	fopen_s(&file, "../cache/refined.txt", "r");
+	
+	float ci[9];
+	int modelPointCount = 0;
+	int viewCount = 0;
+	int imagePointCount = 0;
+
+	fscanf_s(file, "%f %f %f %f %f %f %f %f %f\r\n", &ci[0], &ci[1], &ci[2], &ci[3], &ci[4], &ci[5], &ci[6], &ci[7], &ci[8]);
+	Tool->calibCameraMatrix.at<double>(0, 0) = ci[0];
+	Tool->calibCameraMatrix.at<double>(0, 1) = ci[1];
+	Tool->calibCameraMatrix.at<double>(0, 2) = ci[2];
+	Tool->calibCameraMatrix.at<double>(1, 0) = 0.0;
+	Tool->calibCameraMatrix.at<double>(1, 1) = ci[3];
+	Tool->calibCameraMatrix.at<double>(1, 2) = ci[4];
+	Tool->calibCameraMatrix.at<double>(2, 0) = 0.0;
+	Tool->calibCameraMatrix.at<double>(2, 1) = 0.0;
+	Tool->calibCameraMatrix.at<double>(2, 2) = 1.0;
+
+	Tool->calibCameraDist.at<double>(0) = ci[5];
+	Tool->calibCameraDist.at<double>(1) = ci[6];
+	Tool->calibCameraDist.at<double>(2) = ci[7];
+	Tool->calibCameraDist.at<double>(3) = ci[8];
+
+	fscanf_s(file, "%d %d %d\r\n", &modelPointCount, &viewCount, &imagePointCount);
+	std::cout << "Model point count: " << modelPointCount << " View count: " << viewCount << " Image point count: " << imagePointCount << "\n";
+
+	calibCubeInit(&Tool->barCalibCube, 1.0f, 4, 4.0f);
+	Tool->barViews.clear();
+
+	for (int i = 0; i < modelPointCount; ++i) {
+		vec3 position;
+		int pointId;
+
+		fscanf_s(file, "%d %f %f %f\r\n", &pointId, &position[0], &position[1], &position[2]);
+		//std::cout << pointId << " " << position.x << ", " << position.y << ", " << position.z << "\n";
+		
+		if (pointId != i) {
+			fclose(file);
+			std::cout << __FUNCTION__ ": Loading point with incorrect id." << "\n";
+			return false;
+		}
+
+		ldiCalibCubePoint point = {};
+		point.boardId = i / 9;
+		point.id = i % 9;
+		point.globalId = i;
+		point.position = position;
+
+		Tool->barCalibCube.points.push_back(point);
+	}
+
+	for (int i = 0; i < viewCount; ++i) {
+		int viewId;
+		mat4 viewMat = glm::identity<mat4>();
+
+		fscanf_s(file, "%d %f %f %f %f %f %f %f %f %f %f %f %f\r\n", &viewId,
+			&viewMat[0][0], &viewMat[1][0], &viewMat[2][0], &viewMat[3][0],
+			&viewMat[0][1], &viewMat[1][1], &viewMat[2][1], &viewMat[3][1],
+			&viewMat[0][2], &viewMat[1][2], &viewMat[2][2], &viewMat[3][2]);
+
+		std::cout << "View " << viewId << "\n" << GetMat4DebugString(&viewMat);
+
+		Tool->barViews.push_back(viewMat);
+		Tool->barViewIds.push_back(viewId);
+	}
+
+	fclose(file);
+
+	calibCubeCalculatePlanes(&Tool->barCalibCube);
+
+	{
+		std::cout << "Image position reprojection\n";
+		cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
+		cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
+
+		for (size_t viewIter = 0; viewIter < Tool->barViews.size(); ++viewIter) {
+			//std::cout << "View " << Tool->barViewIds[viewIter] << "\n";
+			std::vector<cv::Point3f> points;
+
+			for (size_t pointIter = 0; pointIter < Tool->barCalibCube.points.size(); ++pointIter) {
+				vec3 camSpacePos = Tool->barViews[viewIter] * vec4(Tool->barCalibCube.points[pointIter].position, 1.0f);
+				points.push_back(cv::Point3f(camSpacePos.x, camSpacePos.y, camSpacePos.z));
+			}
+			
+			std::vector<cv::Point2f> imagePoints;
+			cv::projectPoints(points, rvec, tvec, Tool->calibCameraMatrix, Tool->calibCameraDist, imagePoints);
+
+			for (size_t pointIter = 0; pointIter < Tool->barCalibCube.points.size(); ++pointIter) {
+				//std::cout << "  " << pointIter << ": " << imagePoints[pointIter].x << ", " << imagePoints[pointIter].y << "\n";
+			}
+		}
+	}
+
+	Tool->barLoaded = true;
+
+	return true;
 }
 
 void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {
@@ -1095,9 +1377,86 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 		ImGui::Checkbox("Show target cube", &Tool->showTargetMain);
 	}
 
+	if (ImGui::CollapsingHeader("Camera calibration target")) {
+		ImGui::DragFloat3("Pos", (float*)&Tool->cameraCalibTargetTransform.localPos, 0.1f, -100.0f, 100.0f);
+		ImGui::DragFloat3("Rot", (float*)&Tool->cameraCalibTargetTransform.localRot, 0.1f, -360.0f, 360.0f);
+		ImGui::Checkbox("Show camera calibration target", &Tool->cameraCalibTargetShow);
+
+		char buff[256];
+		sprintf_s(buff, "{%.2f, %.2f, %.2f}, {%.2f, %.2f, %.2f}",
+			Tool->cameraCalibTargetTransform.localPos.x,
+			Tool->cameraCalibTargetTransform.localPos.y,
+			Tool->cameraCalibTargetTransform.localPos.z,
+			Tool->cameraCalibTargetTransform.localRot.x,
+			Tool->cameraCalibTargetTransform.localRot.y,
+			Tool->cameraCalibTargetTransform.localRot.z);
+
+		ImGui::InputText("Target transform", buff, 256);
+		// {0, 0, -10}, { 45, 0, 0 }
+	}
+
 	char strbuf[256];
 
-	if (ImGui::CollapsingHeader("Calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Camera intrinsics")) {
+		for (int i = 0; i < 9; ++i) {
+			double* matPtr = (double*)Tool->calibCameraMatrix.ptr(0) + 1 * i;
+			char inputBuff[256];
+			sprintf_s(inputBuff, "I%d", i);
+			ImGui::InputDouble(inputBuff, matPtr);
+		}
+
+		ImGui::Separator();
+
+		for (int i = 0; i < 8; ++i) {
+			double* matPtr = (double*)Tool->calibCameraDist.ptr(0) + 1 * i;
+			char inputBuff[256];
+			sprintf_s(inputBuff, "D%d", i);
+			ImGui::InputDouble(inputBuff, matPtr);
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Camera calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::Button("Find Chessboard")) {
+			_visionSimulatorCopyRenderToBuffer(Tool);
+			ldiImage img = {};
+			img.data = Tool->renderViewCopy;
+			img.width = Tool->imageWidth;
+			img.height = Tool->imageHeight;
+
+			ldiCameraCalibSample sample;
+			if (cameraCalibFindChessboard(Tool->appContext, img, &sample)) {
+				Tool->cameraCalibSamples.push_back(sample);
+			}
+		}
+
+		if (ImGui::Button("Create image set")) {
+			visionSimulatorCreateCameraCalibImageSet(Tool);
+		}
+
+		if (ImGui::Button("Calibrate camera")) {
+			cameraCalibRunCalibration(Tool->appContext, Tool->cameraCalibSamples, Tool->imageWidth, Tool->imageHeight);
+		}
+
+		ImGui::Text("Samples");
+		if (ImGui::BeginListBox("##camcaliblistbox", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
+			for (int n = 0; n < Tool->cameraCalibSamples.size(); ++n) {
+				const bool is_selected = (Tool->cameraCalibSampleSelectId == n);
+
+				sprintf_s(strbuf, sizeof(strbuf), "%d", n);
+				if (ImGui::Selectable(strbuf, is_selected)) {
+					Tool->cameraCalibSampleSelectId = n;
+				}
+
+				// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+				if (is_selected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndListBox();
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Calibration")) {
 		if (ImGui::Button("Find Charuco")) {
 			double rms = 0.0;
 			int rmsCount = 0;
@@ -1165,6 +1524,10 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 
 		if (ImGui::Button("Bundle adjust")) {
 			visionSimulatorBundleAdjust(Tool);
+		}
+
+		if (ImGui::Button("Load bundle adjust")) {
+			visionSimulatorLoadBundleAdjustResults(Tool);
 		}
 
 		if (ImGui::Button("Show live")) {
@@ -1396,6 +1759,29 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 		}
 
 		//----------------------------------------------------------------------------------------------------
+		// Chessboard.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->cameraCalibTargetShow) {
+			if (Tool->cameraCalibSamples.size() > 0) {
+				ldiCameraCalibSample* latest = &Tool->cameraCalibSamples[Tool->cameraCalibSamples.size() - 1];
+				for (size_t i = 0; i < latest->imagePoints.size(); ++i) {
+					vec2 o = latest->imagePoints[i];
+
+					// NOTE: Half pixel offset required.
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+					offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
+
+					draw_list->AddCircleFilled(offset, 4.0f, ImColor(0, 255, 0, 230));
+				
+					char strBuf[256];
+					sprintf_s(strBuf, 256, "%u %.2f, %.2f", i, o.x, o.y);
+					draw_list->AddText(offset, ImColor(255, 0, 0), strBuf);
+				}
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
 		// Draw cursor.
 		//----------------------------------------------------------------------------------------------------
 		if (isHovered) {
@@ -1408,7 +1794,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			if (pixelPos.x >= 0 && pixelPos.x < Tool->imageWidth) {
 				if (pixelPos.y >= 0 && pixelPos.y < Tool->imageHeight) {
 					Tool->imagePixelValue = 69;
-					//tool->imagePixelValue = _pixelsFinal[(int)pixelPos.y * tool->imageWidth + (int)pixelPos.x];
+					//Tool->imagePixelValue = _pixelsFinal[(int)pixelPos.y * tool->imageWidth + (int)pixelPos.x];
 				}
 			}
 

@@ -2112,6 +2112,8 @@ bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const char* Pat
 	//}
 
 	//geoPrintQuadModelInfo(&Project->quadModel);
+
+	return true;
 }
 
 void projectSave(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {

@@ -25,7 +25,7 @@
 #include <d3dcompiler.h>
 
 #include "utilities.h"
-#include "glm.h"
+//#include "glm.h"
 #include "model.h"
 #include "objLoader.h"
 #include "plyLoader.h"
@@ -160,6 +160,7 @@ struct ldiApp {
 	ID3D11SamplerState*			defaultPointSamplerState;
 	ID3D11SamplerState*			defaultLinearSamplerState;
 	ID3D11SamplerState*			wrapLinearSamplerState;
+	ID3D11SamplerState*			defaultAnisotropicSamplerState;
 
 	ID3D11Texture2D*			dotTexture;
 	ID3D11ShaderResourceView*	dotShaderResourceView;
@@ -174,7 +175,7 @@ struct ldiApp {
 	bool						showImageInspector = true;
 	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
-	bool						showVisionSimulator = false;
+	bool						showVisionSimulator = true;
 	bool						showModelEditor = false;
 	bool						showGalvoInspector = false;
 
@@ -769,6 +770,19 @@ bool _initResources(ldiApp* AppContext) {
 		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->wrapLinearSamplerState);
 	}
 
+	{
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+		samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.MipLODBias = 0;
+		samplerDesc.MaxAnisotropy = 16;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+		AppContext->d3dDevice->CreateSamplerState(&samplerDesc, &AppContext->defaultAnisotropicSamplerState);
+	}
+
 	//----------------------------------------------------------------------------------------------------
 	// Dot texture.
 	//----------------------------------------------------------------------------------------------------
@@ -898,6 +912,7 @@ int main() {
 
 	// TODO: Move to callibration machine vision setup.
 	createCharucos(false);
+	cameraCalibCreateTarget(9, 6, 1.0f, 64);
 
 	if (!_initResources(appContext)) {
 		return 1;

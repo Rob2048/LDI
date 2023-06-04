@@ -54,7 +54,64 @@ struct ldiImageInspector {
 	ldiCalibrationJob			calibJob;
 	int							calibJobSelectedSampleId;
 	uint8_t						calibJobImage[CAM_IMG_WIDTH * CAM_IMG_HEIGHT];
+
+	bool						edgePlaceStart = false;
+	bool						edgePlaceEnd = false;
+	vec2						edgeLineStart = vec2(700.5f, 768.5f);
+	vec2						edgeLineEnd = vec2(700.5f, 800.5f);
+	int							edgeLineLength = 10;
 };
+
+vec2 imageGetEdgeCenter(vec2 LineStart, vec2 LineEnd, ldiImageInspector* Tool) {
+	vec2 lineDiff = LineEnd - LineStart;
+	float lineLen = glm::length(lineDiff);
+	int lineSegments = lineLen + 1;
+	vec2 lineDir = glm::normalize(LineEnd - LineStart);
+
+	float lastSampleValue = 0.0f;
+	std::vector<float> sampleDeltas;
+	float totalWeight = 0.0f;
+
+	float diffLimit = pow(5, 0.45);
+
+	for (int i = 0; i < lineSegments; ++i) {
+		vec2 samplePos = LineStart + lineDir * (float)i;
+		
+		int samplePixelX = clamp((int)samplePos.x, 0, CAM_IMG_WIDTH - 1);
+		int samplePixelY = clamp((int)samplePos.y, 0, CAM_IMG_HEIGHT - 1);
+		float sampleValue = Tool->camPixelsFinal[samplePixelY * CAM_IMG_WIDTH + samplePixelX];
+		sampleValue = pow(sampleValue, 0.6);
+
+		if (i > 0) {
+			float diff = abs(sampleValue - lastSampleValue);
+
+			/*if (diff > diffLimit) {
+				totalWeight += diff * diff;
+			}*/
+
+			sampleDeltas.push_back(diff);
+		}
+
+		lastSampleValue = sampleValue;
+	}
+
+	vec2 centerPoint(0.0f, 0.0f);
+
+	for (int i = 0; i < sampleDeltas.size(); ++i) {
+		float sample = sampleDeltas[i];
+
+		/*if (sample <= diffLimit) {
+			continue;
+		}*/
+
+		sample *= sample;
+		vec2 samplePos = LineStart + lineDir * (float)i + vec2(0.5f, 0.0f);
+
+		centerPoint += samplePos * sample / totalWeight;
+	}
+
+	return centerPoint;
+}
 
 bool imageInspectorWaitForCameraFrame(ldiImageInspector* Inspector) {
 	std::unique_lock<std::mutex> lock(Inspector->camNewFrameMutex);
@@ -185,7 +242,8 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 	std::cout << "Sel " << Tool->calibJobSelectedSampleId << "\n";
 
 	FILE* file;
-	fopen_s(&file, Tool->calibJob.fileSamples[Tool->calibJobSelectedSampleId].c_str(), "rb");
+	std::string fileName = Tool->calibJob.fileSamples[Tool->calibJobSelectedSampleId];
+	fopen_s(&file, fileName.c_str(), "rb");
 
 	int width;
 	int height;
@@ -195,7 +253,16 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 	fclose(file);
 
 	// Copy image to fullpixel input.
+	/*for (int i = 0; i < width * height; ++i) {
+		float src = ((float)Tool->calibJobImage[i]) / 255.0f;
+		float corrected = pow(src, 1.0 / 2.2);
+		uint8_t srcFinal = (uint8_t)(corrected * 255.0f);
+
+		Tool->camPixelsFinal[i] = srcFinal;
+	}*/
 	memcpy(Tool->camPixelsFinal, Tool->calibJobImage, width * height);
+
+	//imageWrite((fileName + ".png").c_str(), width, height, 1, width, Tool->calibJobImage);
 
 	_imageInspectorCopyFrameDataToTexture(Tool, Tool->calibJobImage);
 }
@@ -239,7 +306,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
 	}
 
-	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Edge detection", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Place start", &Tool->edgePlaceStart);
+		ImGui::Checkbox("Place stack end", &Tool->edgePlaceEnd);
+		ImGui::SliderInt("Line legnth", &Tool->edgeLineLength, 1, 50);
+		ImGui::DragFloat2("Line start", (float*)&Tool->edgeLineStart, 0.1f, 0.0f, CAM_IMG_WIDTH);
+		ImGui::DragFloat2("Line end", (float*)&Tool->edgeLineEnd, 0.1f, 0.0f, CAM_IMG_WIDTH);
+	}
+
+	if (ImGui::CollapsingHeader("Camera")) {
 		bool newSettings = false;
 
 		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 1, 30000)) {
@@ -343,6 +418,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					Tool->imageMode == IIM_CALIBRATION_JOB;
 
 					_imageInspectorSelectCalibJob(Tool, n);
+
+					if (Tool->camImageProcess) {
+						ldiImage camImg = {};
+						camImg.data = Tool->camPixelsFinal;
+						camImg.width = CAM_IMG_WIDTH;
+						camImg.height = CAM_IMG_HEIGHT;
+
+						findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+					}
 				}
 
 				if (isSelected) {
@@ -375,12 +459,32 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImVec2 mousePos = ImGui::GetIO().MousePos;
 		const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
 
+		const bool isMouseRight = ImGui::GetIO().MouseDown[1];
+		const bool isMouseLeft = ImGui::GetIO().MouseDown[0];
+
 		// Convert canvas pos to world pos.
 		vec2 worldPos;
 		worldPos.x = mouseCanvasPos.x;
 		worldPos.y = mouseCanvasPos.y;
 		worldPos *= (1.0 / imgScale);
 		worldPos -= imgOffset;
+
+		if (Tool->edgePlaceStart && Tool->edgePlaceEnd) {
+			Tool->edgePlaceStart = false;
+			Tool->edgePlaceEnd = false;
+		}
+
+		if (isMouseLeft && isActive && Tool->edgePlaceStart) {
+			//Tool->edgeLineStart = worldPos;
+			Tool->edgeLineStart.x = (int)worldPos.x + 0.5f;
+			Tool->edgeLineStart.y = (int)worldPos.y + 0.5f;
+		}
+
+		if (isMouseLeft && isActive && Tool->edgePlaceEnd) {
+			//Tool->edgeLineStart = worldPos;
+			Tool->edgeLineEnd.x = (int)worldPos.x + 0.5f;
+			Tool->edgeLineEnd.y = (int)worldPos.y + 0.5f;
+		}
 
 		if (isHovered) {
 			float wheel = ImGui::GetIO().MouseWheel;
@@ -401,7 +505,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 		}
 
-		if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+		if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
 			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
 			mouseDelta *= (1.0 / imgScale);
 
@@ -530,6 +634,156 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			rMax.y += imgScale;
 
 			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw edge gradient inspection stuff.
+		//----------------------------------------------------------------------------------------------------
+		{
+			ImVec2 lineStartOrigin;
+			lineStartOrigin.x = screenStartPos.x + (imgOffset.x + Tool->edgeLineStart.x) * imgScale;
+			lineStartOrigin.y = screenStartPos.y + (imgOffset.y + Tool->edgeLineStart.y) * imgScale;
+
+			vec2 lineStart = Tool->edgeLineStart;
+			vec2 lineEnd = Tool->edgeLineStart + vec2(Tool->edgeLineLength, 0);
+			vec2 stackEnd = Tool->edgeLineEnd;
+
+			ImVec2 lineEndOrigin;
+			lineEndOrigin.x = screenStartPos.x + (imgOffset.x + lineEnd.x) * imgScale;
+			lineEndOrigin.y = screenStartPos.y + (imgOffset.y + lineEnd.y) * imgScale;
+
+			ImVec2 stackEndScreenPos;
+			stackEndScreenPos.x = screenStartPos.x + (imgOffset.x + stackEnd.x) * imgScale;
+			stackEndScreenPos.y = screenStartPos.y + (imgOffset.y + stackEnd.y) * imgScale;
+
+			draw_list->AddCircle(lineStartOrigin, 0.5f * imgScale, ImColor(0, 255, 0));
+			draw_list->AddCircle(lineEndOrigin, 0.5f * imgScale, ImColor(0, 200, 0));
+			draw_list->AddLine(lineStartOrigin, lineEndOrigin, ImColor(0, 200, 0));
+			
+			draw_list->AddCircle(stackEndScreenPos, 0.5f * imgScale, ImColor(0, 200, 255));
+			draw_list->AddLine(lineStartOrigin, stackEndScreenPos, ImColor(0, 200, 255));
+
+			int stackCount = (int)(stackEnd.y - lineStart.y);
+			float stackXdiff = (stackEnd.x - lineStart.x) / (float)stackCount;
+			for (int i = 0; i < stackCount; ++i) {
+				vec2 stackPoint = vec2((int)(lineStart.x + i * stackXdiff) + 0.5f, lineStart.y + i);
+
+				ImVec2 stackPointScreenPos;
+				stackPointScreenPos.x = screenStartPos.x + (imgOffset.x + stackPoint.x) * imgScale;
+				stackPointScreenPos.y = screenStartPos.y + (imgOffset.y + stackPoint.y) * imgScale;
+
+				draw_list->AddCircle(stackPointScreenPos, 0.3f * imgScale, ImColor(255, 0, 255));
+
+				vec2 edgeCenter = imageGetEdgeCenter(stackPoint, stackPoint + vec2(Tool->edgeLineLength, 0.0f), Tool);
+
+				ImVec2 edgeCenterScreenPos;
+				edgeCenterScreenPos.x = screenStartPos.x + (imgOffset.x + edgeCenter.x) * imgScale;
+				edgeCenterScreenPos.y = screenStartPos.y + (imgOffset.y + edgeCenter.y) * imgScale;
+
+				draw_list->AddCircle(edgeCenterScreenPos, 0.3f * imgScale, ImColor(255, 255, 255));
+			}
+
+			vec2 lineDiff = lineEnd - lineStart;
+			float lineLen = glm::length(lineDiff);
+			int lineSegments = lineLen + 1;
+			vec2 lineDir = glm::normalize(lineEnd - lineStart);
+
+			ImVec2 plotMinScreenPos;
+			plotMinScreenPos.x = screenStartPos.x + (imgOffset.x + lineStart.x) * imgScale;
+			plotMinScreenPos.y = screenStartPos.y + (imgOffset.y + lineStart.y) * imgScale + 64.0f;
+			draw_list->AddLine(plotMinScreenPos, ImVec2(lineEndOrigin.x, plotMinScreenPos.y), ImColor(0, 0, 255));
+
+			ImVec2 plotMaxScreenPos;
+			plotMaxScreenPos.x = screenStartPos.x + (imgOffset.x + lineStart.x) * imgScale;
+			plotMaxScreenPos.y = screenStartPos.y + (imgOffset.y + lineStart.y) * imgScale + 64.0f + 255 * 2.0f;
+			draw_list->AddLine(plotMaxScreenPos, ImVec2(lineEndOrigin.x, plotMaxScreenPos.y), ImColor(0, 0, 255));
+
+			ImVec2 lastSamplePos(0, 0);
+			float lastSampleValue = 0.0f;
+			std::vector<float> sampleDeltas;
+			float totalWeight = 0.0f;
+
+			for (int i = 0; i < lineSegments; ++i) {
+				vec2 samplePos = lineStart + lineDir * (float)i;
+
+				ImVec2 samplePosScreen;
+				samplePosScreen.x = screenStartPos.x + (imgOffset.x + samplePos.x) * imgScale;
+				samplePosScreen.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale;
+
+				draw_list->AddCircle(samplePosScreen, 0.25f * imgScale, ImColor(255, 0, 0));
+
+				int samplePixelX = clamp((int)samplePos.x, 0, CAM_IMG_WIDTH - 1);
+				int samplePixelY = clamp((int)samplePos.y, 0, CAM_IMG_HEIGHT - 1);
+				int sampleValue = Tool->camPixelsFinal[samplePixelY * CAM_IMG_WIDTH + samplePixelX];
+				
+				char textBuff[64];
+				sprintf_s(textBuff, "%d", sampleValue);
+				draw_list->AddText(samplePosScreen, ImColor(255, 255, 255, 255), textBuff);
+
+				ImVec2 samplePlotPos = samplePosScreen;
+				samplePlotPos.y += 64.0f + sampleValue * 2.0f;
+
+				if (i > 0) {
+					float diff = abs(sampleValue - lastSampleValue);
+
+					ImVec2 deltaScreenPos;
+					deltaScreenPos.x = screenStartPos.x + (imgOffset.x + samplePos.x - 0.5f) * imgScale;
+					deltaScreenPos.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale - 64.0f - (diff * 2.0f);
+
+					draw_list->AddLine(lastSamplePos, samplePlotPos, ImColor(255, 255, 255));
+
+					float delta = diff * diff;
+					sprintf_s(textBuff, "%.2f %d", delta, (int)diff);
+					draw_list->AddText(ImVec2(deltaScreenPos.x, samplePosScreen.y) + ImVec2(0, 64.0f), ImColor(255, 255, 255, 255), textBuff);
+
+					sampleDeltas.push_back(diff);
+				}
+
+				lastSamplePos = samplePlotPos;
+				lastSampleValue = sampleValue;
+			}
+			
+			for (int i = 0; i < sampleDeltas.size(); ++i) {
+				float sample = sampleDeltas[i];
+
+				if (sample > 5.0f) {
+					totalWeight += sample * sample;
+				}
+				
+				vec2 samplePos = lineStart + lineDir * (float)i;
+				ImVec2 deltaScreenPos;
+				deltaScreenPos.x = screenStartPos.x + (imgOffset.x + samplePos.x + 0.5f) * imgScale;
+				deltaScreenPos.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale - 64.0f - (sample * 2.0f);
+
+				if (i > 0) {
+					draw_list->AddLine(lastSamplePos, deltaScreenPos, ImColor(255, 255, 255));
+				}
+
+				lastSamplePos = deltaScreenPos;
+			}
+
+			vec2 centerPoint(0.0f, 0.0f);
+
+			for (int i = 0; i < sampleDeltas.size(); ++i) {
+				float sample = sampleDeltas[i];
+
+				if (sample <= 5.0f) {
+					continue;
+				}
+
+				sample *= sample;
+				vec2 samplePos = lineStart + lineDir * (float)i + vec2(0.5f, 0.0f);
+
+				centerPoint += samplePos * sample / totalWeight;
+			}
+
+			{
+				ImVec2 centerScreenPos;
+				centerScreenPos.x = screenStartPos.x + (imgOffset.x + centerPoint.x) * imgScale;
+				centerScreenPos.y = screenStartPos.y + (imgOffset.y + centerPoint.y) * imgScale;
+
+				draw_list->AddCircle(centerScreenPos, 0.25f * imgScale, ImColor(255, 255, 0));
+			}
 		}
 
 		// Viewport overlay.

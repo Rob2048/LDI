@@ -2,6 +2,8 @@
 
 #include <string_view>
 #include <shobjidl.h> 
+#include <sstream>
+#include <string>
 
 static bool endsWith(std::string_view str, std::string_view suffix) {
 	return str.size() >= suffix.size() && 0 == str.compare(str.size() - suffix.size(), suffix.size(), suffix);
@@ -109,4 +111,17 @@ float LinearToGamma(float In) {
 	float sRGBLo = In * 12.92f;
 	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
+}
+
+#include "glm.h"
+
+std::string GetMat4DebugString(mat4* Mat) {
+	std::stringstream str;
+	
+	str << (*Mat)[0][0] << " " << (*Mat)[0][1] << " " << (*Mat)[0][2] << " " << (*Mat)[0][3] << "\n";
+	str << (*Mat)[1][0] << " " << (*Mat)[1][1] << " " << (*Mat)[1][2] << " " << (*Mat)[1][3] << "\n";
+	str << (*Mat)[2][0] << " " << (*Mat)[2][1] << " " << (*Mat)[2][2] << " " << (*Mat)[2][3] << "\n";
+	str << (*Mat)[3][0] << " " << (*Mat)[3][1] << " " << (*Mat)[3][2] << " " << (*Mat)[3][3] << "\n";
+
+	return str.str();
 }

@@ -92,8 +92,6 @@ Laser direct imager.
 	- Check papers.
 	- Directly related to kernel size?
 
-![Screenshot](resources/wyvern.png)
-
 ## Path planning
 
 ![Screenshot](resources/path_01.png)
