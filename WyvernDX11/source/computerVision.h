@@ -6,6 +6,7 @@
 #include <opencv2/aruco/charuco.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/videoio.hpp>
 
 struct ldiPlane {
 	vec3 point;
@@ -27,6 +28,11 @@ struct ldiCharucoBoard {
 	std::vector<ldiCharucoCorner> corners;
 	bool localMat;
 	mat4 camLocalMat;
+	bool rejected;
+	mat4 camLocalCharucoEstimatedMat;
+	vec2 charucoEstimatedImageCenter;
+	vec2 charucoEstimatedImageNormal;
+	float charucoEstimatedBoardAngle;
 };
 
 struct ldiCharucoResults {
@@ -361,7 +367,7 @@ void createCharucos(bool Output) {
 	}
 }
 
-void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results) {
+void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
 	int offset = 1;
 
 	try {
@@ -407,6 +413,62 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 					ldiCharucoBoard board = {};
 					board.id = i;
 					board.localMat = false;
+					board.rejected = true;
+
+					cv::Mat rvec;
+					cv::Mat tvec;
+					if (cv::aruco::estimatePoseCharucoBoard(charucoCorners, charucoIds, _charucoBoards[i], *CameraMatrix, *CameraDist, rvec, tvec)) {
+						//std::cout << "Found board pose: " << i << rvec << "\n";
+						board.rejected = false;
+
+						cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+						cv::Rodrigues(rvec, cvRotMat);
+
+						// NOTE: OpenCV coords are flipped on Y and Z relative to our cam transform.
+						mat4 rotMat(1.0f);
+						rotMat[0][0] = cvRotMat.at<double>(0, 0);
+						rotMat[0][1] = -cvRotMat.at<double>(1, 0);
+						rotMat[0][2] = -cvRotMat.at<double>(2, 0);
+
+						rotMat[1][0] = cvRotMat.at<double>(0, 1);
+						rotMat[1][1] = -cvRotMat.at<double>(1, 1);
+						rotMat[1][2] = -cvRotMat.at<double>(2, 1);
+
+						rotMat[2][0] = cvRotMat.at<double>(0, 2);
+						rotMat[2][1] = -cvRotMat.at<double>(1, 2);
+						rotMat[2][2] = -cvRotMat.at<double>(2, 2);
+
+						mat4 transMat = glm::translate(mat4(1.0f), vec3(tvec.at<double>(0), -tvec.at<double>(1), -tvec.at<double>(2)));
+						board.camLocalCharucoEstimatedMat = transMat * rotMat;
+
+						cv::Mat rvecTemp = cv::Mat::zeros(3, 1, CV_64F);
+						cv::Mat tvecTemp = cv::Mat::zeros(3, 1, CV_64F);
+						std::vector<cv::Point3f> points;
+						std::vector<cv::Point2f> imagePoints;
+						float cubeHSize = 2.0f;
+
+						vec3 centerPoint = board.camLocalCharucoEstimatedMat * vec4(cubeHSize, cubeHSize, 0.0f, 1.0f);
+						points.push_back(cv::Point3f(-centerPoint.x, centerPoint.y, centerPoint.z));
+
+						vec3 centerNormalPoint = board.camLocalCharucoEstimatedMat * vec4(cubeHSize, cubeHSize, 1.0f, 1.0f);
+						points.push_back(cv::Point3f(-centerNormalPoint.x, centerNormalPoint.y, centerNormalPoint.z));
+
+						vec3 centerNormal = glm::normalize(centerNormalPoint - centerPoint);
+						vec3 camDir = glm::normalize(centerPoint);
+						board.charucoEstimatedBoardAngle = glm::dot(-camDir, centerNormal);
+
+						if (board.charucoEstimatedBoardAngle < 0.3f) {
+							board.rejected = true;
+						}
+
+						cv::projectPoints(points, rvecTemp, tvecTemp, *CameraMatrix, *CameraDist, imagePoints);
+						
+						//points.push_back(cv::Point3f(cubeHSize, cubeHSize, 0.0f));
+						//cv::projectPoints(points, rvec, tvec, *CameraMatrix, *CameraDist, imagePoints);
+
+						board.charucoEstimatedImageCenter = vec2(imagePoints[0].x, imagePoints[0].y);
+						board.charucoEstimatedImageNormal = vec2(imagePoints[1].x, imagePoints[1].y);
+					}
 
 					for (int j = 0; j < charucoIds.size(); ++j) {
 						ldiCharucoCorner corner;
@@ -415,7 +477,9 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results)
 						board.corners.push_back(corner);
 					}
 
-					Results->boards.push_back(board);
+					if (!board.rejected) {
+						Results->boards.push_back(board);
+					}
 				}
 			}
 		}

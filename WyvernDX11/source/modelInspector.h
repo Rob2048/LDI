@@ -1181,7 +1181,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 		poissonSpatialGridDestroy(&sampleGrid);
 	}
 
-	//ModelInspector->poissonSamplesCmykRenderModel[ChannelId] = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
+	Project->poissonSamplesCmykRenderModel[ChannelId] = gfxCreateSurfelRenderModel(AppContext, &poissonSamples, 0.0f);
 
 	std::cout << "Total poisson samples: " << poissonSamples.size() << "\n";
 
@@ -2097,6 +2097,26 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	return true;
 }
 
+bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project, ldiModelInspector* Tool) {
+	if (!Project->surfelsLoaded) {
+		return false;
+	}
+
+	Project->poissonSamplesLoaded = false;
+
+	double t0 = _getTime(AppContext);
+	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 0, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 1, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 2, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
+	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 3, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
+	t0 = _getTime(AppContext) - t0;
+	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
+
+	Project->poissonSamplesLoaded = true;
+
+	return true;
+}
+
 bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
 	projectInvalidateModelData(AppContext, Project);
 	//Project->dir = std::string(Path);
@@ -2135,12 +2155,13 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 			ModelInspector->dotDesc.dotSizeArr[i] = 0;
 			ModelInspector->dotDesc.dotSpacingArr[i] = 0;
 		} else {
-			ModelInspector->dotDesc.dotSizeArr[i] = 50.0f;
-			//ModelInspector->dotSizeArr[i] = 75.0f * density;
-			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - density) + 50.0f;
+			//ModelInspector->dotDesc.dotSizeArr[i] = 50.0f;
+			//ModelInspector->dotDesc.dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 1.0 / 4.2)) + 30.0f;
 
-			//ModelInspector->dotSpacingArr[i] = 50.0f;
-			ModelInspector->dotDesc.dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 1.0 / 4.2)) + 30.0f;
+			ModelInspector->dotDesc.dotSizeArr[i] = 75.0f * density;
+			ModelInspector->dotDesc.dotSpacingArr[i] = 50.0f;
+
+			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - density) + 50.0f;
 			//ModelInspector->dotSpacingArr[i] = 200.0f * (1.0f - pow(density, 4.0)) + 30.0f;
 		}
 	}
@@ -3339,13 +3360,18 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	}
 
 	if (ImGui::CollapsingHeader("Print plan")) {
-		ImGui::Checkbox("Sample sites", &tool->showSampleSites);
+		if (ImGui::Button("Create poisson samples")) {
+			projectCreatePoissonSamples(appContext, project, tool);
+		}
 
-		ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
-		ImGui::Checkbox("C samples", &tool->showCmykModel[0]);
-		ImGui::Checkbox("M samples", &tool->showCmykModel[1]);
-		ImGui::Checkbox("Y samples", &tool->showCmykModel[2]);
-		ImGui::Checkbox("K samples", &tool->showCmykModel[3]);
+		if (project->poissonSamplesLoaded) {
+			ImGui::Checkbox("Sample sites", &tool->showSampleSites);
+			ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
+			ImGui::Checkbox("C samples", &tool->showCmykModel[0]);
+			ImGui::Checkbox("M samples", &tool->showCmykModel[1]);
+			ImGui::Checkbox("Y samples", &tool->showCmykModel[2]);
+			ImGui::Checkbox("K samples", &tool->showCmykModel[3]);
+		}
 	}
 
 	if (ImGui::CollapsingHeader("Laser view")) {

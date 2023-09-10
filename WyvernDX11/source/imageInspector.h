@@ -12,6 +12,32 @@
 //#define CAM_IMG_WIDTH 4056
 //#define CAM_IMG_HEIGHT 3040
 
+struct ldiRotaryPoint {
+	int id;
+	vec2 pos;
+	float info;
+	float zeroAngle;
+	float relAngle;
+};
+
+struct ldiRotaryResults {
+	bool showGizmos = true;
+
+	std::vector<cv::KeyPoint> blobs;
+
+	bool foundCenter = false;
+	vec2 centerPos;
+
+	bool foundLocator = false;
+	vec2 locatorPos;
+
+	std::vector<ldiRotaryPoint> points;
+
+	ldiRotaryPoint accumPoints[32];
+
+	float relativeAngleToZero;
+};
+
 enum ldiImageInspectorMode {
 	IIM_LIVE_CAMERA,
 	IIM_CALIBRATION_JOB
@@ -60,7 +86,40 @@ struct ldiImageInspector {
 	vec2						edgeLineStart = vec2(700.5f, 768.5f);
 	vec2						edgeLineEnd = vec2(700.5f, 800.5f);
 	int							edgeLineLength = 10;
+
+	ldiRotaryResults			rotaryResults;
+
+	cv::VideoCapture			webcamCapture;
 };
+
+float avgAngles(int Count, float* Data) {
+	float avgStart = Data[0];
+	float accum = 0.0f;
+
+	for (int i = 0; i < Count; ++i) {
+		float v = Data[i];
+
+		v -= avgStart;
+
+		if (v > 180) {
+			v -= 360;
+		} else if (v < -180) {
+			v += 360;
+		}
+
+		accum += v / (float)Count;
+	}
+
+	accum += avgStart;
+
+	if (accum >= 360.0) {
+		accum -= 360.0;
+	} else if (accum < 0.0) {
+		accum += 360.0;
+	}
+
+	return accum;
+}
 
 vec2 imageGetEdgeCenter(vec2 LineStart, vec2 LineEnd, ldiImageInspector* Tool) {
 	vec2 lineDiff = LineEnd - LineStart;
@@ -212,6 +271,18 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 		}
 	}
 
+	//----------------------------------------------------------------------------------------------------
+	// Start webcamera camera.
+	//----------------------------------------------------------------------------------------------------
+	std::cout << "Start camera...\n";
+	Tool->webcamCapture.open(0, cv::CAP_ANY);
+
+	if (!Tool->webcamCapture.isOpened()) {
+		std::cout << "Failed to open camera\n";
+	} else {
+		std::cout << "Camera started\n";
+	}
+
 	return 0;
 }
 
@@ -223,6 +294,18 @@ void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* Fra
 	for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
 		//memcpy(pixelData + i * ms.RowPitch, Tool->camPixelsFinal + i * 4064, 4064);
 		memcpy(pixelData + i * ms.RowPitch, FrameData + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
+	}
+
+	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
+}
+
+void _imageInspectorCopyFrameDataToTextureEx(ldiImageInspector* Tool, uint8_t* FrameData, int Width, int Height) {
+	D3D11_MAPPED_SUBRESOURCE ms;
+	Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	uint8_t* pixelData = (uint8_t*)ms.pData;
+
+	for (int i = 0; i < Height; ++i) {
+		memcpy(pixelData + i * ms.RowPitch, FrameData + i * Width, Width);
 	}
 
 	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
@@ -274,6 +357,148 @@ void _imageInspectorProcessCalibJob(ldiImageInspector* Tool) {
 	}
 }
 
+bool compareInterval(ldiRotaryPoint i1, ldiRotaryPoint i2) {
+	return (i1.info < i2.info);
+}
+
+void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
+	RotaryResults->foundCenter = false;
+	RotaryResults->foundLocator = false;
+	RotaryResults->points.clear();
+
+	float viewWidth = 640.0f;
+	float viewHeight = 480.0f;
+	float viewCenterX = viewWidth / 2.0f;
+	float viewCenterY = viewHeight / 2.0f;
+
+	float trackCenterRadius = 40.0f;
+	float trackInnerRadius = 180.0f;
+	float trackOuterRadius = 260.0f;
+
+	std::vector<ldiRotaryPoint> tempResults;
+
+	for (size_t i = 0; i < RotaryResults->blobs.size(); ++i) {
+		cv::KeyPoint* k = &RotaryResults->blobs[i];
+
+		vec2 imgCenter(viewCenterX, viewCenterY);
+		vec2 pointPos(k->pt.x, k->pt.y);
+		float centerDist = glm::distance(imgCenter, pointPos);
+
+		// Identify center.
+		if (centerDist < trackCenterRadius) {
+			RotaryResults->foundCenter = true;
+			RotaryResults->centerPos = pointPos;
+		} else if (centerDist < trackInnerRadius) {
+			RotaryResults->foundLocator = true;
+			RotaryResults->locatorPos = pointPos;
+		} else if (centerDist < trackOuterRadius) {
+			ldiRotaryPoint p;
+			p.id = -1;
+			p.pos = pointPos;
+			tempResults.push_back(p);
+		}
+	}
+
+	if (!RotaryResults->foundCenter || !RotaryResults->foundLocator || tempResults.size() != 32) {
+		return;
+	}
+
+	// Find the starting point.
+	int startId = -1;
+	float startAngleOffset = 0.0f;
+
+	for (size_t i = 0; i < tempResults.size(); ++i) {
+		ldiRotaryPoint* a = &tempResults[i];
+
+		vec2 vA = RotaryResults->centerPos - a->pos;
+		vec2 vB = RotaryResults->locatorPos - a->pos;
+
+		float lenA = glm::length(vA);
+
+		vec2 vAnorm = vA / lenA;
+		vec2 vBnorm = vB / lenA;
+
+		float t = glm::dot(vAnorm, vBnorm);
+		a->info = t;
+
+		if (t < 0.505) {
+			a->id = 0;
+			//RotaryResults->points.push_back(*a);
+
+			startId = i;
+
+			// Get angle:
+			vec2 pV = a->pos - RotaryResults->centerPos;
+			float r = glm::length(pV);
+
+			float theta = atan2(pV.y, pV.x);
+			float angle = theta * (180 / M_PI) + 180.0;
+
+			startAngleOffset = angle;
+		}
+	}
+
+	if (startId == -1) {
+		return;
+	}
+	
+	// Get point ID's from angle.
+	for (size_t i = 0; i < tempResults.size(); ++i) {
+		ldiRotaryPoint* a = &tempResults[i];
+
+		// Get angle:
+		vec2 pV = a->pos - RotaryResults->centerPos;
+		float r = glm::length(pV);
+
+		float theta = atan2(pV.y, pV.x);
+		float angle = theta * (180 / M_PI) + 180.0;
+
+		a->info = angle - startAngleOffset;
+		
+		float segWidth = (360.0 / 32);
+		float segAngle = a->info;
+
+		if (segAngle < 0.0f) {
+			segAngle += 360.0f;
+		}
+
+		int pointId = (segAngle + (segWidth * 0.5f)) / segWidth;
+		a->id = pointId;
+
+		ldiRotaryPoint* b = &RotaryResults->accumPoints[pointId];
+
+		b->id = a->id;
+		b->pos = a->pos;
+	}
+
+
+	float angles[16];
+
+	for (int i = 0; i < 16; ++i) {
+		ldiRotaryPoint* a = &RotaryResults->accumPoints[i];
+		ldiRotaryPoint* b = &RotaryResults->accumPoints[i + 16];
+
+		vec2 pV = a->pos - b->pos;
+		float r = glm::length(pV);
+
+		float theta = atan2(pV.y, pV.x);
+		float angle = theta * (180 / M_PI) + 180.0;
+
+		//a->info = angle;
+		// Filter flops hard when doing 0-360 flip.
+		a->info = a->info * 0.90f + angle * 0.1f;
+		a->relAngle = a->info - a->zeroAngle;
+
+		if (a->relAngle < 0) {
+			a->relAngle += 360.0;
+		}
+
+		angles[i] = a->relAngle;
+	}
+
+	RotaryResults->relativeAngleToZero = avgAngles(16, angles);
+}
+
 void imageInspectorShowUi(ldiImageInspector* Tool) {
 	if (Tool->imageMode == IIM_LIVE_CAMERA) {
 		if (Tool->camNewFrameId != Tool->camLastNewFrameId) {
@@ -287,9 +512,32 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				camImg.width = CAM_IMG_WIDTH;
 				camImg.height = CAM_IMG_HEIGHT;
 
-				findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+				//findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 			}
 		}
+	}
+
+	cv::Mat webcamFrame;
+	if (Tool->webcamCapture.read(webcamFrame)) {
+		//std::cout << "Got frame: " << webcamFrame.type() << " " << webcamFrame.cols << " " << webcamFrame.rows << "\n";
+		cv::Mat frameGrey;
+		cv::cvtColor(webcamFrame, frameGrey, cv::COLOR_BGR2GRAY);
+		//std::cout << "Grey: " << frameGrey.type() << " " << frameGrey.cols << " " << frameGrey.rows << "\n";
+
+		cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
+		//std::cout << params.minArea << " " << params.maxArea << "\n";
+		params.minArea = 70;
+		params.maxArea = 700;
+
+		cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
+		detector->detect(frameGrey, Tool->rotaryResults.blobs);
+
+		//std::cout << "Blobs: " << Tool->webcameKeypoints.size() << "\n";
+		imageProcessRotaryMarker(&Tool->rotaryResults);
+
+		_imageInspectorCopyFrameDataToTextureEx(Tool, frameGrey.data, frameGrey.cols, frameGrey.rows);
+	} else {
+		std::cout << "No webcam frame\n";
 	}
 
 	ImGui::Begin("Image inspector controls");
@@ -304,6 +552,18 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		//ImGui::SliderFloat("Gain B", &Tool->camImageGainB, 0.0f, 2.0f);
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
+	}
+
+	if (ImGui::CollapsingHeader("Rotary measurement", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Show gizmos", &Tool->rotaryResults.showGizmos);
+
+		if (ImGui::Button("Zero")) {
+			for (int i = 0; i < 16; ++i) {
+				Tool->rotaryResults.accumPoints[i].zeroAngle = Tool->rotaryResults.accumPoints[i].info;
+			}
+		}
+
+		ImGui::Text("Angle: %.3f", Tool->rotaryResults.relativeAngleToZero);
 	}
 
 	if (ImGui::CollapsingHeader("Edge detection", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -382,7 +642,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			camImg.width = CAM_IMG_WIDTH;
 			camImg.height = CAM_IMG_HEIGHT;
 
-			findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+			//findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 		}
 	}
 
@@ -425,7 +685,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 						camImg.width = CAM_IMG_WIDTH;
 						camImg.height = CAM_IMG_HEIGHT;
 
-						findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+						//findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
 					}
 				}
 
@@ -538,6 +798,117 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
 		//----------------------------------------------------------------------------------------------------
+		// Draw webcam results.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->rotaryResults.showGizmos) {
+			ldiRotaryResults* rotary = &Tool->rotaryResults;
+			
+			{
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (imgOffset.x + 320) * imgScale;
+				offset.y = screenStartPos.y + (imgOffset.y + 240) * imgScale;
+
+				// Center tracking.
+				draw_list->AddCircle(offset, 40.0f * imgScale, ImColor(200, 0, 200));
+
+				// Inner track.
+				draw_list->AddCircle(offset, 180.0f * imgScale, ImColor(200, 0, 200));
+
+				// Outer track.
+				draw_list->AddCircle(offset, 260.0f * imgScale, ImColor(200, 0, 200));
+			}
+
+			for (int i = 0; i < rotary->blobs.size(); ++i) {
+				cv::KeyPoint* k = &rotary->blobs[i];
+
+				// NOTE: Half pixel offset required.
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (imgOffset.x + k->pt.x) * imgScale;
+				offset.y = screenStartPos.y + (imgOffset.y + k->pt.y) * imgScale;
+
+				draw_list->AddCircle(offset, 2.0f, ImColor(0, 0, 255));
+
+				/*char strBuf[256];
+				sprintf_s(strBuf, 256, "%.2f, %.2f : %.3f", k->pt.x, k->pt.y, k->size);
+				draw_list->AddText(offset, ImColor(0, 175, 0), strBuf);*/
+			}
+
+			if (rotary->foundCenter && rotary->foundLocator) {
+				{
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + rotary->centerPos.x) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + rotary->centerPos.y) * imgScale;
+					draw_list->AddCircle(offset, 4.0f * imgScale, ImColor(0, 255, 0));
+				}
+
+				{
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + rotary->locatorPos.x) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + rotary->locatorPos.y) * imgScale;
+					draw_list->AddCircle(offset, 4.0f * imgScale, ImColor(255, 255, 0));
+				}
+				
+				
+				//for (int i = 0; i < rotary->points.size(); ++i) {
+				//	ldiRotaryPoint* k = &rotary->points[i];
+
+				//	// NOTE: Half pixel offset required.
+				//	ImVec2 offset = pos;
+				//	offset.x = screenStartPos.x + (imgOffset.x + k->pos.x) * imgScale;
+				//	offset.y = screenStartPos.y + (imgOffset.y + k->pos.y) * imgScale;
+
+				//	draw_list->AddCircle(offset, 4.0f, ImColor(255, 0, 0));
+
+				//	char strBuf[256];
+				//	//sprintf_s(strBuf, 256, "%d %.2f, %.2f : %f", k->id, k->pos.x, k->pos.y, k->info);
+				//	sprintf_s(strBuf, 256, "%d %.3f", k->id, k->info);
+				//	draw_list->AddText(offset, ImColor(0, 255, 0), strBuf);
+				//}
+
+				for (int i = 0; i < 32; ++i) {
+					ldiRotaryPoint* k = &rotary->accumPoints[i];
+
+					// NOTE: Half pixel offset required.
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + k->pos.x) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + k->pos.y) * imgScale;
+
+					if (i < 16) {
+						draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+
+						char strBuf[256];
+						//sprintf_s(strBuf, 256, "%d %.2f, %.2f : %f", k->id, k->pos.x, k->pos.y, k->info);
+						sprintf_s(strBuf, 256, "%d %.3f %.3f", k->id, k->info, k->relAngle);
+						draw_list->AddText(offset, ImColor(0, 255, 0), strBuf);
+					} else {
+						draw_list->AddCircle(offset, 4.0f, ImColor(255, 0, 0));
+
+						char strBuf[256];
+						sprintf_s(strBuf, 256, "%d", k->id);
+						draw_list->AddText(offset, ImColor(255, 0, 0), strBuf);
+					}
+				}
+
+				for (int i = 0; i < 16; ++i) {
+					ldiRotaryPoint* a = &rotary->accumPoints[i];
+					ldiRotaryPoint* b = &rotary->accumPoints[i + 16];
+
+					// NOTE: Half pixel offset required.
+					ImVec2 aPos;
+					aPos.x = screenStartPos.x + (imgOffset.x + a->pos.x) * imgScale;
+					aPos.y = screenStartPos.y + (imgOffset.y + a->pos.y) * imgScale;
+
+					ImVec2 bPos;
+					bPos.x = screenStartPos.x + (imgOffset.x + b->pos.x) * imgScale;
+					bPos.y = screenStartPos.y + (imgOffset.y + b->pos.y) * imgScale;
+
+					draw_list->AddLine(aPos, bPos, ImColor(0, 0, 0 + (255 / 16) * i));
+				}
+
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
 		// Draw charuco results.
 		//----------------------------------------------------------------------------------------------------
 		std::vector<vec2> markerCentroids;
@@ -639,7 +1010,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		//----------------------------------------------------------------------------------------------------
 		// Draw edge gradient inspection stuff.
 		//----------------------------------------------------------------------------------------------------
-		{
+		/*{
 			ImVec2 lineStartOrigin;
 			lineStartOrigin.x = screenStartPos.x + (imgOffset.x + Tool->edgeLineStart.x) * imgScale;
 			lineStartOrigin.y = screenStartPos.y + (imgOffset.y + Tool->edgeLineStart.y) * imgScale;
@@ -784,7 +1155,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 				draw_list->AddCircle(centerScreenPos, 0.25f * imgScale, ImColor(255, 255, 0));
 			}
-		}
+		}*/
 
 		// Viewport overlay.
 		{

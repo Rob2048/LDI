@@ -43,6 +43,10 @@
 #define PIN_DBG2				22
 #define PIN_DBG3				23
 
+#define PIN_ENC_Z				21
+#define PIN_ENC_B				22
+#define PIN_ENC_A				23
+
 #include <SPI.h>
 #include <stdint.h>
 #include <math.h>
@@ -997,6 +1001,55 @@ void updatePacketInput() {
 }
 
 //--------------------------------------------------------------------------------
+// Interrupts.
+//--------------------------------------------------------------------------------
+volatile int encStateA = 0;
+volatile int encStateB = 0;
+volatile int encStateZ = 0;
+
+volatile int encCount = 0;
+
+void interrupt_encA() {
+	encStateA = digitalRead(PIN_ENC_A);
+
+	if (encStateA == 1) {
+		if (encStateB == 0) {
+			++encCount;
+		} else {
+			--encCount;
+		}
+	} else {
+		if (encStateB == 1) {
+			++encCount;
+		} else {
+			--encCount;
+		}
+	}
+}
+
+void interrupt_encB() {
+	encStateB = digitalRead(PIN_ENC_B);
+
+	if (encStateB == 1) {
+		if (encStateA == 1) {
+			++encCount;
+		} else {
+			--encCount;
+		}
+	} else {
+		if (encStateA == 0) {
+			++encCount;
+		} else {
+			--encCount;
+		}
+	}
+}
+
+void interrupt_encZ() {
+	encStateZ = digitalRead(PIN_ENC_Z);
+}
+
+//--------------------------------------------------------------------------------
 // Setup.
 //--------------------------------------------------------------------------------
 void setup() {
@@ -1009,7 +1062,8 @@ void setup() {
 
 	// A
 	// 1:30
-	st4.init(32, 1, 900, 0.00125, 200.0, false);
+	// st4.init(32, 1, 900, 0.00125, 200.0, false);
+	st4.init(32, 0, 500, 0.00125, 200.0, false);
 
 	// st1.init(32, 0, 900, 0.00625, 10000.0, true);
 
@@ -1017,6 +1071,15 @@ void setup() {
 	// pinMode(PIN_DBG1, OUTPUT);
 	// pinMode(PIN_DBG2, OUTPUT);
 	// pinMode(PIN_DBG3, OUTPUT);
+
+	// Enable encoder pins.
+	pinMode(PIN_ENC_A, INPUT);
+	pinMode(PIN_ENC_B, INPUT);
+	pinMode(PIN_ENC_Z, INPUT);
+
+	attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), interrupt_encA, CHANGE);
+	attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), interrupt_encB, CHANGE);
+	attachInterrupt(digitalPinToInterrupt(PIN_ENC_Z), interrupt_encZ, CHANGE);
 
 	// Enable steppers.
 	pinMode(PIN_STP_EN1, OUTPUT);
@@ -1046,13 +1109,13 @@ int getMicroPhase(int Step) {
 //--------------------------------------------------------------------------------
 void loop() {
 	// Comms mode.
-	while (1) {
-		updatePacketInput();
-	}
+	//while (1) {
+		//updatePacketInput();
+	//}
 
 	// NOTE: Limit switch inputs.
-	pinMode(21, INPUT_PULLDOWN);
-	pinMode(22, INPUT_PULLDOWN);
+	// pinMode(21, INPUT_PULLDOWN);
+	// pinMode(22, INPUT_PULLDOWN);
 	
 	// while (1) {
 	// 	int a0 = analogRead(7);
@@ -1073,14 +1136,203 @@ void loop() {
 	// 	delayMicroseconds(300);
 	// }
 
+	// Encoder:
+	// 8192 * 4 = 32768
+	// 360 / 32768 = 0.010986328125 degs per count.
+
+	double degsPerCount = 360.0 / 32768.0;
+	double degsPerStep = 360.0 / (200.0 * 256.0);
+
 	uint16_t startMicrostep = st4.getMicrostepCount();
 	st4.currentStep = (startMicrostep - 4) / 8;// % 128;
 
-	Serial.printf("Step: %d Micro: %d\n", st4.currentStep, startMicrostep);
+	// Serial.printf("Step: %d Micro: %d\n", st4.currentStep, startMicrostep);
 
+	int lastDirection = 0;
+
+	int counter = millis();
+	int lastEncCount = 0;
+	
 	// Manual mode.
 	while (1) {
+		int newTime = millis();
+
+		if (newTime - counter >= 500) {
+			counter = newTime;
+
+			double degs = encCount * degsPerCount;
+
+			// Serial.printf("%d %f\n", encCount, degs);
+			// Serial.printf("Step:%d,Deg:%f\n", 100, 24.5);
+		}
+
 		int b = Serial.read();
+		
+		if (b == 'u') {
+			st4.setDirection(1);
+			encCount = 0;
+			int motorStep = 0;
+
+			// uint16_t step = st4.getMicrostepCount();
+			// Serial.printf("Start step: %d\n", step);
+
+			for (int i = 0; i < 200 * 256; ++i) {
+				// uint16_t step = st4.getMicrostepCount();
+
+				double target = i * degsPerStep;
+				double degs = encCount * -degsPerCount;
+				double error = degs - target;
+
+				// if (i % 1 == 0) {
+					// Serial.printf("%d,%f,%f\n", step, target, degs);
+					// Serial.printf("%d,%f,%f,%f\n", step, target, degs, error);
+				// }
+
+				// if (i == 1024) {
+				// 	st4.setDirection(0);
+				// }
+
+				// digitalWrite(PIN_LASER_PWM, HIGH);
+				st4.pulseStepper();
+				// digitalWrite(PIN_LASER_PWM, LOW);
+				// delayMicroseconds(200);
+				delayMicroseconds(200);
+				// delay(1);
+
+				// if (i < 1024) {
+				// 	motorStep += 1;
+				// } else {
+				// 	motorStep -= 1;
+				// }
+			}
+		}
+
+		if (b == 'h') {
+			st4.setDirection(1);
+
+			uint16_t currStep = st4.getMicrostepCount();
+			Serial.printf("Start step: %d\n", currStep);
+
+			while (true) {
+				uint16_t step = st4.getMicrostepCount();
+
+				if (step == 0) {
+					break;
+				}
+
+				st4.pulseStepper();
+				delayMicroseconds(200);
+			}
+
+			currStep = st4.getMicrostepCount();
+			Serial.printf("End step: %d\n", currStep);
+		}
+
+		// if (b == 'q') {
+		// 	st4.setDirection(0);
+			
+		// 	for (int i = 0; i < 1; ++i) {
+		// 		st4.pulseStepper();
+		// 		delayMicroseconds(200);
+		// 	}
+
+		// 	uint16_t step = st4.getMicrostepCount();
+		// 	Serial.printf("%d,%d\n", step, -encCount);
+		// } else if (b == 'w') {
+		// 	st4.setDirection(1);
+
+		// 	for (int i = 0; i < 1; ++i) {
+		// 		st4.pulseStepper();
+		// 		delayMicroseconds(200);
+		// 	}
+
+		// 	uint16_t step = st4.getMicrostepCount();
+		// 	Serial.printf("%d,%d\n", step, -encCount);
+		// }
+
+		// 32 microstepping = 0.001875 deg per step.
+
+		// 54 steps = 0.10125 degs.
+		// 0.01 deg = 5.4 steps.
+
+		// 48000 steps = 90.13 deg.
+		// 1 step = 0.001877 degs.
+
+		// Actual single turn degs: 360.44875
+		// Actual ratio: 29.962651:1
+
+		
+
+		if (b == 'q') {
+			// 192000
+			Serial.printf("Current step: %d\n", st4.currentStep);
+			st4.moveRelative(48000, 30);
+			while (st4.updateStepper());
+			Serial.printf("Current step: %d\n", st4.currentStep);
+		} else if (b == 'w') {
+			Serial.printf("Current step: %d\n", st4.currentStep);
+			st4.moveRelative(-48000, 30);
+			while (st4.updateStepper());
+			Serial.printf("Current step: %d\n", st4.currentStep);
+		}
+
+		if (b == 'a') {
+			st4.moveRelative(54, 5);
+			while (st4.updateStepper());
+		} else if (b == 's') {
+			st4.moveRelative(-54, 5);
+			while (st4.updateStepper());
+		}
+
+		if (b == 'z') {
+			encCount = 0;
+		}
+
+		continue;
+
+		// if (b == 'q') {
+		// 	int counts = 1000;
+		// 	if (lastDirection != 1) {
+		// 		lastDirection = 1;
+		// 		counts += 60;
+		// 	}
+
+		// 	st4.moveRelative(counts, 20);
+		// 	while (st4.updateStepper());
+		// } else if (b == 'w') {
+		// 	int counts = 1000;
+		// 	if (lastDirection != 0) {
+		// 		lastDirection = 0;
+		// 		counts += 60;
+		// 	}
+
+		// 	st4.moveRelative(-counts, 20);
+
+		// 	while (st4.updateStepper());
+		// }
+
+		// if (b == 'a') {
+		// 	int counts = 10;
+		// 	if (lastDirection != 1) {
+		// 		lastDirection = 1;
+		// 		counts += 60;
+		// 	}
+
+		// 	st4.moveRelative(counts, 20);
+		// 	while (st4.updateStepper());
+		// } else if (b == 's') {
+		// 	int counts = 10;
+		// 	if (lastDirection != 0) {
+		// 		lastDirection = 0;
+		// 		counts += 60;
+		// 	}
+
+		// 	st4.moveRelative(-counts, 20);
+
+		// 	while (st4.updateStepper());
+		// }
+
+		// continue;
 
 		if (b == 'a' || b == 's') {
 			st4.setDirection(b == 'a');
@@ -1112,7 +1364,7 @@ void loop() {
 					Serial.printf("%d:%d %d\n", st4.currentStep, step, a0);
 				}
 
-				delayMicroseconds(200);
+				delayMicroseconds(100);
 			}
 
 			Serial.println("------------------------------------------------------");

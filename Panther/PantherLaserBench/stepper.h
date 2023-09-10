@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Arduino.h"
-// TODO: Need to remove this library due to viral AGPLv3 license.
+// TODO: Need to remove this library due to viral AGPLv3 license (License was updated to MIT recently?).
 // Alternative: https://github.com/teemuatlut/TMCStepper
 #include <TMC2130Stepper.h>
 

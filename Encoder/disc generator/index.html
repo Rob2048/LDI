@@ -16,7 +16,7 @@
 	</svg> -->
 
 	<img/>
-	<canvas id="canvas" width="4724" height="4724"></canvas>
+	<canvas id="canvas" width="1181" height="1181"></canvas>
 
 </body>
 
@@ -45,13 +45,13 @@
 		return d;
 	}
 
-	let dDiameter = 100;
+	let dDiameter = 25;
 	let viewScale = 1.0;
 	let cX = dDiameter * 0.5;
 	let cY = dDiameter * 0.5;
 
 	// Background.
-	let draw = SVG().addTo('body').size(100, 100);
+	let draw = SVG().addTo('body').size(25, 25);
 	// draw.transform({ translateX: dDiameter * viewScale * 0.5, translateY: dDiameter * viewScale * 0.5, scale: viewScale });
 	draw.transform({ scale: 1.0 });
 	// let rect = draw.rect(dDiameter, dDiameter).attr({ fill: 'rgb(150, 150, 150)' });
@@ -60,155 +60,162 @@
 	draw.circle(dDiameter).center(cX, cY).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': 0.1 });
 
 	// Circle track.
-	let circCount = 720;
-	let circDiam = 0.2;
-	let circTrackRadius = (dDiameter * 0.95) * 0.5;
-	let circDivDeg = 360 / circCount;
-	let circDivRad = circDivDeg * Math.PI / 180;
+	// let circCount = 720;
+	// let circDiam = 0.2;
+	// let circTrackRadius = (dDiameter * 0.95) * 0.5;
+	// let circDivDeg = 360 / circCount;
+	// let circDivRad = circDivDeg * Math.PI / 180;
 
-	for (let i = 0; i < circCount; ++i) {
-		let x = Math.sin(i * circDivRad) * circTrackRadius;
-		let y = Math.cos(i * circDivRad) * circTrackRadius;
+	// for (let i = 0; i < circCount; ++i) {
+	// 	let x = Math.sin(i * circDivRad) * circTrackRadius;
+	// 	let y = Math.cos(i * circDivRad) * circTrackRadius;
 
-		draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
-	}
+	// 	draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// }
 
-	// Encoder track.
-	let trackRadius = (dDiameter * 0.89) * 0.5;
-	let trackWidth = 0.2;
-	let trackBitDepth = 9;
-	let trackSmallestBitAngle = 360;
-	let trackSectorRes = (360 / trackSmallestBitAngle);
-	let trackOffsetDeg = trackSectorRes * -0.5;
+	// // Encoder track.
+	// let trackRadius = (dDiameter * 0.89) * 0.5;
+	// let trackWidth = 0.2;
+	// let trackBitDepth = 9;
+	// let trackSmallestBitAngle = 360;
+	// let trackSectorRes = (360 / trackSmallestBitAngle);
+	// let trackOffsetDeg = trackSectorRes * -0.5;
 
-	for (let j = 0; j < trackBitDepth; ++j) {
-		let power = Math.pow(2, j + 1);
-		let sectorCount = Math.ceil(trackSmallestBitAngle / power);
+	// for (let j = 0; j < trackBitDepth; ++j) {
+	// 	let power = Math.pow(2, j + 1);
+	// 	let sectorCount = Math.ceil(trackSmallestBitAngle / power);
 
-		for (let i = 0; i < sectorCount; ++i) {
-			let a = i * power * trackSectorRes;
-			let b = ((i * power) + (power / 2)) * trackSectorRes;
-			b = Math.min(360, b);
-			draw.path(describeArc(cX, cY, trackRadius + trackWidth * j, a + trackOffsetDeg, b + trackOffsetDeg)).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': trackWidth });
-		}
-	}
+	// 	for (let i = 0; i < sectorCount; ++i) {
+	// 		let a = i * power * trackSectorRes;
+	// 		let b = ((i * power) + (power / 2)) * trackSectorRes;
+	// 		b = Math.min(360, b);
+	// 		draw.path(describeArc(cX, cY, trackRadius + trackWidth * j, a + trackOffsetDeg, b + trackOffsetDeg)).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': trackWidth });
+	// 	}
+	// }
 
-	// Encoder locators
-	{
-		let circCount = 360;
-		let circDiam = 0.3;
-		let circTrackRadius = (dDiameter * 0.88) * 0.5;
-		let circDivDeg = 360 / circCount;
-		let circDivRad = circDivDeg * Math.PI / 180;
+	// // Encoder locators
+	// {
+	// 	let circCount = 360;
+	// 	let circDiam = 0.3;
+	// 	let circTrackRadius = (dDiameter * 0.88) * 0.5;
+	// 	let circDivDeg = 360 / circCount;
+	// 	let circDivRad = circDivDeg * Math.PI / 180;
 
-		for (let i = 0; i < circCount; ++i) {
-			let x = Math.sin(i * circDivRad) * circTrackRadius;
-			let y = Math.cos(i * circDivRad) * circTrackRadius;
+	// 	for (let i = 0; i < circCount; ++i) {
+	// 		let x = Math.sin(i * circDivRad) * circTrackRadius;
+	// 		let y = Math.cos(i * circDivRad) * circTrackRadius;
 
-			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
-		}
-	}
+	// 		draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// 	}
+	// }
 
-	{
-		let circCount = 360;
-		let circDiam = 0.3;
-		let circTrackRadius = (dDiameter * 0.93) * 0.5;
-		let circDivDeg = 360 / circCount;
-		let circDivRad = circDivDeg * Math.PI / 180;
+	// {
+	// 	let circCount = 360;
+	// 	let circDiam = 0.3;
+	// 	let circTrackRadius = (dDiameter * 0.93) * 0.5;
+	// 	let circDivDeg = 360 / circCount;
+	// 	let circDivRad = circDivDeg * Math.PI / 180;
 
-		for (let i = 0; i < circCount; ++i) {
-			let x = Math.sin(i * circDivRad) * circTrackRadius;
-			let y = Math.cos(i * circDivRad) * circTrackRadius;
+	// 	for (let i = 0; i < circCount; ++i) {
+	// 		let x = Math.sin(i * circDivRad) * circTrackRadius;
+	// 		let y = Math.cos(i * circDivRad) * circTrackRadius;
 
-			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
-		}
-	}
+	// 		draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// 	}
+	// }
 
 	// Degree text.
-	{
-		let circCount = 72;
-		let circDiam = 0.3;
-		let circTrackRadius = (dDiameter * 0.80) * 0.5;
-		let circDivDeg = 360 / circCount;
-		let circDivRad = circDivDeg * Math.PI / 180;
+	// {
+	// 	let circCount = 72;
+	// 	let circDiam = 0.3;
+	// 	let circTrackRadius = (dDiameter * 0.80) * 0.5;
+	// 	let circDivDeg = 360 / circCount;
+	// 	let circDivRad = circDivDeg * Math.PI / 180;
 
-		for (let i = 0; i < circCount; ++i) {
-			let x = Math.sin(i * circDivRad) * circTrackRadius;
-			let y = -Math.cos(i * circDivRad) * circTrackRadius;
+	// 	for (let i = 0; i < circCount; ++i) {
+	// 		let x = Math.sin(i * circDivRad) * circTrackRadius;
+	// 		let y = -Math.cos(i * circDivRad) * circTrackRadius;
 
-			let text = draw.plain(circDivDeg * i).dx(x + cX).dy(y + cY);
-			text.font({
-				family: 'Arial',
-				size: 1.5,
-				'font-weight': 'bold',
-				anchor: 'middle',
-				'dominant-baseline': 'middle',
-			});
+	// 		let text = draw.plain(circDivDeg * i).dx(x + cX).dy(y + cY);
+	// 		text.font({
+	// 			family: 'Arial',
+	// 			size: 1.5,
+	// 			'font-weight': 'bold',
+	// 			anchor: 'middle',
+	// 			'dominant-baseline': 'middle',
+	// 		});
 
-			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
-		}
-	}
+	// 		// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// 	}
+	// }
 
 	// Center hub.
-	draw.circle(8).center(cX, cY).fill('rgb(0, 0, 0)');
+	draw.circle(1).center(cX, cY).fill('rgb(0, 0, 0)');
 	{
-		let circCount = 8;
-		let circDiam = 3;
-		let circTrackRadius = (15) * 0.5;
+		let circCount = 32;
+		let circDiam = 0.75;
+		let circTrackRadius = (20) * 0.5;
 		let circDivDeg = 360 / circCount;
 		let circDivRad = circDivDeg * Math.PI / 180;
 
 		for (let i = 0; i < circCount; ++i) {
 			let x = Math.sin(i * circDivRad) * circTrackRadius;
 			let y = Math.cos(i * circDivRad) * circTrackRadius;
+
+			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+		}
+
+		for (let i = 0; i < 1; ++i) {
+			let x = Math.sin(i * circDivRad) * 5;
+			let y = Math.cos(i * circDivRad) * 5;
 
 			draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
 		}
 	}
 
 	// 10 mm rings.
-	for (let i = 0; i < 8; ++i) {
-		draw.circle(10 * i).center(cX, cY).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': 0.2 });
-	}
+	// for (let i = 0; i < 8; ++i) {
+	// 	draw.circle(10 * i).center(cX, cY).attr({ 'fill-opacity': 0, stroke: 'rgb(0, 0, 0)', 'stroke-width': 0.2 });
+	// }
 
 	// Radial lines.
-	{
-		let circCount = 72;
-		let circDiam = 80;
-		let circTrackRadius = (75) * 0.5;
-		let circDivDeg = 360 / circCount;
-		let circDivRad = circDivDeg * Math.PI / 180;
-		let innerRadius = 20;
+	// {
+	// 	let circCount = 72;
+	// 	let circDiam = 80;
+	// 	let circTrackRadius = (75) * 0.5;
+	// 	let circDivDeg = 360 / circCount;
+	// 	let circDivRad = circDivDeg * Math.PI / 180;
+	// 	let innerRadius = 20;
 
-		for (let i = 0; i < circCount; ++i) {
-			let x = Math.sin(i * circDivRad);
-			let y = Math.cos(i * circDivRad);
+	// 	for (let i = 0; i < circCount; ++i) {
+	// 		let x = Math.sin(i * circDivRad);
+	// 		let y = Math.cos(i * circDivRad);
 
-			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// 		// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
 
-			var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
-			line.stroke({ color: '#000000', width: 0.2})
-		}
-	}
+	// 		var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
+	// 		line.stroke({ color: '#000000', width: 0.2})
+	// 	}
+	// }
 
-	{
-		let circCount = 8;
-		let circDiam = 80;
-		let circTrackRadius = (75) * 0.5;
-		let circDivDeg = 360 / circCount;
-		let circDivRad = circDivDeg * Math.PI / 180;
-		let innerRadius = 10;
+	// {
+	// 	let circCount = 8;
+	// 	let circDiam = 80;
+	// 	let circTrackRadius = (75) * 0.5;
+	// 	let circDivDeg = 360 / circCount;
+	// 	let circDivRad = circDivDeg * Math.PI / 180;
+	// 	let innerRadius = 10;
 
-		for (let i = 0; i < circCount; ++i) {
-			let x = Math.sin(i * circDivRad);
-			let y = Math.cos(i * circDivRad);
+	// 	for (let i = 0; i < circCount; ++i) {
+	// 		let x = Math.sin(i * circDivRad);
+	// 		let y = Math.cos(i * circDivRad);
 
-			// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
+	// 		// draw.circle(circDiam).center(x + cX, y + cY).fill('rgb(0, 0, 0)');
 
-			var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
-			line.stroke({ color: '#000000', width: 0.2})
-		}
-	}
+	// 		var line = draw.line(x * innerRadius + cX, y * innerRadius + cY, x * circTrackRadius + cX, y * circTrackRadius + cY);
+	// 		line.stroke({ color: '#000000', width: 0.2})
+	// 	}
+	// }
 
 	// Save to canvas.
 	var svg = document.querySelector('svg');
@@ -233,7 +240,8 @@
 		// draw the image onto the canvas
 		canvas.getContext('2d').fillStyle = 'rgb(0, 0, 0)';
 		// canvas.getContext('2d').fillRect(0, 0, 100, 100);
-		canvas.getContext('2d').drawImage(img, 0, 0, 4724, 4724);
+		//4724
+		canvas.getContext('2d').drawImage(img, 0, 0, 1181, 1181);
 	}
 	img.src = image64;
 	// img.width = 1000;

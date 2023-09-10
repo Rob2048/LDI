@@ -85,7 +85,7 @@ struct ldiVisionSimulator {
 	std::vector<mat4>			barViews;
 	std::vector<int>			barViewIds;
 
-	bool						cameraCalibTargetShow = true;
+	bool						cameraCalibTargetShow = false;
 	ID3D11Texture2D*			cameraCalibTargetTexture;
 	ID3D11ShaderResourceView*	cameraCalibTargetSrv;
 	ldiRenderModel				cameraCalibTargetModel;
@@ -896,7 +896,7 @@ void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	calibSample.a = Horse->a;
 	calibSample.b = Horse->b;
 	
-	findCharuco(img, Tool->appContext, &calibSample.charucos);
+	findCharuco(img, Tool->appContext, &calibSample.charucos, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 	
 	Tool->calibSamples.push_back(calibSample);
 
@@ -999,6 +999,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 		Tool->horse.b = rand() % 360;
 
 		horseUpdate(&Tool->horse);
+		std::cout << i << "/999\n";
 		visionSimulatorRenderAndSave(Tool, &Tool->horse);
 	}
 
@@ -1109,7 +1110,7 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 
 			std::cout << "Find pose - Sample: " << sampleIter << " :\n";
 			if (computerVisionFindGeneralPose(&Tool->calibCameraMatrix, &Tool->calibCameraDist, &imagePoints, &worldPoints, &pose)) {
-				std::cout << "Pose:\n" << GetMat4DebugString(&pose);
+				//std::cout << "Pose:\n" << GetMat4DebugString(&pose);
 				poses.push_back(pose);
 				viewImageIds.push_back(sampleIter);
 				viewImagePoints.push_back(imagePoints);
@@ -1197,7 +1198,7 @@ void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
 	ZeroMemory(&pi, sizeof(pi));
 
 	// <mode> is one of metric, focal, prinipal, radial, tangental.
-	char args[] = "\"BundleCommon.exe\" ../../bin/cache/ssba_input.txt metric";
+	char args[] = "\"BundleCommon.exe\" ../../bin/cache/ssba_input.txt tangential";
 
 	CreateProcessA(
 		"../../assets/bin/BundleCommon.exe",
@@ -1466,7 +1467,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			img.data = Tool->renderViewCopy;
 			img.width = Tool->imageWidth;
 			img.height = Tool->imageHeight;
-			findCharuco(img, Tool->appContext, &Tool->charucoResults);
+			findCharuco(img, Tool->appContext, &Tool->charucoResults, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 
 			Tool->charucoTruth.boards.clear();
 			
@@ -1703,6 +1704,29 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
 
 				draw_list->AddCircleFilled(offset, 4.0f, ImColor(0, 255, 0, 200));
+			}
+
+			{
+				vec2 o = charucos->boards[b].charucoEstimatedImageCenter;
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+				offset.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
+				draw_list->AddCircle(offset, 6.0f, ImColor(255, 255, 0, 255));
+			
+				o = charucos->boards[b].charucoEstimatedImageNormal;
+				ImVec2 offset2 = pos;
+				offset2.x = screenStartPos.x + (Tool->imageOffset.x + o.x + 0.5) * Tool->imageScale;
+				offset2.y = screenStartPos.y + (Tool->imageOffset.y + o.y + 0.5) * Tool->imageScale;
+
+				if (charucos->boards[b].charucoEstimatedBoardAngle < 0.3f) {
+					draw_list->AddLine(offset, offset2, ImColor(255, 0, 0, 255), 3.0f);
+				} else {
+					draw_list->AddLine(offset, offset2, ImColor(0, 255, 0, 255), 3.0f);
+				}
+
+				char strBuf[256];
+				sprintf_s(strBuf, 256, "%.3f", charucos->boards[b].charucoEstimatedBoardAngle);
+				draw_list->AddText(offset2, ImColor(0, 200, 0), strBuf);
 			}
 		}
 
