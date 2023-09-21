@@ -100,8 +100,8 @@ void pantherProcessPacket(ldiPanther* Panther) {
 
 void pantherDisconnect(ldiPanther* Panther) {
 	if (Panther->serialPortConnected) {
-		serialPortDisconnect(&Panther->serialPort);
 		Panther->serialPortConnected = false;
+		serialPortDisconnect(&Panther->serialPort);
 	}
 }
 

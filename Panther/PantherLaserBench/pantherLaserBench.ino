@@ -1056,14 +1056,22 @@ void setup() {
 	Serial.begin(921600);
 
 	// NOTE: Y on LCS4.
-	st1.init(32, 1, 900, 0.00125, 200.0, false);
-	st2.init(32, 1, 900, 0.00125, 200.0, false);
-	st3.init(32, 1, 900, 0.00125, 200.0, true);
+	st1.init(32, 0, 900, 0.00125, 200.0, false);
+	st2.init(32, 0, 900, 0.00125, 200.0, false);
+	
+	// st3.init(32, 1, 900, 0.00125, 200.0, true);
+
+	// Big rotary:
+	st3.init(32, 1, 900, 0.00125, 50.0, true);
 
 	// A
 	// 1:30
 	// st4.init(32, 1, 900, 0.00125, 200.0, false);
-	st4.init(32, 0, 500, 0.00125, 200.0, false);
+
+	// Small harmonic:
+	// st4.init(32, 0, 400, 0.00125, 200.0, false);
+	// Big harmonic (Less current to keep vibrations down).
+	st4.init(32, 0, 400, 0.00125, 200.0, false);
 
 	// st1.init(32, 0, 900, 0.00625, 10000.0, true);
 
@@ -1167,66 +1175,95 @@ void loop() {
 		}
 
 		int b = Serial.read();
+
+		// if (b == 'q') {
+		// 	st3.moveRelative(40000, 20);
+		// 	while (st3.updateStepper());
+		// } else if (b == 'w') {
+		// 	st3.moveRelative(-40000, 20);
+		// 	while (st3.updateStepper());
+		// }
+		// // 32 * 200 * 90 = 576000
+		// // 0.000625 steps per deg
+		// // 1600 steps per deg
+
+		// if (b == 'a') {
+		// 	st3.moveRelative(1600, 20);
+		// 	while (st3.updateStepper());
+		// } else if (b == 's') {
+		// 	st3.moveRelative(-1600, 20);
+		// 	while (st3.updateStepper());
+		// }
+
+		// if (b == 'z') {
+		// 	st3.moveRelative(160, 20);
+		// 	while (st3.updateStepper());
+		// } else if (b == 'x') {
+		// 	st3.moveRelative(-160, 20);
+		// 	while (st3.updateStepper());
+		// }
+
+		// continue;
 		
-		if (b == 'u') {
-			st4.setDirection(1);
-			encCount = 0;
-			int motorStep = 0;
+		// if (b == 'u') {
+		// 	st4.setDirection(1);
+		// 	encCount = 0;
+		// 	int motorStep = 0;
 
-			// uint16_t step = st4.getMicrostepCount();
-			// Serial.printf("Start step: %d\n", step);
+		// 	// uint16_t step = st4.getMicrostepCount();
+		// 	// Serial.printf("Start step: %d\n", step);
 
-			for (int i = 0; i < 200 * 256; ++i) {
-				// uint16_t step = st4.getMicrostepCount();
+		// 	for (int i = 0; i < 200 * 256; ++i) {
+		// 		// uint16_t step = st4.getMicrostepCount();
 
-				double target = i * degsPerStep;
-				double degs = encCount * -degsPerCount;
-				double error = degs - target;
+		// 		double target = i * degsPerStep;
+		// 		double degs = encCount * -degsPerCount;
+		// 		double error = degs - target;
 
-				// if (i % 1 == 0) {
-					// Serial.printf("%d,%f,%f\n", step, target, degs);
-					// Serial.printf("%d,%f,%f,%f\n", step, target, degs, error);
-				// }
+		// 		// if (i % 1 == 0) {
+		// 			// Serial.printf("%d,%f,%f\n", step, target, degs);
+		// 			// Serial.printf("%d,%f,%f,%f\n", step, target, degs, error);
+		// 		// }
 
-				// if (i == 1024) {
-				// 	st4.setDirection(0);
-				// }
+		// 		// if (i == 1024) {
+		// 		// 	st4.setDirection(0);
+		// 		// }
 
-				// digitalWrite(PIN_LASER_PWM, HIGH);
-				st4.pulseStepper();
-				// digitalWrite(PIN_LASER_PWM, LOW);
-				// delayMicroseconds(200);
-				delayMicroseconds(200);
-				// delay(1);
+		// 		// digitalWrite(PIN_LASER_PWM, HIGH);
+		// 		st4.pulseStepper();
+		// 		// digitalWrite(PIN_LASER_PWM, LOW);
+		// 		// delayMicroseconds(200);
+		// 		delayMicroseconds(200);
+		// 		// delay(1);
 
-				// if (i < 1024) {
-				// 	motorStep += 1;
-				// } else {
-				// 	motorStep -= 1;
-				// }
-			}
-		}
+		// 		// if (i < 1024) {
+		// 		// 	motorStep += 1;
+		// 		// } else {
+		// 		// 	motorStep -= 1;
+		// 		// }
+		// 	}
+		// }
 
-		if (b == 'h') {
-			st4.setDirection(1);
+		// if (b == 'h') {
+		// 	st4.setDirection(1);
 
-			uint16_t currStep = st4.getMicrostepCount();
-			Serial.printf("Start step: %d\n", currStep);
+		// 	uint16_t currStep = st4.getMicrostepCount();
+		// 	Serial.printf("Start step: %d\n", currStep);
 
-			while (true) {
-				uint16_t step = st4.getMicrostepCount();
+		// 	while (true) {
+		// 		uint16_t step = st4.getMicrostepCount();
 
-				if (step == 0) {
-					break;
-				}
+		// 		if (step == 0) {
+		// 			break;
+		// 		}
 
-				st4.pulseStepper();
-				delayMicroseconds(200);
-			}
+		// 		st4.pulseStepper();
+		// 		delayMicroseconds(200);
+		// 	}
 
-			currStep = st4.getMicrostepCount();
-			Serial.printf("End step: %d\n", currStep);
-		}
+		// 	currStep = st4.getMicrostepCount();
+		// 	Serial.printf("End step: %d\n", currStep);
+		// }
 
 		// if (b == 'q') {
 		// 	st4.setDirection(0);
@@ -1261,34 +1298,66 @@ void loop() {
 		// Actual single turn degs: 360.44875
 		// Actual ratio: 29.962651:1
 
+		// if (b == 'h') {
+		// 	st4.setDirection(0);
+		// 	uint16_t driverStep = st4.getMicrostepCount();
+		// 	Serial.printf("Start step: %d (%d)\n", st4.currentStep, driverStep);
+
+		// 	while (true) {
+		// 		// uint16_t step = st4.getMicrostepCount();
+
+		// 		int lim = digitalRead(st1.limitPin);
+
+		// 		if (lim == 0) {
+		// 			uint16_t driverStep = st4.getMicrostepCount();
+		// 			Serial.printf("Found step: %d (%d)\n", st4.currentStep, driverStep);
+		// 			break;
+		// 		}
+
+		// 		st4.pulseStepper();
+		// 		st4.currentStep -= 1;
+		// 		delayMicroseconds(200);
+		// 	}
+		// }
+
 		
 
 		if (b == 'q') {
 			// 192000
-			Serial.printf("Current step: %d\n", st4.currentStep);
-			st4.moveRelative(48000, 30);
+			Serial.printf("Current step: %d\n", st4.currentStep);			
+			st4.moveRelative(10000, 20);
 			while (st4.updateStepper());
 			Serial.printf("Current step: %d\n", st4.currentStep);
 		} else if (b == 'w') {
 			Serial.printf("Current step: %d\n", st4.currentStep);
-			st4.moveRelative(-48000, 30);
+			st4.moveRelative(-10000, 20);
 			while (st4.updateStepper());
 			Serial.printf("Current step: %d\n", st4.currentStep);
 		}
 
-		if (b == 'a') {
-			st4.moveRelative(54, 5);
-			while (st4.updateStepper());
-		} else if (b == 's') {
-			st4.moveRelative(-54, 5);
-			while (st4.updateStepper());
-		}
+		// if (b == 'a') {
+		// 	st4.moveRelative(54, 5);
+		// 	while (st4.updateStepper());
+		// } else if (b == 's') {
+		// 	st4.moveRelative(-54, 5);
+		// 	while (st4.updateStepper());
+		// }
 
-		if (b == 'z') {
-			encCount = 0;
-		}
+		// if (b == 'z') {
+		// 	st4.moveRelative(6, 5);
+		// 	while (st4.updateStepper());
+		// } else if (b == 'x') {
+		// 	st4.moveRelative(-6, 5);
+		// 	while (st4.updateStepper());
+		// }
 
-		continue;
+
+		// if (b == 'p') {
+		// 	encCount = 0;
+		// 	st4.currentStep = 0;
+		// }
+
+		// continue;
 
 		// if (b == 'q') {
 		// 	int counts = 1000;
@@ -1438,81 +1507,81 @@ void loop() {
 			Serial.printf("Step: %d Micro: %d Calc: %d\n", st4.currentStep, step, microPhase);
 		}
 
-		if (b == 'q' || b == 'w') {
-			st4.setDirection(b == 'q');
-			uint32_t timeRep = 0;
+		// if (b == 'q' || b == 'w') {
+		// 	st4.setDirection(b == 'q');
+		// 	uint32_t timeRep = 0;
 
-			int state = 0;
-			int startStep = 0;
-			int endStep = 0;
+		// 	int state = 0;
+		// 	int startStep = 0;
+		// 	int endStep = 0;
 
-			for (int i = 0; i < 10000; ++i) {
+		// 	for (int i = 0; i < 10000; ++i) {
 				
-				// int a0 = digitalRead(21);
-				// int a1 = digitalRead(22);
+		// 		// int a0 = digitalRead(21);
+		// 		// int a1 = digitalRead(22);
 
-				st4.pulseStepper();
-				uint16_t step = st4.getMicrostepCount();
+		// 		st4.pulseStepper();
+		// 		uint16_t step = st4.getMicrostepCount();
 
-				delayMicroseconds(50);
-				int a0 = analogRead(7);
-				int a1 = analogRead(8);
+		// 		delayMicroseconds(50);
+		// 		int a0 = analogRead(7);
+		// 		int a1 = analogRead(8);
 
-				if (st4.currentDir) {
-					--st4.currentStep;
-				} else {
-					++st4.currentStep;
-				}
+		// 		if (st4.currentDir) {
+		// 			--st4.currentStep;
+		// 		} else {
+		// 			++st4.currentStep;
+		// 		}
 
-				if (state == 0) {
-					if (a1 >= 600) {
-						startStep = st4.currentStep;
-						state = 1;
-					}
-				} else if (state == 1) {
-					if (a1 >= 700) {
-						state = 2;
-					}
-				} else if (state == 2) {
-					if (a1 <= 600) {
-						endStep = st4.currentStep;
-						state = 3;
-					}
-				}
+		// 		if (state == 0) {
+		// 			if (a1 >= 600) {
+		// 				startStep = st4.currentStep;
+		// 				state = 1;
+		// 			}
+		// 		} else if (state == 1) {
+		// 			if (a1 >= 700) {
+		// 				state = 2;
+		// 			}
+		// 		} else if (state == 2) {
+		// 			if (a1 <= 600) {
+		// 				endStep = st4.currentStep;
+		// 				state = 3;
+		// 			}
+		// 		}
 
-				// if (a1 >= 590 && a1 <= 610) {
-				// 	Serial.printf("%d:%d %d\n", st4.currentStep, step, a1);
-				// }
+		// 		// if (a1 >= 590 && a1 <= 610) {
+		// 		// 	Serial.printf("%d:%d %d\n", st4.currentStep, step, a1);
+		// 		// }
 
-				// Serial.print(step);
-				// Serial.print(" ");
-				// Serial.print(a0);
-				// Serial.print(" ");
-				// Serial.println(a1);
+		// 		// Serial.print(step);
+		// 		// Serial.print(" ");
+		// 		// Serial.print(a0);
+		// 		// Serial.print(" ");
+		// 		// Serial.println(a1);
 				
-				// uint32_t t0 = millis();
-				// if (t0 >= timeRep) {
-				// 	timeRep = t0 + 20;
-				// 	Serial.print(step);
-				// 	Serial.print(" ");
-				// 	// Serial.print(a0);
-				// 	// Serial.print(" ");
-				// 	Serial.println(a1);
-				// }
+		// 		// uint32_t t0 = millis();
+		// 		// if (t0 >= timeRep) {
+		// 		// 	timeRep = t0 + 20;
+		// 		// 	Serial.print(step);
+		// 		// 	Serial.print(" ");
+		// 		// 	// Serial.print(a0);
+		// 		// 	// Serial.print(" ");
+		// 		// 	Serial.println(a1);
+		// 		// }
 
-				delayMicroseconds(200);
-			}
+		// 		delayMicroseconds(200);
+		// 	}
 
-			if (state == 3) {
-				int totalSteps = endStep - startStep;
-				int midPoint = startStep + totalSteps / 2;
-				Serial.printf("%d to %d: Total: %d Mid: %d\n", startStep, endStep, totalSteps, midPoint);
-			} else {
-				Serial.println("No limit detected");
-			}
+		// 	if (state == 3) {
+		// 		int totalSteps = endStep - startStep;
+		// 		int midPoint = startStep + totalSteps / 2;
+		// 		Serial.printf("%d to %d: Total: %d Mid: %d\n", startStep, endStep, totalSteps, midPoint);
+		// 	} else {
+		// 		Serial.println("No limit detected");
+		// 	}
 
-			// Serial.println("------------------------------------------------------");
-		}
+		// 	// Serial.println("------------------------------------------------------");
+		// }
 
 		if (b == 'p') {
 			st4.setDirection(true);
@@ -1710,7 +1779,7 @@ void loop() {
 					Serial.printf("Final position: %d (%d)\n", st4.currentStep, ms);
 
 					// Move to zero pos and set as 0 step.
-					st4.moveRelative(-10000, 10.0f);
+					st4.moveRelative(-10000, 20.0f);
 					while (st4.updateStepper());
 					st4.currentStep = 0;
 

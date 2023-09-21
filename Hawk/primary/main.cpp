@@ -9,8 +9,8 @@
 #include "stb_image_write.h"
 
 // NOTE: OV9281
-#define IMG_WIDTH 1280
-#define IMG_HEIGHT 800
+// #define IMG_WIDTH 1280
+// #define IMG_HEIGHT 800
 
 // NOTE: OV2311
 // #define IMG_WIDTH 1600
@@ -22,8 +22,8 @@
 // #define IMG_HEIGHT 3040
 
 // NOTE: IMX219
-// #define IMG_WIDTH 1920
-// #define IMG_HEIGHT 1080
+#define IMG_WIDTH 1920
+#define IMG_HEIGHT 1080
 // #define IMG_WIDTH 3280
 // #define IMG_HEIGHT 2464
 
@@ -867,8 +867,8 @@ int main() {
 
 	// return 0;
 
-	return runOV9281();
+	// return runOV9281();
 	// return runOV2311();
 	// return runIMX477();
-	// return runIMX219();
+	return runIMX219();
 }

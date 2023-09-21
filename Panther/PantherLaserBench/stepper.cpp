@@ -25,7 +25,7 @@ bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerSt
 	if (type == 0) {
 		_tmc->begin();
 		_tmc->SilentStepStick2130(Current);
-		//_tmc->stealthChop(StealthChop);
+		_tmc->stealthChop(StealthChop);
 		_tmc->microsteps(MicroSteps);
 
 		// Set stall gaurd stuff.

@@ -210,6 +210,7 @@ void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight
 }
 
 #include "serialPort.h"
+#include "mvCam.h"
 #include "physics.h"
 #include "graphics.h"
 #include "debugPrims.h"

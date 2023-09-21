@@ -5,12 +5,16 @@
 //#define CAM_IMG_HEIGHT 800
 
 // NOTE: OV2311
-#define CAM_IMG_WIDTH 1600
-#define CAM_IMG_HEIGHT 1300
+//#define CAM_IMG_WIDTH 1600
+//#define CAM_IMG_HEIGHT 1300
 
 // NOTE: IMX477
 //#define CAM_IMG_WIDTH 4056
 //#define CAM_IMG_HEIGHT 3040
+
+// NOTE: IMX219
+#define CAM_IMG_WIDTH 1920
+#define CAM_IMG_HEIGHT 1080
 
 struct ldiRotaryPoint {
 	int id;
@@ -21,21 +25,39 @@ struct ldiRotaryPoint {
 };
 
 struct ldiRotaryResults {
-	bool showGizmos = true;
+	std::thread					workerThread;
+	
+	// Only worker thread.
+	cv::VideoCapture			webcamCapture;
 
-	std::vector<cv::KeyPoint> blobs;
+	// Shared by threads.
+	std::mutex					frameMutex;
+	volatile bool				frameAvailable = false;
+	uint8_t*					greyFrame;
+	std::vector<cv::KeyPoint>	blobsInitial;
 
-	bool foundCenter = false;
-	vec2 centerPos;
+	// Only main thread.
+	std::vector<vec2>			blobs;
 
-	bool foundLocator = false;
-	vec2 locatorPos;
+	bool						showGizmos = false;
 
-	std::vector<ldiRotaryPoint> points;
+	bool						foundCenter = false;
+	vec2						centerPos;
 
-	ldiRotaryPoint accumPoints[32];
+	bool						foundLocator = false;
+	vec2						locatorPos;
 
-	float relativeAngleToZero;
+	std::vector<ldiRotaryPoint>	points;
+
+	ldiRotaryPoint				accumPoints[32];
+
+	float						relativeAngleToZero;
+
+	float						lastResults[25];
+	float						stdDev;
+	float						stdDevStoppedLimit = 0.002;
+
+	float						processTime = 0.0f;
 };
 
 enum ldiImageInspectorMode {
@@ -89,8 +111,31 @@ struct ldiImageInspector {
 
 	ldiRotaryResults			rotaryResults;
 
-	cv::VideoCapture			webcamCapture;
+	ldiMvCam					mvCam[2];
+	int							mvCamCount = 2;
 };
+
+float filterAngles(float Src, float Dest) {
+	// NOTE: Turns out the angles don't really need filtering :O.
+	
+	// NOTE: Filter flops hard when doing 0-360 flip.
+	//a->info = a->info * 0.90f + angle * 0.1f;
+
+	return Dest;
+}
+
+float subAngles(float A, float B) {
+	// NOTE: Equivalent of A - B
+	B -= A;
+
+	if (B > 180) {
+		B -= 360;
+	} else if (B < -180) {
+		B += 360;
+	}
+
+	return B;
+}
 
 float avgAngles(int Count, float* Data) {
 	float avgStart = Data[0];
@@ -227,6 +272,54 @@ void imageInspectorHandlePacket(ldiImageInspector* Tool, ldiPacketView* PacketVi
 	}
 }
 
+void rotaryWorkerThread(ldiRotaryResults* Rotary) {
+	std::cout << "Running rotary worker thread\n";
+
+	//----------------------------------------------------------------------------------------------------
+	// Start webcamera camera.
+	//----------------------------------------------------------------------------------------------------
+	std::cout << "Start camera...\n";
+	Rotary->webcamCapture.open(0, cv::CAP_ANY);
+
+	if (!Rotary->webcamCapture.isOpened()) {
+		std::cout << "Failed to open camera\n";
+	} else {
+		std::cout << "Camera started\n";
+	}
+
+	cv::Mat webcamFrame;
+	cv::Mat frameGrey;
+
+	cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
+	//std::cout << params.minArea << " " << params.maxArea << "\n";
+	params.minArea = 70;
+	params.maxArea = 700;
+
+	std::vector<cv::KeyPoint> blobs;
+	
+	while (true) {
+		if (Rotary->webcamCapture.read(webcamFrame)) {
+			cv::cvtColor(webcamFrame, frameGrey, cv::COLOR_BGR2GRAY);
+			
+			cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
+			detector->detect(frameGrey, blobs);
+
+			std::unique_lock<std::mutex> lock(Rotary->frameMutex);
+			Rotary->frameAvailable = true;
+			memcpy(Rotary->greyFrame, frameGrey.data, 640 * 480);
+
+			Rotary->blobsInitial.clear();
+			for (size_t i = 0; i < blobs.size(); ++i) {
+				Rotary->blobsInitial.push_back(blobs[i]);
+			}
+
+			lock.unlock();
+		}
+	}
+
+	std::cout << "Rotary workder thread completed\n";
+}
+
 int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	Tool->appContext = AppContext;
 
@@ -272,16 +365,18 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	}
 
 	//----------------------------------------------------------------------------------------------------
-	// Start webcamera camera.
+	// Rotary measurment.
 	//----------------------------------------------------------------------------------------------------
-	std::cout << "Start camera...\n";
-	Tool->webcamCapture.open(0, cv::CAP_ANY);
+	Tool->rotaryResults.greyFrame = new uint8_t[640 * 480];
+	//Tool->rotaryResults.workerThread = std::thread(rotaryWorkerThread, &Tool->rotaryResults);
 
-	if (!Tool->webcamCapture.isOpened()) {
-		std::cout << "Failed to open camera\n";
-	} else {
-		std::cout << "Camera started\n";
-	}
+	//----------------------------------------------------------------------------------------------------
+	// Machine vision cams.
+	//----------------------------------------------------------------------------------------------------
+	//for (int i = 0; i < Tool->mvCamCount; ++i) {
+		//mvCamInit(&Tool->mvCam[i]);
+	//}
+	mvCamInit(&Tool->mvCam[0], "\\\\.\\COM12");
 
 	return 0;
 }
@@ -299,16 +394,16 @@ void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* Fra
 	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
 }
 
-void _imageInspectorCopyFrameDataToTextureEx(ldiImageInspector* Tool, uint8_t* FrameData, int Width, int Height) {
+void _imageInspectorCopyFrameDataToTextureEx(ldiApp* AppContext, ID3D11Texture2D* Tex, uint8_t* FrameData, int Width, int Height) {
 	D3D11_MAPPED_SUBRESOURCE ms;
-	Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	AppContext->d3dDeviceContext->Map(Tex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 	uint8_t* pixelData = (uint8_t*)ms.pData;
 
 	for (int i = 0; i < Height; ++i) {
 		memcpy(pixelData + i * ms.RowPitch, FrameData + i * Width, Width);
 	}
 
-	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
+	AppContext->d3dDeviceContext->Unmap(Tex, 0);
 }
 
 void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
@@ -361,7 +456,27 @@ bool compareInterval(ldiRotaryPoint i1, ldiRotaryPoint i2) {
 	return (i1.info < i2.info);
 }
 
-void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
+void imageProcessRotaryMarker(ldiApp* AppContext, ID3D11Texture2D* CamTex, ldiRotaryResults* RotaryResults) {
+	std::unique_lock<std::mutex> lock(RotaryResults->frameMutex, std::defer_lock);
+	if (!lock.try_lock()) {
+		return;
+	}
+
+	if (!RotaryResults->frameAvailable) {
+		return;
+	}
+
+	_imageInspectorCopyFrameDataToTextureEx(AppContext, CamTex, RotaryResults->greyFrame, 640, 480);
+
+	RotaryResults->blobs.clear();
+	for (size_t i = 0; i < RotaryResults->blobsInitial.size(); ++i) {
+		vec2 point(RotaryResults->blobsInitial[i].pt.x, RotaryResults->blobsInitial[i].pt.y);
+		RotaryResults->blobs.push_back(point);
+	}
+	
+	RotaryResults->frameAvailable = false;
+	lock.unlock();
+
 	RotaryResults->foundCenter = false;
 	RotaryResults->foundLocator = false;
 	RotaryResults->points.clear();
@@ -378,10 +493,10 @@ void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
 	std::vector<ldiRotaryPoint> tempResults;
 
 	for (size_t i = 0; i < RotaryResults->blobs.size(); ++i) {
-		cv::KeyPoint* k = &RotaryResults->blobs[i];
+		vec2 k = RotaryResults->blobs[i];
 
 		vec2 imgCenter(viewCenterX, viewCenterY);
-		vec2 pointPos(k->pt.x, k->pt.y);
+		vec2 pointPos(k.x, k.y);
 		float centerDist = glm::distance(imgCenter, pointPos);
 
 		// Identify center.
@@ -471,7 +586,6 @@ void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
 		b->pos = a->pos;
 	}
 
-
 	float angles[16];
 
 	for (int i = 0; i < 16; ++i) {
@@ -484,9 +598,7 @@ void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
 		float theta = atan2(pV.y, pV.x);
 		float angle = theta * (180 / M_PI) + 180.0;
 
-		//a->info = angle;
-		// Filter flops hard when doing 0-360 flip.
-		a->info = a->info * 0.90f + angle * 0.1f;
+		a->info = filterAngles(a->info, angle);
 		a->relAngle = a->info - a->zeroAngle;
 
 		if (a->relAngle < 0) {
@@ -497,12 +609,35 @@ void imageProcessRotaryMarker(ldiRotaryResults* RotaryResults) {
 	}
 
 	RotaryResults->relativeAngleToZero = avgAngles(16, angles);
+
+	// Standard deviation over X seconds (25 FPS).
+	// Shift array becuase I'm too lazy to make it circular. Last element is always the most recent.
+	const int resultCount = 5;
+	for (int i = 0; i < resultCount - 1; ++i) {
+		RotaryResults->lastResults[i] = RotaryResults->lastResults[i + 1];
+	}
+	RotaryResults->lastResults[resultCount - 1] = RotaryResults->relativeAngleToZero;
+
+	// Calculate mean.
+	float sdevMean = avgAngles(resultCount, RotaryResults->lastResults);
+
+	// Calc diff to mean.
+	float sdevErrSqr[resultCount];
+	for (int i = 0; i < resultCount; ++i) {
+		float err = subAngles(RotaryResults->lastResults[i], sdevMean);
+		sdevErrSqr[i] = err * err;
+	}
+	float sdevRootErrMean = sqrt(avgAngles(resultCount, sdevErrSqr));
+
+	RotaryResults->stdDev = sdevRootErrMean;
 }
 
 void imageInspectorShowUi(ldiImageInspector* Tool) {
 	if (Tool->imageMode == IIM_LIVE_CAMERA) {
 		if (Tool->camNewFrameId != Tool->camLastNewFrameId) {
 			Tool->camLastNewFrameId = Tool->camNewFrameId;
+
+			std::cout << "Update frame\n";
 
 			_imageInspectorCopyFrameDataToTexture(Tool, Tool->camPixelsFinal);
 
@@ -517,29 +652,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 	}
 
-	cv::Mat webcamFrame;
-	if (Tool->webcamCapture.read(webcamFrame)) {
-		//std::cout << "Got frame: " << webcamFrame.type() << " " << webcamFrame.cols << " " << webcamFrame.rows << "\n";
-		cv::Mat frameGrey;
-		cv::cvtColor(webcamFrame, frameGrey, cv::COLOR_BGR2GRAY);
-		//std::cout << "Grey: " << frameGrey.type() << " " << frameGrey.cols << " " << frameGrey.rows << "\n";
-
-		cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
-		//std::cout << params.minArea << " " << params.maxArea << "\n";
-		params.minArea = 70;
-		params.maxArea = 700;
-
-		cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
-		detector->detect(frameGrey, Tool->rotaryResults.blobs);
-
-		//std::cout << "Blobs: " << Tool->webcameKeypoints.size() << "\n";
-		imageProcessRotaryMarker(&Tool->rotaryResults);
-
-		_imageInspectorCopyFrameDataToTextureEx(Tool, frameGrey.data, frameGrey.cols, frameGrey.rows);
-	} else {
-		std::cout << "No webcam frame\n";
-	}
-
+	imageProcessRotaryMarker(Tool->appContext, Tool->camTex, &Tool->rotaryResults);
+	
 	ImGui::Begin("Image inspector controls");
 
 	static float imgScale = 1.0f;
@@ -554,8 +668,16 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
 	}
 
-	if (ImGui::CollapsingHeader("Rotary measurement", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Rotary measurement")) {
 		ImGui::Checkbox("Show gizmos", &Tool->rotaryResults.showGizmos);
+
+		ImGui::PushFont(Tool->appContext->fontBig);
+		if (Tool->rotaryResults.stdDev > Tool->rotaryResults.stdDevStoppedLimit) {
+			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "Rotating");
+		} else {
+			ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Stopped");
+		}
+		ImGui::PopFont();
 
 		if (ImGui::Button("Zero")) {
 			for (int i = 0; i < 16; ++i) {
@@ -564,17 +686,20 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		ImGui::Text("Angle: %.3f", Tool->rotaryResults.relativeAngleToZero);
+		ImGui::InputFloat("Stopped limit: ", &Tool->rotaryResults.stdDevStoppedLimit);
+		ImGui::Text("Std dev: %.3f", Tool->rotaryResults.stdDev);
+		ImGui::Text("Process time: %.3f ms", Tool->rotaryResults.processTime);
 	}
 
-	if (ImGui::CollapsingHeader("Edge detection", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Edge detection")) {
 		ImGui::Checkbox("Place start", &Tool->edgePlaceStart);
 		ImGui::Checkbox("Place stack end", &Tool->edgePlaceEnd);
-		ImGui::SliderInt("Line legnth", &Tool->edgeLineLength, 1, 50);
+		ImGui::SliderInt("Line length", &Tool->edgeLineLength, 1, 50);
 		ImGui::DragFloat2("Line start", (float*)&Tool->edgeLineStart, 0.1f, 0.0f, CAM_IMG_WIDTH);
 		ImGui::DragFloat2("Line end", (float*)&Tool->edgeLineEnd, 0.1f, 0.0f, CAM_IMG_WIDTH);
 	}
 
-	if (ImGui::CollapsingHeader("Camera")) {
+	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
 		bool newSettings = false;
 
 		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 1, 30000)) {
@@ -752,6 +877,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			if (wheel) {
 				imgScale += wheel * 0.2f * imgScale;
 
+				if (imgScale < 0.01) {
+					imgScale = 0.01;
+				}
+
 				vec2 newWorldPos;
 				newWorldPos.x = mouseCanvasPos.x;
 				newWorldPos.y = mouseCanvasPos.y;
@@ -819,12 +948,12 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			for (int i = 0; i < rotary->blobs.size(); ++i) {
-				cv::KeyPoint* k = &rotary->blobs[i];
+				vec2 k = rotary->blobs[i];
 
 				// NOTE: Half pixel offset required.
 				ImVec2 offset = pos;
-				offset.x = screenStartPos.x + (imgOffset.x + k->pt.x) * imgScale;
-				offset.y = screenStartPos.y + (imgOffset.y + k->pt.y) * imgScale;
+				offset.x = screenStartPos.x + (imgOffset.x + k.x) * imgScale;
+				offset.y = screenStartPos.y + (imgOffset.y + k.y) * imgScale;
 
 				draw_list->AddCircle(offset, 2.0f, ImColor(0, 0, 255));
 

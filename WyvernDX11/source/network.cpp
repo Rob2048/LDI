@@ -207,6 +207,8 @@ int networkInit(ldiServer* Server, const char* Port) {
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 
+	//hints.ai_addr.
+
 	struct addrinfo* result = NULL;
 	iResult = getaddrinfo(NULL, Port, &hints, &result);
 	if (iResult != 0) {
@@ -234,7 +236,15 @@ int networkInit(ldiServer* Server, const char* Port) {
 	
 	//setsockopt(listenSocket, 0, NOBLOCK
 
-	iResult = bind(Server->listenSocket, result->ai_addr, (int)result->ai_addrlen);
+	//result->ai_addr->sa_data = INADDR_ANY;
+
+	sockaddr_in service;
+	service.sin_family = AF_INET;
+	service.sin_addr.s_addr = INADDR_ANY;
+	service.sin_port = htons(20000);
+
+	iResult = bind(Server->listenSocket, (SOCKADDR*)&service, sizeof(service));
+	/*iResult = bind(Server->listenSocket, result->ai_addr, (int)result->ai_addrlen);*/
 	if (iResult == SOCKET_ERROR) {
 		std::cout << "Bind failed: " << WSAGetLastError() << "\n";
 		freeaddrinfo(result);
