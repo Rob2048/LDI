@@ -14,15 +14,15 @@ void _printConfigInfo(CameraConfiguration* config) {
 	}
 }
 
-int LibCamera::initCamera(int width, int height, PixelFormat format, int buffercount, int rotation) {
-	int ret;
+int LibCamera::initCamera() {
 	cm = std::make_unique<CameraManager>();
-	ret = cm->start();
-	if (ret){
-		std::cout << "Failed to start camera manager: "
-			  << ret << std::endl;
+	int ret = cm->start();
+
+	if (ret) {
+		std::cout << "Failed to start camera manager: " << ret << std::endl;
 		return ret;
 	}
+
 	std::string cameraId = cm->cameras()[0]->id();
 	camera_ = cm->get(cameraId);
 	if (!camera_) {
@@ -31,12 +31,17 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 	}
 
 	if (camera_->acquire()) {
-		std::cerr << "Failed to acquire camera " << cameraId
-			  << std::endl;
+		std::cerr << "Failed to acquire camera " << cameraId << std::endl;
 		return 1;
 	}
 	camera_acquired_ = true;
 
+	allocator_ = std::make_unique<FrameBufferAllocator>(camera_);
+	
+	return 0;
+}
+
+int LibCamera::startCamera(int width, int height, PixelFormat format, int buffercount, int rotation, int* FrameSize, int* FrameStride) {
 	std::unique_ptr<CameraConfiguration> config;
 	// StreamRole::Raw
 	// StreamRole::VideoRecording
@@ -47,11 +52,14 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 	config->at(0).pixelFormat = format;
 	config->at(0).size = size;
 	config->at(0).colorSpace = ColorSpace::Raw;
-	if (buffercount)
+	
+	if (buffercount) {
 		config->at(0).bufferCount = buffercount;
+	}
+
 	// Transform transform = Transform::Identity;
 	// bool ok;
-	// Transform rot = transformFromRotation(rotation, &ok);
+	// Transform rot = transformFromRotation(180, &ok);
 	// if (!ok)
 	// 	throw std::runtime_error("illegal rotation value, Please use 0 or 180");
 	// transform = rot * transform;
@@ -78,13 +86,12 @@ int LibCamera::initCamera(int width, int height, PixelFormat format, int bufferc
 	std::cout << "Final configuration:\n";
 	_printConfigInfo(config.get());
 
-	config_ = std::move(config);
-	return 0;
-}
+	*FrameSize = config->at(0).frameSize;
+	*FrameStride = config->at(0).stride;
 
-int LibCamera::startCamera() {
-	int ret;
-	ret = camera_->configure(config_.get());
+	config_ = std::move(config);
+
+	int ret = camera_->configure(config_.get());
 	if (ret < 0) {
 		std::cout << "Failed to configure camera" << std::endl;
 		return ret;
@@ -92,13 +99,6 @@ int LibCamera::startCamera() {
 
 	camera_->requestCompleted.connect(this, &LibCamera::requestComplete);
 
-	allocator_ = std::make_unique<FrameBufferAllocator>(camera_);
-
-	return startCapture();
-}
-
-int LibCamera::startCapture() {
-	int ret;
 	unsigned int nbuffers = UINT_MAX;
 	for (StreamConfiguration &cfg : *config_) {
 		ret = allocator_->allocate(cfg.stream());
@@ -153,14 +153,21 @@ int LibCamera::startCapture() {
 		requests_.push_back(std::move(request));
 	}
 
-	ret = camera_->start(&this->controls_);
+	return 0;
+}
+
+int LibCamera::startCapture() {
+	int ret = camera_->start(&controls_);
 	// ret = camera_->start();
+
 	if (ret) {
 		std::cout << "Failed to start capture" << std::endl;
 		return ret;
 	}
-	controls_.clear();
+
+	controls_.clear();	
 	camera_started_ = true;
+
 	for (std::unique_ptr<Request> &request : requests_) {
 		ret = queueRequest(request.get());
 		if (ret < 0) {
@@ -169,27 +176,33 @@ int LibCamera::startCapture() {
 			return ret;
 		}
 	}
+
 	return 0;
 }
 
 int LibCamera::queueRequest(Request *request) {
 	std::lock_guard<std::mutex> stop_lock(camera_stop_mutex_);
-	if (!camera_started_)
+	
+	if (!camera_started_) {
 		return -1;
+	}
+
 	{
 		std::lock_guard<std::mutex> lock(control_mutex_);
 		request->controls() = std::move(controls_);
 	}
+
 	return camera_->queueRequest(request);
 }
 
 void LibCamera::requestComplete(Request *request) {
 	if (request->status() == Request::RequestCancelled)
 		return;
-	processRequest(request);
-}
 
-void LibCamera::processRequest(Request *request) {
+	timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	int64_t systemTimeNs = (int64_t)time.tv_sec * 1000000000 + (int64_t)time.tv_nsec;
+
 	std::lock_guard<std::mutex> lock(free_requests_mutex_);
 	requestQueue.push(request);
 }
@@ -207,18 +220,25 @@ bool LibCamera::readFrame(LibcameraOutData *frameData){
 		Request *request = this->requestQueue.front();
 
 		ControlList& metaData = request->metadata();
-		for (auto it = metaData.begin(); it != metaData.end(); ++it) {
 
-				auto ctrlid = metaData.idMap()->at(it->first);
-    			// std::cout << ctrlid->name() << "(" << el.first << ") = " << el.second.toString() << std::endl;
-
-				std::cout << " Control: " << it->first << " " << ctrlid->name() << ": " << it->second.toString() << "\n";
-		}
+		// auto ts = metaData.get(controls::SensorTimestamp);
+		// uint64_t timestamp = *ts;
+		frameData->timestamp = *metaData.get(controls::SensorTimestamp);
+		frameData->exposureTime = *metaData.get(controls::ExposureTime);
+		frameData->analogGain = *metaData.get(controls::AnalogueGain);
+		frameData->lux = *metaData.get(controls::Lux);
+	
+		// NOTE: Print list of controls on this frame.
+		// for (auto it = metaData.begin(); it != metaData.end(); ++it) {
+		// 	auto ctrlid = metaData.idMap()->at(it->first);
+		// 	// std::cout << ctrlid->name() << "(" << el.first << ") = " << el.second.toString() << std::endl;
+		// 	std::cout << " Control: " << it->first << " " << ctrlid->name() << ": " << it->second.toString() << "\n";
+		// }
 
 		const Request::BufferMap &buffers = request->buffers();
-		std::cout << "rf\n";
+		// std::cout << "rf\n";
 		for (auto it = buffers.begin(); it != buffers.end(); ++it) {
-			std::cout << "  buff\n";
+			// std::cout << "  buff\n";
 			FrameBuffer *buffer = it->second;
 			for (unsigned int i = 0; i < buffer->planes().size(); ++i) {
 				const FrameBuffer::Plane &plane = buffer->planes()[i];
@@ -228,7 +248,7 @@ bool LibCamera::readFrame(LibcameraOutData *frameData){
 				void *data = (uint8_t*)mappedBuffers_[planeFd].first + plane.offset;
 				unsigned int length = std::min(meta.bytesused, plane.length);
 
-				std::cout << "    plane " << planeFd << " " << plane.offset << " " << length << " " << meta.bytesused << "\n";
+				// std::cout << "    plane " << planeFd << " " << plane.offset << " " << length << " " << meta.bytesused << "\n";
 
 				frameData->size = length;
 				frameData->imageData = (uint8_t *)data;
@@ -236,53 +256,85 @@ bool LibCamera::readFrame(LibcameraOutData *frameData){
 				break;
 			}
 		}
+		
 		this->requestQueue.pop();
 		frameData->request = (uint64_t)request;
 		return true;
 	} else {
-		Request *request = nullptr;
-		frameData->request = (uint64_t)request;
+		// TODO: Why is this needed?
+		frameData->request = (uint64_t)nullptr;
 		return false;
 	}
 }
 
 void LibCamera::set(ControlList controls){
-	this->controls_ = std::move(controls);
+	std::lock_guard<std::mutex> lock(control_mutex_);
+	controls_ = std::move(controls);
 }
 
 void LibCamera::stopCamera() {
-	if (camera_){
+	if (camera_) {
 		{
 			std::lock_guard<std::mutex> lock(camera_stop_mutex_);
-			if (camera_started_){
-				if (camera_->stop())
+			
+			if (camera_started_) {
+				if (camera_->stop()) {
 					throw std::runtime_error("failed to stop camera");
+				}
+
 				camera_started_ = false;
 			}
 		}
-		if (camera_started_){
-			if (camera_->stop())
-				throw std::runtime_error("failed to stop camera");
-			camera_started_ = false;
+
+		if (camera_started_) {
+			throw std::runtime_error("failed to stop camera");
 		}
+
 		camera_->requestCompleted.disconnect(this, &LibCamera::requestComplete);
+	
+		while (!requestQueue.empty()) {
+			requestQueue.pop();
+		}
+
+		requests_.clear();
+
+		for (StreamConfiguration &cfg : *config_) {
+			std::cout << "Free stream...\n";
+			if (allocator_->free(cfg.stream()) != 0) {
+				std::cout << "Failed to free stream buffers." << std::endl;
+			}
+		}
+
+		if (allocator_->allocated()) {
+			std::cout << "Buffers still allocated...\n";
+		}
+
+		for (auto it = mappedBuffers_.begin(); it != mappedBuffers_.end(); ++it) {
+			std::cout << "Unmap buffer...\n";
+			munmap(it->second.first, it->second.second);
+		}
+
+		mappedBuffers_.clear();
+
+		allocator_.reset();
+		controls_.clear();
 	}
-	while (!requestQueue.empty())
-		requestQueue.pop();
-
-	requests_.clear();
-
-	allocator_.reset();
-
-	controls_.clear();
 }
 
 void LibCamera::closeCamera(){
-	if (camera_acquired_)
+	if (camera_acquired_) {
 		camera_->release();
-	camera_acquired_ = false;
+		camera_acquired_ = false;
+	}
 
 	camera_.reset();
 
-	cm.reset();
+	if (cm) {
+		cm->stop();
+		cm.reset();
+	}
+
+	config_.reset();
+
+	sleep(1);
 }

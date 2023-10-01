@@ -37,6 +37,14 @@ struct ldiServer {
 	std::condition_variable waitForPacketCondVar;
 };
 
+struct ldiPacketBuilder {
+	uint8_t* data;
+	int size;
+	int len;
+	int payloadLen;
+	int state;
+};
+
 struct ldiPacketView {
 	uint8_t* data;
 	int size;
@@ -70,3 +78,10 @@ int networkUpdate(ldiServer* Server, ldiPacketView* PacketView);
 int networkSend(ldiServer* Server, uint8_t* Data, int Size);
 bool networkGetPacket(ldiServer* Server, ldiPacketView* PacketView);
 bool networkWaitForPacket(ldiServer* Server, ldiPacketView* PacketView);
+
+bool networkConnect(std::string Hostname, int Port, SOCKET* Socket);
+
+void packetBuilderReset(ldiPacketBuilder* Builder);
+void packetBuilderInit(ldiPacketBuilder* Builder, int Size);
+void packetBuilderDestroy(ldiPacketBuilder* Builder);
+int packetBuilderProcessData(ldiPacketBuilder* Builder, uint8_t* Data, int Size);

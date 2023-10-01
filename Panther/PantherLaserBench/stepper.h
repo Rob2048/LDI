@@ -1,21 +1,10 @@
 #pragma once
 
 #include "Arduino.h"
-// TODO: Need to remove this library due to viral AGPLv3 license (License was updated to MIT recently?).
-// Alternative: https://github.com/teemuatlut/TMCStepper
 #include <TMC2130Stepper.h>
+// Alternative: https://github.com/teemuatlut/TMCStepper
 
-struct ldiStepTableEntry {
-	int16_t step;
-	int16_t sgValue;
-};
-
-struct ldiStepTable {
-	int32_t size;
-	ldiStepTableEntry entries[32000];
-};
-
-class abStepper {
+class ldiStepper {
 public:
 
 	// Config.
@@ -47,7 +36,7 @@ public:
 	int32_t 	totalSteps;
 	uint32_t 	stepperTimeUs;
 
-	abStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin);
+	ldiStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin);
 	bool init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, bool Invert);
 	void setDirection(bool Dir);
 	void setMicrosteps(int Steps);
@@ -62,7 +51,6 @@ public:
 	void moveTo(int32_t StepTarget, float MaxVelocity);
 	void moveRelative(int32_t StepTarget, float MaxVelocity);
 	bool updateStepper();
-	bool updateStepperLog(ldiStepTable* StepLogTable);
 	
 	void moveSimple(float Position, int32_t Speed);
 	void moveDirect(int32_t StepTarget, int32_t Speed);
@@ -74,8 +62,18 @@ private:
 	TMC2130Stepper* _tmc;
 };
 
-inline void abStepper::pulseStepper() {
+inline void ldiStepper::pulseStepper() {
 	digitalWrite(stepPin, HIGH);
 	delayMicroseconds(1);
 	digitalWrite(stepPin, LOW);
+}
+
+inline int getMicroPhase(int Step) {
+	int result = ((Step * 8) % 1024) + 4;
+
+	if (result < 0) {
+		result += 1024;
+	}
+
+	return result;
 }

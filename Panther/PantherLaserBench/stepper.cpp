@@ -1,6 +1,6 @@
 #include "stepper.h"
 
-abStepper::abStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin) :	
+ldiStepper::ldiStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin) :	
 	active(false),
 	type(Type),
 	stepPin(StepPin),
@@ -15,7 +15,7 @@ abStepper::abStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_
 	}
 }
 
-bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, bool Invert) {
+bool ldiStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, bool Invert) {
 	bool success = true;
 	mmPerStep = MmPerStep;
 	stepsPerMm = 1.0 / MmPerStep;
@@ -72,27 +72,27 @@ bool abStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerSt
 	return success;
 }
 
-void abStepper::setMicrosteps(int Steps) {
+void ldiStepper::setMicrosteps(int Steps) {
 	_tmc->microsteps(Steps);
 }
 
-uint16_t abStepper::getMicrostepCount() {
+uint16_t ldiStepper::getMicrostepCount() {
 	return _tmc->MSCNT();
 }
 
-uint32_t abStepper::getDriverStatus() {
+uint32_t ldiStepper::getDriverStatus() {
 	return _tmc->DRV_STATUS();
 }
 
-bool abStepper::getSfilt() {
+bool ldiStepper::getSfilt() {
 	return _tmc->sfilt();
 }
 
-int8_t abStepper::getSgt() {
+int8_t ldiStepper::getSgt() {
 	return _tmc->sgt();
 }
 
-bool abStepper::updateStepper() {
+bool ldiStepper::updateStepper() {
 	uint32_t currentTime = micros();
 
 	int32_t remainingSteps = stepTarget - currentStep;
@@ -153,93 +153,12 @@ bool abStepper::updateStepper() {
 	return true;
 }
 
-bool abStepper::updateStepperLog(ldiStepTable* StepLogTable) {
-	uint32_t currentTime = micros();
-
-	int32_t remainingSteps = stepTarget - currentStep;
-
-	if (remainingSteps == 0)
-		return false;
-
-	if (remainingSteps < 0)
-		remainingSteps = -remainingSteps;
-
-	if (currentTime >= stepperTimeUs) {
-		pulseStepper();
-		//Serial.println(remainingSteps);
-		//Serial.print(" ");
-		//Serial.print(currentTime - moveStartTimeUs);
-		//Serial.print(" V ");
-		//Serial.println(u, 2);
-		
-		if (totalSteps < 0) {
-			--currentStep;
-		} else {
-			++currentStep;
-		}
-
-		//StepLogTable->entries[StepLogTable->size].step = currentStep;
-
-		// {
-		// 	static unsigned long prevTime = 0;
-		// 	unsigned long t0 = micros();
-
-		// 	uint8_t buffer[8];
-		// 	buffer[0] = 255;
-		// 	buffer[1] = 5;
-		// 	buffer[2] = 70;
-		// 	buffer[sizeof(buffer) - 1] = 254;
-
-		// 	memcpy(buffer + 3, &prevTime, 4);
-			
-		// 	Serial.write(buffer, sizeof(buffer));
-
-		// 	prevTime = micros() - t0;
-		// }
-
-	} else {
-		return true;
-	}
-
-	// TODO: Only calc accel during accel phase.
-	// TODO: Keep velocity after accel phase during cruise phase.
-	// TODO: Final step travel is not accounted for?
-	
-	// Calculate next step time.
-	// NOTE: Roughly 15us to calculate on Teensy 3.5.
-	if (remainingSteps <= decelSteps) {
-		// NOTE: Deacceleration phase.
-		t = (sqrtf(2 * -a * s + u * u) - u) / -a;
-		float v = u + -a * t;
-		u = v;
-	
-		uint32_t delayTimeUs = (uint32_t)(t * 1000000.0);
-		stepperTimeUs += delayTimeUs;		
-	} else if (u >= maxVelocity) {
-		// NOTE: Cruising phase.
-		u = maxVelocity;
-		
-		uint32_t cruiseStepDelay = (uint32_t)((mmPerStep / maxVelocity) * 1000000.0);
-		stepperTimeUs = stepperTimeUs + cruiseStepDelay;		
-	} else {
-		// NOTE: Acceleration phase.
-		t = (sqrtf(2 * a * s + u * u) - u) / a;
-		float v = u + a * t;
-		u = v;
-	
-		uint32_t delayTimeUs = (uint32_t)(t * 1000000.0);
-		stepperTimeUs += delayTimeUs;
-	}
-
-	return true;
-}
-
-void abStepper::moveRelative(int32_t StepTarget, float MaxVelocity) {
+void ldiStepper::moveRelative(int32_t StepTarget, float MaxVelocity) {
 	StepTarget = currentStep + StepTarget;
 	moveTo(StepTarget, MaxVelocity);
 }
 
-void abStepper::setDirection(bool Dir) {
+void ldiStepper::setDirection(bool Dir) {
 	if (invert) {
 		Dir = !Dir;
 	}
@@ -267,7 +186,7 @@ void abStepper::setDirection(bool Dir) {
 	}
 }
 
-// void abStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
+// void ldiStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
 // 	uint32_t t0 = micros();
 // 	// char buff[256];
 // 	// sprintf(buff, "Motion block: %ld -> %ld (%.2f, %.2f, %.2f)\r\n", currentStep, StepTarget, StartVelocity, EndVelocity, MaxVelocity);
@@ -322,7 +241,7 @@ void abStepper::setDirection(bool Dir) {
 // 	//Serial.println(t0);
 // }
 
-void abStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
+void ldiStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	uint32_t t0 = micros();
 
 	float maxTime = mmPerStep * 1000000;
@@ -380,7 +299,7 @@ void abStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	// Serial.print(buff);
 }
 
-void abStepper::moveSimple(float Position, int32_t Speed) {
+void ldiStepper::moveSimple(float Position, int32_t Speed) {
 	// Convert position to step target.
 	int32_t stepTarget = (int32_t)(Position * stepsPerMm);
 
@@ -399,7 +318,7 @@ void abStepper::moveSimple(float Position, int32_t Speed) {
 	}
 }
 
-void abStepper::moveDirect(int32_t StepTarget, int32_t Speed) {
+void ldiStepper::moveDirect(int32_t StepTarget, int32_t Speed) {
 	int32_t stepTarget = StepTarget;
 
 	// Step.
@@ -417,7 +336,7 @@ void abStepper::moveDirect(int32_t StepTarget, int32_t Speed) {
 	}
 }
 
-void abStepper::moveDirectRelative(int32_t Steps, int32_t Delay) {
+void ldiStepper::moveDirectRelative(int32_t Steps, int32_t Delay) {
 	int32_t totalSteps = abs(Steps);
 
 	if (Steps < 0) {
@@ -439,11 +358,11 @@ void abStepper::moveDirectRelative(int32_t Steps, int32_t Delay) {
 }
 
 
-void abStepper::zero() {
+void ldiStepper::zero() {
 	currentStep = 0;
 }
 
-void abStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep) {
+void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep) {
 	if (HomeDir) {
 		moveRelative(100000, SlowSpeed);
 	} else {
@@ -484,3 +403,69 @@ void abStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep
 	minStep = MinStep;
 	maxStep = MaxStep;
 }
+
+/*
+void homing() {
+	steppers[0].moveRelative(-100000, 50);
+	steppers[1].moveRelative(-100000, 50);
+	steppers[2].moveRelative(100000, 50);
+
+	bool s1 = true;
+	bool s2 = true;
+	bool s3 = true;
+
+	while (s1 || s2 || s3) {
+		if (s1) { s1 = moveStepperUntilLimit(&steppers[0]); }
+		if (s2) { s2 = moveStepperUntilLimit(&steppers[1]); }
+		if (s3) { s3 = moveStepperUntilLimit(&steppers[2]); }
+	}
+
+	steppers[0].home(50, 100, false, 0, 0, 20000);
+	steppers[1].home(50, 100, false, 0, 0, 15000);
+	steppers[2].home(50, 30, true, 17000, 0, 17000);
+
+	// Move to home position.
+	steppers[0].moveTo(15000, 200);
+	steppers[1].moveTo(5000, 100);
+	steppers[2].moveTo(14400, 50);
+
+	s1 = true;
+	s2 = true;
+	s3 = true;
+
+	while (s1 || s2 || s3) {
+		s1 = steppers[0].updateStepper();
+		s2 = steppers[1].updateStepper();
+		s3 = steppers[2].updateStepper();
+	}
+
+	// Zero home position.
+	steppers[0].currentStep = 0;
+	steppers[1].currentStep = 0;
+	steppers[2].currentStep = 0;
+}
+
+void homingTest() {
+	steppers[0].moveRelative(-100000, 10);
+	
+	while (moveStepperUntilLimit(&steppers[0]));
+
+	float dist = steppers[0].currentStep * steppers[0].mmPerStep;
+	dist *= 1000.0f;
+
+	// Target count for X axis: 420 TMC steps.
+	int tmcSteps = steppers[0].getMicrostepCount();
+	int tmcDiffSteps = 420 - tmcSteps;
+	int actualSteps = tmcDiffSteps / 8;
+
+	char buff[256];
+	sprintf(buff, "Current step: %ld Dist: %.0f um (%d) Actual: %d\r\n", steppers[0].currentStep, dist, steppers[0].getMicrostepCount(), actualSteps);
+	Serial.print(buff);
+
+	steppers[0].home(50, 100, false, 0, 0, 20000);
+
+	steppers[0].moveTo(steppers[0].stepsPerMm * 30, 200);
+	while (steppers[0].updateStepper());
+}
+
+*/

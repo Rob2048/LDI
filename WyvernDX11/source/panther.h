@@ -31,7 +31,7 @@ struct ldiPanther {
 	std::condition_variable operationCompleteCondVar;
 
 	std::mutex				dataLockMutex;
-	// TODO: These should be in steps.
+	// TODO: These should be in steps. Should they?
 	float positionX;
 	float positionY;
 	float positionZ;
@@ -122,6 +122,7 @@ void pantherWorkerThread(ldiPanther* Panther) {
 				pantherDisconnect(Panther);
 				break;
 			} else if (Panther->recvTempSize == 0) {
+				// TODO: I hate this :(. Find a better way.
 				Sleep(1);
 			} else {
 				while (Panther->recvTempPos < Panther->recvTempSize) {
@@ -215,16 +216,6 @@ void pantherIssueCommand(ldiPanther* Panther, uint8_t* Data, int Size) {
 	serialPortWriteData(&Panther->serialPort, Data, Size);
 }
 
-void pantherSendTestCommand(ldiPanther* Panther) {
-	uint8_t cmd[5];
-
-	cmd[0] = PANTHER_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 1;
-	cmd[4] = PANTHER_PACKET_END;
-
-	pantherIssueCommand(Panther, cmd, 5);
-}
 
 void pantherSendPingCommand(ldiPanther* Panther) {
 	uint8_t cmd[5];
@@ -237,26 +228,23 @@ void pantherSendPingCommand(ldiPanther* Panther) {
 	pantherIssueCommand(Panther, cmd, 5);
 }
 
+void pantherSendTestCommand(ldiPanther* Panther) {
+	uint8_t cmd[5];
+
+	cmd[0] = PANTHER_PACKET_START;
+	*(uint16_t*)(cmd + 1) = 1;
+	cmd[3] = 1;
+	cmd[4] = PANTHER_PACKET_END;
+
+	pantherIssueCommand(Panther, cmd, 5);
+}
+
 void pantherSendMoveRelativeCommand(ldiPanther* Panther, uint8_t AxisId, int32_t Steps, float MaxVelocity) {
 	uint8_t cmd[64];
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 10;
 	cmd[3] = 2;
-	cmd[4] = AxisId;
-	memcpy(cmd + 5, &Steps, 4);
-	memcpy(cmd + 9, &MaxVelocity, 4);
-	cmd[13] = PANTHER_PACKET_END;
-
-	pantherIssueCommand(Panther, cmd, 14);
-}
-
-void pantherSendMoveRelativeLogCommand(ldiPanther* Panther, uint8_t AxisId, int32_t Steps, float MaxVelocity) {
-	uint8_t cmd[64];
-
-	cmd[0] = PANTHER_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 22;
 	cmd[4] = AxisId;
 	memcpy(cmd + 5, &Steps, 4);
 	memcpy(cmd + 9, &MaxVelocity, 4);

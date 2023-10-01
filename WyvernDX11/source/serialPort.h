@@ -151,6 +151,56 @@ int32_t serialPortReadData(ldiSerialPort* Port, uint8_t* Buffer, int32_t BufferS
 		return -1;
 	}
 
+	// Sit here doing things for RECV for now.
+
+	//DWORD dwCommEvent;
+	//DWORD dwRead;
+	//char  chRead[4096];
+	//int totalRead = 0;
+	//int recvCount = 0;
+
+	//if (!SetCommMask(Port->descriptor, EV_RXCHAR)) {
+	//	std::cout << "Failed to set comm mask\n";
+	//	return -1;
+	//}
+
+	//while (true) {
+	//	std::cout << "Waiting for comm event\n";
+	//	if (WaitCommEvent(Port->descriptor, &dwCommEvent, NULL)) {
+	//		do {
+	//			if (ReadFile(Port->descriptor, &chRead, 4096, &dwRead, NULL)) {
+	//				// A byte has been read; process it.
+	//				totalRead += dwRead;
+	//				std::cout << "Read " << dwRead << " " << totalRead << "\n";
+
+	//				for (int i = 0; i < dwRead; ++i) {
+	//					uint8_t v = chRead[i];
+
+	//					int newGoal = (recvCount / 256) % 256;
+
+	//					if (v != newGoal) {
+	//						std::cout << "Seq failure (" << recvCount << ") expected: " << newGoal << " got: " << (int)v << "\n";
+	//						return -1;
+	//					}
+	//					
+	//					recvCount += 1;
+	//				}
+
+
+	//			} else {
+	//				// An error occurred in the ReadFile call.
+	//				std::cout << "e\n";
+	//				break;
+	//			}
+	//		} while (dwRead);
+	//	} else {
+	//		// Error in WaitCommEvent
+	//		break;
+	//	}
+	//}
+
+	//return -1;
+
 	OVERLAPPED overlapped = {};
 	DWORD bytesRead;
 

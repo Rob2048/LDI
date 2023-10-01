@@ -25,15 +25,12 @@
 #include <d3dcompiler.h>
 
 #include "utilities.h"
-//#include "glm.h"
 #include "model.h"
 #include "objLoader.h"
 #include "plyLoader.h"
 #include "stlLoader.h"
 #include "image.h"
-
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-#define min(a,b) (((a) < (b)) ? (a) : (b))
+#include "threadSafeQueue.h"
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -64,24 +61,10 @@ struct ldiCamera {
 	int viewHeight;
 };
 
-struct ldiTextInfo {
-	vec2 position;
-	std::string text;
-	vec4 color;
-};
-
-struct ldiPlatformTransform {
-	float x;
-	float y;
-	float z;
-	float a;
-	float b;
-};
-
 struct ldiPhysics;
 struct ldiImageInspector;
-struct ldiPanther;
 struct ldiProjectContext;
+struct ldiPlatform;
 
 struct ldiDebugPrims {
 	std::vector<ldiSimpleVertex>	lineGeometryVertData;
@@ -170,7 +153,7 @@ struct ldiApp {
 
 	ImFont*						fontBig;
 
-	bool						showPlatformWindow = false;
+	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
 	bool						showModelInspector = false;
@@ -182,8 +165,8 @@ struct ldiApp {
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
 	ldiImageInspector*			imageInspector = 0;
-	ldiPanther*					panther = 0;
-
+	ldiPlatform*				platform = 0;
+	
 	ldiProjectContext*			projectContext;
 };
 
@@ -210,17 +193,15 @@ void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight
 }
 
 #include "serialPort.h"
-#include "mvCam.h"
-#include "physics.h"
 #include "graphics.h"
 #include "debugPrims.h"
+#include "physics.h"
+#include "platform.h"
 #include "computerVision.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
 #include "visionSimulator.h"
-#include "panther.h"
 #include "imageInspector.h"
-#include "platform.h"
 #include "modelEditor.h"
 #include "galvoInspector.h"
 
@@ -232,7 +213,6 @@ ldiPlatform			_platform = {};
 ldiVisionSimulator	_visionSimulator = {};
 ldiImageInspector	_imageInspector = {};
 ldiModelEditor		_modelEditor = {};
-ldiPanther			_panther = {};
 ldiGalvoInspector	_galvoInspector = {};
 ldiProjectContext	_projectContext = {};
 
@@ -851,22 +831,6 @@ bool _initResources(ldiApp* AppContext) {
 }
 
 //----------------------------------------------------------------------------------------------------
-// Network command handling.
-//----------------------------------------------------------------------------------------------------
-void _processPacket(ldiApp* AppContext, ldiPacketView* PacketView) {
-	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
-	//std::cout << "Opcode: " << packetHeader->opcode << "\n";
-
-	if (packetHeader->opcode == 0) {
-		imageInspectorHandlePacket(AppContext->imageInspector, PacketView);
-	} else if (packetHeader->opcode == 1) {
-		imageInspectorHandlePacket(AppContext->imageInspector, PacketView);
-	} else {
-		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
-	}
-}
-
-//----------------------------------------------------------------------------------------------------
 // Application main.
 //----------------------------------------------------------------------------------------------------
 int main() {
@@ -896,7 +860,7 @@ int main() {
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
 	appContext->currentWorkingDir = std::string(dirBuff);
 	std::cout << "Working directory: " << appContext->currentWorkingDir << "\n";
-	
+
 	_createWindow(appContext);
 
 	// Initialize Direct3D.
@@ -945,6 +909,7 @@ int main() {
 	}
 
 	ldiPlatform* platform = &_platform;
+	appContext->platform = platform;
 	if (platformInit(appContext, platform) != 0) {
 		std::cout << "Could not init platform\n";
 		return 1;
@@ -985,16 +950,10 @@ int main() {
 	ImGui::DockBuilderDockWindow();
 	ImGui::DockBuilderFinish();*/
 
-	if (!networkInit(&appContext->server, "20000")) {
-		std::cout << "Networking failure\n";
-		return 1;
-	}
-
-	appContext->panther = &_panther;
-	if (!pantherInit(appContext, &_panther)) {
-		std::cout << "Could not init panther\n";
-		return 1;
-	}
+	//if (!networkInit(&appContext->server, "20000")) {
+	//	std::cout << "Networking failure\n";
+	//	return 1;
+	//}
 
 	projectInit(appContext, appContext->projectContext, "..\\project_deer\\");
 
@@ -1009,20 +968,6 @@ int main() {
 		
 		if (_handleWindowLoop()) {
 			break;
-		}
-
-		while (true) {
-			ldiPacketView packetView;
-			/*networkWaitForPacket(&appContext->server, &packetView);
-			double t = _getTime(appContext);
-			std::cout << "T: " << (t * 1000.0) << "\n";
-			_processPacket(appContext, &packetView);*/
-			
-			if (networkGetPacket(&appContext->server, &packetView)) {
-				_processPacket(appContext, &packetView);
-			} else {
-				break;
-			}
 		}
 		
 		//----------------------------------------------------------------------------------------------------

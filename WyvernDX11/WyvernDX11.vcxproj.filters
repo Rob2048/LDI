@@ -137,7 +137,16 @@
     <ClInclude Include="source\elipseCollision.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="source\mvCam.h">
+    <ClInclude Include="source\hawk.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\threadSafeQueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\horse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\rotaryMeasurement.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

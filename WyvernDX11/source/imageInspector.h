@@ -13,52 +13,12 @@
 //#define CAM_IMG_HEIGHT 3040
 
 // NOTE: IMX219
-#define CAM_IMG_WIDTH 1920
-#define CAM_IMG_HEIGHT 1080
+//#define CAM_IMG_WIDTH 1920
+//#define CAM_IMG_HEIGHT 1080
+#define CAM_IMG_WIDTH 3280
+#define CAM_IMG_HEIGHT 2464
 
-struct ldiRotaryPoint {
-	int id;
-	vec2 pos;
-	float info;
-	float zeroAngle;
-	float relAngle;
-};
-
-struct ldiRotaryResults {
-	std::thread					workerThread;
-	
-	// Only worker thread.
-	cv::VideoCapture			webcamCapture;
-
-	// Shared by threads.
-	std::mutex					frameMutex;
-	volatile bool				frameAvailable = false;
-	uint8_t*					greyFrame;
-	std::vector<cv::KeyPoint>	blobsInitial;
-
-	// Only main thread.
-	std::vector<vec2>			blobs;
-
-	bool						showGizmos = false;
-
-	bool						foundCenter = false;
-	vec2						centerPos;
-
-	bool						foundLocator = false;
-	vec2						locatorPos;
-
-	std::vector<ldiRotaryPoint>	points;
-
-	ldiRotaryPoint				accumPoints[32];
-
-	float						relativeAngleToZero;
-
-	float						lastResults[25];
-	float						stdDev;
-	float						stdDevStoppedLimit = 0.002;
-
-	float						processTime = 0.0f;
-};
+#include "rotaryMeasurement.h"
 
 enum ldiImageInspectorMode {
 	IIM_LIVE_CAMERA,
@@ -80,23 +40,17 @@ struct ldiImageInspector {
 
 	vec2						camImageCursorPos;
 	uint8_t						camImagePixelValue;
-	int							camImageShutterSpeed = 8000;
-	int							camImageAnalogGain = 1;
-	float						camImageGainR = 1.0f;
-	float						camImageGainG = 1.0f;
-	float						camImageGainB = 1.0f;
+	
 	bool						camImageProcess = false;
+	bool						camCalibProcess = false;
+	double						calibDetectTimeout = 0;
 
 	ID3D11Buffer*				camImagePixelConstants;
 	ID3D11ShaderResourceView*	camResourceView;
 	ID3D11Texture2D*			camTex;
 
-	std::mutex					camNewFrameMutex;
-	std::condition_variable		camNewFrameCondVar;
-
 	int							camLastNewFrameId = 0;
 	std::atomic_int				camNewFrameId = 0;
-	float						camPixels[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 	uint8_t						camPixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 
 	ldiCalibrationJob			calibJob;
@@ -111,118 +65,14 @@ struct ldiImageInspector {
 
 	ldiRotaryResults			rotaryResults;
 
-	ldiMvCam					mvCam[2];
-	int							mvCamCount = 2;
+	std::vector<ldiCameraCalibSample> cameraCalibSamples;
+	int							cameraCalibImageWidth;
+	int							cameraCalibImageHeight;
+	int							cameraCalibSelectedSample = -1;
+	cv::Mat						cameraCalibMatrix;
+	cv::Mat						cameraCalibDist;
+	bool						cameraCalibShowUndistorted = false;
 };
-
-float filterAngles(float Src, float Dest) {
-	// NOTE: Turns out the angles don't really need filtering :O.
-	
-	// NOTE: Filter flops hard when doing 0-360 flip.
-	//a->info = a->info * 0.90f + angle * 0.1f;
-
-	return Dest;
-}
-
-float subAngles(float A, float B) {
-	// NOTE: Equivalent of A - B
-	B -= A;
-
-	if (B > 180) {
-		B -= 360;
-	} else if (B < -180) {
-		B += 360;
-	}
-
-	return B;
-}
-
-float avgAngles(int Count, float* Data) {
-	float avgStart = Data[0];
-	float accum = 0.0f;
-
-	for (int i = 0; i < Count; ++i) {
-		float v = Data[i];
-
-		v -= avgStart;
-
-		if (v > 180) {
-			v -= 360;
-		} else if (v < -180) {
-			v += 360;
-		}
-
-		accum += v / (float)Count;
-	}
-
-	accum += avgStart;
-
-	if (accum >= 360.0) {
-		accum -= 360.0;
-	} else if (accum < 0.0) {
-		accum += 360.0;
-	}
-
-	return accum;
-}
-
-vec2 imageGetEdgeCenter(vec2 LineStart, vec2 LineEnd, ldiImageInspector* Tool) {
-	vec2 lineDiff = LineEnd - LineStart;
-	float lineLen = glm::length(lineDiff);
-	int lineSegments = lineLen + 1;
-	vec2 lineDir = glm::normalize(LineEnd - LineStart);
-
-	float lastSampleValue = 0.0f;
-	std::vector<float> sampleDeltas;
-	float totalWeight = 0.0f;
-
-	float diffLimit = pow(5, 0.45);
-
-	for (int i = 0; i < lineSegments; ++i) {
-		vec2 samplePos = LineStart + lineDir * (float)i;
-		
-		int samplePixelX = clamp((int)samplePos.x, 0, CAM_IMG_WIDTH - 1);
-		int samplePixelY = clamp((int)samplePos.y, 0, CAM_IMG_HEIGHT - 1);
-		float sampleValue = Tool->camPixelsFinal[samplePixelY * CAM_IMG_WIDTH + samplePixelX];
-		sampleValue = pow(sampleValue, 0.6);
-
-		if (i > 0) {
-			float diff = abs(sampleValue - lastSampleValue);
-
-			/*if (diff > diffLimit) {
-				totalWeight += diff * diff;
-			}*/
-
-			sampleDeltas.push_back(diff);
-		}
-
-		lastSampleValue = sampleValue;
-	}
-
-	vec2 centerPoint(0.0f, 0.0f);
-
-	for (int i = 0; i < sampleDeltas.size(); ++i) {
-		float sample = sampleDeltas[i];
-
-		/*if (sample <= diffLimit) {
-			continue;
-		}*/
-
-		sample *= sample;
-		vec2 samplePos = LineStart + lineDir * (float)i + vec2(0.5f, 0.0f);
-
-		centerPoint += samplePos * sample / totalWeight;
-	}
-
-	return centerPoint;
-}
-
-bool imageInspectorWaitForCameraFrame(ldiImageInspector* Inspector) {
-	std::unique_lock<std::mutex> lock(Inspector->camNewFrameMutex);
-	Inspector->camNewFrameCondVar.wait(lock);
-
-	return true;
-}
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
@@ -237,87 +87,11 @@ void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDraw
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(tool->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
-		constantBuffer->params = vec4(tool->camImageGainR, tool->camImageGainG, tool->camImageGainB, 0);
+		constantBuffer->params = vec4(1.0f, 1.0f, 1.0f, 0);
 		appContext->d3dDeviceContext->Unmap(tool->camImagePixelConstants, 0);
 	}
 
 	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &tool->camImagePixelConstants);
-}
-
-void imageInspectorHandlePacket(ldiImageInspector* Tool, ldiPacketView* PacketView) {
-	ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)PacketView->data;
-
-	if (packetHeader->opcode == 0) {
-		ldiProtocolSettings* packet = (ldiProtocolSettings*)PacketView->data;
-		std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
-
-		Tool->camImageShutterSpeed = packet->shutterSpeed;
-		Tool->camImageAnalogGain = packet->analogGain;
-
-	} else if (packetHeader->opcode == 1) {
-		ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)PacketView->data;
-		//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
-
-		uint8_t* frameData = PacketView->data + sizeof(ldiProtocolImageHeader);
-
-		for (int i = 0; i < CAM_IMG_WIDTH * CAM_IMG_HEIGHT; ++i) {
-			Tool->camPixels[i] = Tool->camPixels[i] * Tool->camImageFilterFactor + frameData[i] * (1.0f - Tool->camImageFilterFactor);
-			Tool->camPixelsFinal[i] = Tool->camPixels[i];
-		}
-
-		Tool->camNewFrameId++;
-		Tool->camNewFrameCondVar.notify_all();
-	} else {
-		std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
-	}
-}
-
-void rotaryWorkerThread(ldiRotaryResults* Rotary) {
-	std::cout << "Running rotary worker thread\n";
-
-	//----------------------------------------------------------------------------------------------------
-	// Start webcamera camera.
-	//----------------------------------------------------------------------------------------------------
-	std::cout << "Start camera...\n";
-	Rotary->webcamCapture.open(0, cv::CAP_ANY);
-
-	if (!Rotary->webcamCapture.isOpened()) {
-		std::cout << "Failed to open camera\n";
-	} else {
-		std::cout << "Camera started\n";
-	}
-
-	cv::Mat webcamFrame;
-	cv::Mat frameGrey;
-
-	cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
-	//std::cout << params.minArea << " " << params.maxArea << "\n";
-	params.minArea = 70;
-	params.maxArea = 700;
-
-	std::vector<cv::KeyPoint> blobs;
-	
-	while (true) {
-		if (Rotary->webcamCapture.read(webcamFrame)) {
-			cv::cvtColor(webcamFrame, frameGrey, cv::COLOR_BGR2GRAY);
-			
-			cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
-			detector->detect(frameGrey, blobs);
-
-			std::unique_lock<std::mutex> lock(Rotary->frameMutex);
-			Rotary->frameAvailable = true;
-			memcpy(Rotary->greyFrame, frameGrey.data, 640 * 480);
-
-			Rotary->blobsInitial.clear();
-			for (size_t i = 0; i < blobs.size(); ++i) {
-				Rotary->blobsInitial.push_back(blobs[i]);
-			}
-
-			lock.unlock();
-		}
-	}
-
-	std::cout << "Rotary workder thread completed\n";
 }
 
 int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
@@ -367,16 +141,7 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Rotary measurment.
 	//----------------------------------------------------------------------------------------------------
-	Tool->rotaryResults.greyFrame = new uint8_t[640 * 480];
-	//Tool->rotaryResults.workerThread = std::thread(rotaryWorkerThread, &Tool->rotaryResults);
-
-	//----------------------------------------------------------------------------------------------------
-	// Machine vision cams.
-	//----------------------------------------------------------------------------------------------------
-	//for (int i = 0; i < Tool->mvCamCount; ++i) {
-		//mvCamInit(&Tool->mvCam[i]);
-	//}
-	mvCamInit(&Tool->mvCam[0], "\\\\.\\COM12");
+	rotaryMeasurementInit(&Tool->rotaryResults);
 
 	return 0;
 }
@@ -395,6 +160,8 @@ void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* Fra
 }
 
 void _imageInspectorCopyFrameDataToTextureEx(ldiApp* AppContext, ID3D11Texture2D* Tex, uint8_t* FrameData, int Width, int Height) {
+	// TODO: Make sure texture width/height is acceptable.
+
 	D3D11_MAPPED_SUBRESOURCE ms;
 	AppContext->d3dDeviceContext->Map(Tex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 	uint8_t* pixelData = (uint8_t*)ms.pData;
@@ -452,186 +219,6 @@ void _imageInspectorProcessCalibJob(ldiImageInspector* Tool) {
 	}
 }
 
-bool compareInterval(ldiRotaryPoint i1, ldiRotaryPoint i2) {
-	return (i1.info < i2.info);
-}
-
-void imageProcessRotaryMarker(ldiApp* AppContext, ID3D11Texture2D* CamTex, ldiRotaryResults* RotaryResults) {
-	std::unique_lock<std::mutex> lock(RotaryResults->frameMutex, std::defer_lock);
-	if (!lock.try_lock()) {
-		return;
-	}
-
-	if (!RotaryResults->frameAvailable) {
-		return;
-	}
-
-	_imageInspectorCopyFrameDataToTextureEx(AppContext, CamTex, RotaryResults->greyFrame, 640, 480);
-
-	RotaryResults->blobs.clear();
-	for (size_t i = 0; i < RotaryResults->blobsInitial.size(); ++i) {
-		vec2 point(RotaryResults->blobsInitial[i].pt.x, RotaryResults->blobsInitial[i].pt.y);
-		RotaryResults->blobs.push_back(point);
-	}
-	
-	RotaryResults->frameAvailable = false;
-	lock.unlock();
-
-	RotaryResults->foundCenter = false;
-	RotaryResults->foundLocator = false;
-	RotaryResults->points.clear();
-
-	float viewWidth = 640.0f;
-	float viewHeight = 480.0f;
-	float viewCenterX = viewWidth / 2.0f;
-	float viewCenterY = viewHeight / 2.0f;
-
-	float trackCenterRadius = 40.0f;
-	float trackInnerRadius = 180.0f;
-	float trackOuterRadius = 260.0f;
-
-	std::vector<ldiRotaryPoint> tempResults;
-
-	for (size_t i = 0; i < RotaryResults->blobs.size(); ++i) {
-		vec2 k = RotaryResults->blobs[i];
-
-		vec2 imgCenter(viewCenterX, viewCenterY);
-		vec2 pointPos(k.x, k.y);
-		float centerDist = glm::distance(imgCenter, pointPos);
-
-		// Identify center.
-		if (centerDist < trackCenterRadius) {
-			RotaryResults->foundCenter = true;
-			RotaryResults->centerPos = pointPos;
-		} else if (centerDist < trackInnerRadius) {
-			RotaryResults->foundLocator = true;
-			RotaryResults->locatorPos = pointPos;
-		} else if (centerDist < trackOuterRadius) {
-			ldiRotaryPoint p;
-			p.id = -1;
-			p.pos = pointPos;
-			tempResults.push_back(p);
-		}
-	}
-
-	if (!RotaryResults->foundCenter || !RotaryResults->foundLocator || tempResults.size() != 32) {
-		return;
-	}
-
-	// Find the starting point.
-	int startId = -1;
-	float startAngleOffset = 0.0f;
-
-	for (size_t i = 0; i < tempResults.size(); ++i) {
-		ldiRotaryPoint* a = &tempResults[i];
-
-		vec2 vA = RotaryResults->centerPos - a->pos;
-		vec2 vB = RotaryResults->locatorPos - a->pos;
-
-		float lenA = glm::length(vA);
-
-		vec2 vAnorm = vA / lenA;
-		vec2 vBnorm = vB / lenA;
-
-		float t = glm::dot(vAnorm, vBnorm);
-		a->info = t;
-
-		if (t < 0.505) {
-			a->id = 0;
-			//RotaryResults->points.push_back(*a);
-
-			startId = i;
-
-			// Get angle:
-			vec2 pV = a->pos - RotaryResults->centerPos;
-			float r = glm::length(pV);
-
-			float theta = atan2(pV.y, pV.x);
-			float angle = theta * (180 / M_PI) + 180.0;
-
-			startAngleOffset = angle;
-		}
-	}
-
-	if (startId == -1) {
-		return;
-	}
-	
-	// Get point ID's from angle.
-	for (size_t i = 0; i < tempResults.size(); ++i) {
-		ldiRotaryPoint* a = &tempResults[i];
-
-		// Get angle:
-		vec2 pV = a->pos - RotaryResults->centerPos;
-		float r = glm::length(pV);
-
-		float theta = atan2(pV.y, pV.x);
-		float angle = theta * (180 / M_PI) + 180.0;
-
-		a->info = angle - startAngleOffset;
-		
-		float segWidth = (360.0 / 32);
-		float segAngle = a->info;
-
-		if (segAngle < 0.0f) {
-			segAngle += 360.0f;
-		}
-
-		int pointId = (segAngle + (segWidth * 0.5f)) / segWidth;
-		a->id = pointId;
-
-		ldiRotaryPoint* b = &RotaryResults->accumPoints[pointId];
-
-		b->id = a->id;
-		b->pos = a->pos;
-	}
-
-	float angles[16];
-
-	for (int i = 0; i < 16; ++i) {
-		ldiRotaryPoint* a = &RotaryResults->accumPoints[i];
-		ldiRotaryPoint* b = &RotaryResults->accumPoints[i + 16];
-
-		vec2 pV = a->pos - b->pos;
-		float r = glm::length(pV);
-
-		float theta = atan2(pV.y, pV.x);
-		float angle = theta * (180 / M_PI) + 180.0;
-
-		a->info = filterAngles(a->info, angle);
-		a->relAngle = a->info - a->zeroAngle;
-
-		if (a->relAngle < 0) {
-			a->relAngle += 360.0;
-		}
-
-		angles[i] = a->relAngle;
-	}
-
-	RotaryResults->relativeAngleToZero = avgAngles(16, angles);
-
-	// Standard deviation over X seconds (25 FPS).
-	// Shift array becuase I'm too lazy to make it circular. Last element is always the most recent.
-	const int resultCount = 5;
-	for (int i = 0; i < resultCount - 1; ++i) {
-		RotaryResults->lastResults[i] = RotaryResults->lastResults[i + 1];
-	}
-	RotaryResults->lastResults[resultCount - 1] = RotaryResults->relativeAngleToZero;
-
-	// Calculate mean.
-	float sdevMean = avgAngles(resultCount, RotaryResults->lastResults);
-
-	// Calc diff to mean.
-	float sdevErrSqr[resultCount];
-	for (int i = 0; i < resultCount; ++i) {
-		float err = subAngles(RotaryResults->lastResults[i], sdevMean);
-		sdevErrSqr[i] = err * err;
-	}
-	float sdevRootErrMean = sqrt(avgAngles(resultCount, sdevErrSqr));
-
-	RotaryResults->stdDev = sdevRootErrMean;
-}
-
 void imageInspectorShowUi(ldiImageInspector* Tool) {
 	if (Tool->imageMode == IIM_LIVE_CAMERA) {
 		if (Tool->camNewFrameId != Tool->camLastNewFrameId) {
@@ -652,7 +239,78 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 	}
 
-	imageProcessRotaryMarker(Tool->appContext, Tool->camTex, &Tool->rotaryResults);
+	bool hawkNewFrame = false;
+	for (int i = 0; i < 2; ++i) {
+		ldiHawk* mvCam = &Tool->appContext->platform->hawks[i];
+
+		if (hawkUpdate(Tool->appContext, mvCam)) {
+			hawkNewFrame = true;
+			// NOTE: Got a new frame.
+
+			for (int iY = 0; iY < mvCam->imgHeight; ++iY) {
+				memcpy(Tool->camPixelsFinal + (i * 1640) + iY * CAM_IMG_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
+			}
+
+			if (Tool->camCalibProcess) {
+				ldiImage camImg = {};
+				camImg.data = mvCam->frameBuffer;
+				camImg.width = mvCam->imgWidth;
+				camImg.height = mvCam->imgHeight;
+
+				ldiCameraCalibSample calibSample;
+
+				if (cameraCalibFindCirclesBoard(Tool->appContext, camImg, &calibSample)) {
+					double currentTime = _getTime(Tool->appContext);
+					if (currentTime - Tool->calibDetectTimeout >= 0.0) {
+						std::cout << "Capture\n";
+						Tool->calibDetectTimeout = currentTime + 1.0;
+
+						ldiImage* newFrameImg = new ldiImage;
+						newFrameImg->data = new uint8_t[mvCam->imgWidth * mvCam->imgHeight];
+						newFrameImg->width = mvCam->imgWidth;
+						newFrameImg->height = mvCam->imgHeight;
+						memcpy(newFrameImg->data, mvCam->frameBuffer, mvCam->imgWidth * mvCam->imgHeight);
+
+						calibSample.image = newFrameImg;
+						
+						Tool->cameraCalibSamples.push_back(calibSample);
+						Tool->cameraCalibImageWidth = mvCam->imgWidth;
+						Tool->cameraCalibImageHeight = mvCam->imgHeight;
+					}
+				}
+			}
+
+			if (Tool->camImageProcess) {
+				ldiImage camImg = {};
+				camImg.data = mvCam->frameBuffer;
+				camImg.width = mvCam->imgWidth;
+				camImg.height = mvCam->imgHeight;
+
+				cv::Mat calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
+				calibCameraMatrix.at<double>(0, 0) = 1693.30789;
+				calibCameraMatrix.at<double>(0, 1) = 0.0;
+				calibCameraMatrix.at<double>(0, 2) = 800;
+				calibCameraMatrix.at<double>(1, 0) = 0.0;
+				calibCameraMatrix.at<double>(1, 1) = 1693.30789;
+				calibCameraMatrix.at<double>(1, 2) = 650;
+				calibCameraMatrix.at<double>(2, 0) = 0.0;
+				calibCameraMatrix.at<double>(2, 1) = 0.0;
+				calibCameraMatrix.at<double>(2, 2) = 1.0;
+
+				cv::Mat calibCameraDist = cv::Mat::zeros(8, 1, CV_64F);
+
+				findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults, &calibCameraMatrix, &calibCameraDist);
+			}
+		}
+	}
+
+	if (hawkNewFrame) {
+		_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, Tool->camPixelsFinal, CAM_IMG_WIDTH, CAM_IMG_HEIGHT);
+	}
+
+	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
+		_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, Tool->rotaryResults.greyFrame, 640, 480);
+	}
 	
 	ImGui::Begin("Image inspector controls");
 
@@ -661,9 +319,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
-		//ImGui::SliderFloat("Gain R", &Tool->camImageGainR, 0.0f, 2.0f);
-		//ImGui::SliderFloat("Gain G", &Tool->camImageGainG, 0.0f, 2.0f);
-		//ImGui::SliderFloat("Gain B", &Tool->camImageGainB, 0.0f, 2.0f);
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
 	}
@@ -699,63 +354,150 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::DragFloat2("Line end", (float*)&Tool->edgeLineEnd, 0.1f, 0.0f, CAM_IMG_WIDTH);
 	}
 
-	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-		bool newSettings = false;
+	for (int i = 0; i < 2; ++i) {
+		ldiHawk* mvCam = &Tool->appContext->platform->hawks[i];
 
-		if (ImGui::SliderInt("Shutter speed", &Tool->camImageShutterSpeed, 1, 30000)) {
-			//std::cout << "Set shutter: " << appContext->camImageShutterSpeed << "\n";
-			newSettings = true;
+		ImGui::PushID(i);
+
+		char tempBuffer[256];
+		sprintf_s(tempBuffer, "Camera %d", i);
+
+		if (ImGui::CollapsingHeader(tempBuffer, ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::SliderInt("Shutter speed", &mvCam->shutterSpeed, 1, 66000)) {
+				hawkCommitSettings(mvCam);
+			}
+
+			if (ImGui::SliderInt("Analog gain", &mvCam->analogGain, 0, 100)) {
+				hawkCommitSettings(mvCam);
+			}
+
+			ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
+
+			if (ImGui::Button("Start continuous mode")) {
+				//Tool->imageMode = IIM_LIVE_CAMERA;
+				hawkSetMode(mvCam, LDI_CAMERACAPTUREMODE_CONTINUOUS);
+			}
+
+			if (ImGui::Button("Stop continuous mode")) {
+				//Tool->imageMode = IIM_LIVE_CAMERA;
+				hawkSetMode(mvCam, LDI_CAMERACAPTUREMODE_WAIT);
+			}
+
+			if (ImGui::Button("Get single image")) {
+				//Tool->imageMode = IIM_LIVE_CAMERA;
+				hawkSetMode(mvCam, LDI_CAMERACAPTUREMODE_SINGLE);
+			}
+
+			if (ImGui::Button("Get average image")) {
+				//Tool->imageMode = IIM_LIVE_CAMERA;
+				hawkSetMode(mvCam, LDI_CAMERACAPTUREMODE_AVERAGE);
+			}
+
+			if (ImGui::Button("Save image")) {
+				double t0 = _getTime(Tool->appContext);
+				imageWrite("test.png", mvCam->imgWidth, mvCam->imgHeight, 1, mvCam->imgWidth, mvCam->frameBuffer);
+				t0 = _getTime(Tool->appContext) - t0;
+				std::cout << "Save frame: " << (t0 * 1000.0) << " ms\n";
+			}
+
+			if (Tool->camCalibProcess) {
+				if (ImGui::Button("Stop calibration")) {
+					Tool->camCalibProcess = false;
+				}
+			} else {
+				if (ImGui::Button("Start calibration")) {
+					Tool->camCalibProcess = true;
+					Tool->camImageProcess = false;
+					Tool->cameraCalibSamples.clear();
+				}
+			}
+			
+			if (ImGui::Button("Save calibration")) {
+				FILE* file;
+				fopen_s(&file, "../cache/calibImages.dat", "wb");
+
+				int sampleCount = Tool->cameraCalibSamples.size();
+				fwrite(&sampleCount, sizeof(int), 1, file);
+
+				for (int i = 0; i < sampleCount; ++i) {
+					ldiCameraCalibSample* sample = &Tool->cameraCalibSamples[i];
+					ldiImage* img = sample->image;
+
+					fwrite(&img->width, sizeof(int), 1, file);
+					fwrite(&img->height, sizeof(int), 1, file);
+					fwrite(img->data, 1, img->width * img->height, file);
+
+					int pointCount = sample->imagePoints.size();
+					fwrite(&pointCount, sizeof(int), 1, file);
+
+					for (int j = 0; j < pointCount; ++j) {
+						vec2 point = sample->imagePoints[j];
+						fwrite(&point, sizeof(vec2), 1, file);
+					}
+				}
+
+				fclose(file);
+			}
+
+			if (ImGui::Button("Load calibration")) {
+				// TODO: Clear memory allocated.
+				Tool->cameraCalibSamples.clear();
+
+				FILE* file;
+				fopen_s(&file, "../cache/calibImages.dat", "rb");
+
+				int sampleCount = 0;
+				fread(&sampleCount, sizeof(int), 1, file);
+
+				for (int i = 0; i < sampleCount; ++i) {
+					int width = 0;
+					int height = 0;
+
+					fread(&width, sizeof(int), 1, file);
+					fread(&height, sizeof(int), 1, file);
+
+					ldiImage* newFrameImg = new ldiImage;
+					newFrameImg->data = new uint8_t[width * height];
+					newFrameImg->width = width;
+					newFrameImg->height = height;
+
+					fread(newFrameImg->data, 1, width * height, file);
+
+					ldiCameraCalibSample calibSample = {};
+					calibSample.image = newFrameImg;
+
+					int pointCount = 0;
+					fread(&pointCount, sizeof(int), 1, file);
+
+					for (int j = 0; j < pointCount; ++j) {
+						vec2 point;
+						fread(&point, sizeof(vec2), 1, file);
+						calibSample.imagePoints.push_back(point);
+					}
+
+					Tool->cameraCalibSamples.push_back(calibSample);
+					Tool->cameraCalibImageWidth = width;
+					Tool->cameraCalibImageHeight = height;
+				}
+
+				fclose(file);
+			}
+
+			if (ImGui::Button("Calibrate")) {
+				Tool->camCalibProcess = false;
+				cameraCalibRunCalibrationCircles(Tool->appContext, Tool->cameraCalibSamples, Tool->cameraCalibImageWidth, Tool->cameraCalibImageHeight, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
+			}
+
+			if (ImGui::Button("Bundle adjust")) {
+				computerVisionBundleAdjust(Tool->cameraCalibSamples, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
+			}
+
+			if (ImGui::Checkbox("Undistorred", &Tool->cameraCalibShowUndistorted)) {
+				std::cout << "Undistorted: " << Tool->cameraCalibShowUndistorted << "\n";
+			}
 		}
 
-		if (ImGui::SliderInt("Analog gain", &Tool->camImageAnalogGain, 0, 100)) {
-			//std::cout << "Set shutter: " << appContext->camImageAnalogGain << "\n";
-			newSettings = true;
-		}
-
-		ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
-
-		if (newSettings) {
-			ldiProtocolSettings settings;
-			settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-			settings.header.opcode = 0;
-			settings.shutterSpeed = Tool->camImageShutterSpeed;
-			settings.analogGain = Tool->camImageAnalogGain;
-
-			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolSettings));
-		}
-
-		if (ImGui::Button("Start continuous mode")) {
-			Tool->imageMode = IIM_LIVE_CAMERA;
-
-			ldiProtocolMode settings;
-			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
-			settings.header.opcode = 1;
-			settings.mode = 1;
-
-			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
-		}
-
-		if (ImGui::Button("Stop continuous mode")) {
-			Tool->imageMode = IIM_LIVE_CAMERA;
-
-			ldiProtocolMode settings;
-			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
-			settings.header.opcode = 1;
-			settings.mode = 0;
-
-			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
-		}
-
-		if (ImGui::Button("Get single image")) {
-			Tool->imageMode = IIM_LIVE_CAMERA;
-
-			ldiProtocolMode settings;
-			settings.header.packetSize = sizeof(ldiProtocolMode) - 4;
-			settings.header.opcode = 1;
-			settings.mode = 2;
-
-			networkSend(&Tool->appContext->server, (uint8_t*)&settings, sizeof(ldiProtocolMode));
-		}
+		ImGui::PopID();
 	}
 
 	if (ImGui::CollapsingHeader("Machine vision", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -771,7 +513,51 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Camera calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Text("Samples");
+		if (ImGui::BeginListBox("##listbox_camera_samples", ImVec2(-FLT_MIN, -FLT_MIN))) {
+			{
+				bool isSelected = (Tool->cameraCalibSelectedSample == -1);
+
+				if (ImGui::Selectable("None", isSelected)) {
+					Tool->cameraCalibSelectedSample = -1;
+				}
+
+				if (isSelected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			
+			for (size_t n = 0; n < Tool->cameraCalibSamples.size(); ++n) {
+				bool isSelected = (Tool->cameraCalibSelectedSample == n);
+
+				char itemLabel[256];
+				sprintf_s(itemLabel, "Sample %d", n);
+
+				if (ImGui::Selectable(itemLabel, isSelected)) {
+					Tool->cameraCalibSelectedSample = n;
+					ldiImage* calibImg = Tool->cameraCalibSamples[n].image;
+
+					if (Tool->cameraCalibShowUndistorted) {
+						cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
+						cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
+						cv::undistort(image, outputImage, Tool->cameraCalibMatrix, Tool->cameraCalibDist);
+						
+						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, outputImage.data, calibImg->width, calibImg->height);
+					} else {
+						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, calibImg->data, calibImg->width, calibImg->height);
+					}
+				}
+
+				if (isSelected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndListBox();
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Platform calibration")) {
 		if (ImGui::Button("Load job")) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			Tool->calibJob.fileSamples.clear();
@@ -926,6 +712,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
+		draw_list->AddText(imgMin, ImColor(200, 200, 200), "Hawk 0");
+		
 		//----------------------------------------------------------------------------------------------------
 		// Draw webcam results.
 		//----------------------------------------------------------------------------------------------------
@@ -1038,6 +826,57 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		//----------------------------------------------------------------------------------------------------
+		// Draw circle calibration board results.
+		//----------------------------------------------------------------------------------------------------
+		{
+			srand(0);
+
+			for (size_t iterSamples = 0; iterSamples < Tool->cameraCalibSamples.size(); ++iterSamples) {
+				ldiCameraCalibSample* sample = &Tool->cameraCalibSamples[iterSamples];
+
+				if (Tool->cameraCalibSelectedSample != -1 && Tool->cameraCalibSelectedSample != iterSamples) {
+					continue;
+				}
+
+				vec3 rndCol = getRandomColorHighSaturation();
+				
+				for (size_t iterPoints = 0; iterPoints < sample->imagePoints.size(); ++iterPoints) {
+					vec2 o = sample->imagePoints[iterPoints];
+
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
+				
+					draw_list->AddCircle(offset, 4.0f, ImColor(rndCol.x, rndCol.y, rndCol.z));
+				}
+
+				if (Tool->cameraCalibSelectedSample != iterSamples) {
+					continue;
+				}
+
+				for (size_t iterPoints = 0; iterPoints < sample->undistortedImagePoints.size(); ++iterPoints) {
+					cv::Point2f o = sample->undistortedImagePoints[iterPoints];
+
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
+
+					draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+				}
+
+				for (size_t iterPoints = 0; iterPoints < sample->reprojectedImagePoints.size(); ++iterPoints) {
+					cv::Point2f o = sample->reprojectedImagePoints[iterPoints];
+
+					ImVec2 offset = pos;
+					offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
+					offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;
+
+					draw_list->AddCircle(offset, 2.0f, ImColor(2, 117, 247));
+				}
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
 		// Draw charuco results.
 		//----------------------------------------------------------------------------------------------------
 		std::vector<vec2> markerCentroids;
@@ -1135,156 +974,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
 		}
-
-		//----------------------------------------------------------------------------------------------------
-		// Draw edge gradient inspection stuff.
-		//----------------------------------------------------------------------------------------------------
-		/*{
-			ImVec2 lineStartOrigin;
-			lineStartOrigin.x = screenStartPos.x + (imgOffset.x + Tool->edgeLineStart.x) * imgScale;
-			lineStartOrigin.y = screenStartPos.y + (imgOffset.y + Tool->edgeLineStart.y) * imgScale;
-
-			vec2 lineStart = Tool->edgeLineStart;
-			vec2 lineEnd = Tool->edgeLineStart + vec2(Tool->edgeLineLength, 0);
-			vec2 stackEnd = Tool->edgeLineEnd;
-
-			ImVec2 lineEndOrigin;
-			lineEndOrigin.x = screenStartPos.x + (imgOffset.x + lineEnd.x) * imgScale;
-			lineEndOrigin.y = screenStartPos.y + (imgOffset.y + lineEnd.y) * imgScale;
-
-			ImVec2 stackEndScreenPos;
-			stackEndScreenPos.x = screenStartPos.x + (imgOffset.x + stackEnd.x) * imgScale;
-			stackEndScreenPos.y = screenStartPos.y + (imgOffset.y + stackEnd.y) * imgScale;
-
-			draw_list->AddCircle(lineStartOrigin, 0.5f * imgScale, ImColor(0, 255, 0));
-			draw_list->AddCircle(lineEndOrigin, 0.5f * imgScale, ImColor(0, 200, 0));
-			draw_list->AddLine(lineStartOrigin, lineEndOrigin, ImColor(0, 200, 0));
-			
-			draw_list->AddCircle(stackEndScreenPos, 0.5f * imgScale, ImColor(0, 200, 255));
-			draw_list->AddLine(lineStartOrigin, stackEndScreenPos, ImColor(0, 200, 255));
-
-			int stackCount = (int)(stackEnd.y - lineStart.y);
-			float stackXdiff = (stackEnd.x - lineStart.x) / (float)stackCount;
-			for (int i = 0; i < stackCount; ++i) {
-				vec2 stackPoint = vec2((int)(lineStart.x + i * stackXdiff) + 0.5f, lineStart.y + i);
-
-				ImVec2 stackPointScreenPos;
-				stackPointScreenPos.x = screenStartPos.x + (imgOffset.x + stackPoint.x) * imgScale;
-				stackPointScreenPos.y = screenStartPos.y + (imgOffset.y + stackPoint.y) * imgScale;
-
-				draw_list->AddCircle(stackPointScreenPos, 0.3f * imgScale, ImColor(255, 0, 255));
-
-				vec2 edgeCenter = imageGetEdgeCenter(stackPoint, stackPoint + vec2(Tool->edgeLineLength, 0.0f), Tool);
-
-				ImVec2 edgeCenterScreenPos;
-				edgeCenterScreenPos.x = screenStartPos.x + (imgOffset.x + edgeCenter.x) * imgScale;
-				edgeCenterScreenPos.y = screenStartPos.y + (imgOffset.y + edgeCenter.y) * imgScale;
-
-				draw_list->AddCircle(edgeCenterScreenPos, 0.3f * imgScale, ImColor(255, 255, 255));
-			}
-
-			vec2 lineDiff = lineEnd - lineStart;
-			float lineLen = glm::length(lineDiff);
-			int lineSegments = lineLen + 1;
-			vec2 lineDir = glm::normalize(lineEnd - lineStart);
-
-			ImVec2 plotMinScreenPos;
-			plotMinScreenPos.x = screenStartPos.x + (imgOffset.x + lineStart.x) * imgScale;
-			plotMinScreenPos.y = screenStartPos.y + (imgOffset.y + lineStart.y) * imgScale + 64.0f;
-			draw_list->AddLine(plotMinScreenPos, ImVec2(lineEndOrigin.x, plotMinScreenPos.y), ImColor(0, 0, 255));
-
-			ImVec2 plotMaxScreenPos;
-			plotMaxScreenPos.x = screenStartPos.x + (imgOffset.x + lineStart.x) * imgScale;
-			plotMaxScreenPos.y = screenStartPos.y + (imgOffset.y + lineStart.y) * imgScale + 64.0f + 255 * 2.0f;
-			draw_list->AddLine(plotMaxScreenPos, ImVec2(lineEndOrigin.x, plotMaxScreenPos.y), ImColor(0, 0, 255));
-
-			ImVec2 lastSamplePos(0, 0);
-			float lastSampleValue = 0.0f;
-			std::vector<float> sampleDeltas;
-			float totalWeight = 0.0f;
-
-			for (int i = 0; i < lineSegments; ++i) {
-				vec2 samplePos = lineStart + lineDir * (float)i;
-
-				ImVec2 samplePosScreen;
-				samplePosScreen.x = screenStartPos.x + (imgOffset.x + samplePos.x) * imgScale;
-				samplePosScreen.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale;
-
-				draw_list->AddCircle(samplePosScreen, 0.25f * imgScale, ImColor(255, 0, 0));
-
-				int samplePixelX = clamp((int)samplePos.x, 0, CAM_IMG_WIDTH - 1);
-				int samplePixelY = clamp((int)samplePos.y, 0, CAM_IMG_HEIGHT - 1);
-				int sampleValue = Tool->camPixelsFinal[samplePixelY * CAM_IMG_WIDTH + samplePixelX];
-				
-				char textBuff[64];
-				sprintf_s(textBuff, "%d", sampleValue);
-				draw_list->AddText(samplePosScreen, ImColor(255, 255, 255, 255), textBuff);
-
-				ImVec2 samplePlotPos = samplePosScreen;
-				samplePlotPos.y += 64.0f + sampleValue * 2.0f;
-
-				if (i > 0) {
-					float diff = abs(sampleValue - lastSampleValue);
-
-					ImVec2 deltaScreenPos;
-					deltaScreenPos.x = screenStartPos.x + (imgOffset.x + samplePos.x - 0.5f) * imgScale;
-					deltaScreenPos.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale - 64.0f - (diff * 2.0f);
-
-					draw_list->AddLine(lastSamplePos, samplePlotPos, ImColor(255, 255, 255));
-
-					float delta = diff * diff;
-					sprintf_s(textBuff, "%.2f %d", delta, (int)diff);
-					draw_list->AddText(ImVec2(deltaScreenPos.x, samplePosScreen.y) + ImVec2(0, 64.0f), ImColor(255, 255, 255, 255), textBuff);
-
-					sampleDeltas.push_back(diff);
-				}
-
-				lastSamplePos = samplePlotPos;
-				lastSampleValue = sampleValue;
-			}
-			
-			for (int i = 0; i < sampleDeltas.size(); ++i) {
-				float sample = sampleDeltas[i];
-
-				if (sample > 5.0f) {
-					totalWeight += sample * sample;
-				}
-				
-				vec2 samplePos = lineStart + lineDir * (float)i;
-				ImVec2 deltaScreenPos;
-				deltaScreenPos.x = screenStartPos.x + (imgOffset.x + samplePos.x + 0.5f) * imgScale;
-				deltaScreenPos.y = screenStartPos.y + (imgOffset.y + samplePos.y) * imgScale - 64.0f - (sample * 2.0f);
-
-				if (i > 0) {
-					draw_list->AddLine(lastSamplePos, deltaScreenPos, ImColor(255, 255, 255));
-				}
-
-				lastSamplePos = deltaScreenPos;
-			}
-
-			vec2 centerPoint(0.0f, 0.0f);
-
-			for (int i = 0; i < sampleDeltas.size(); ++i) {
-				float sample = sampleDeltas[i];
-
-				if (sample <= 5.0f) {
-					continue;
-				}
-
-				sample *= sample;
-				vec2 samplePos = lineStart + lineDir * (float)i + vec2(0.5f, 0.0f);
-
-				centerPoint += samplePos * sample / totalWeight;
-			}
-
-			{
-				ImVec2 centerScreenPos;
-				centerScreenPos.x = screenStartPos.x + (imgOffset.x + centerPoint.x) * imgScale;
-				centerScreenPos.y = screenStartPos.y + (imgOffset.y + centerPoint.y) * imgScale;
-
-				draw_list->AddCircle(centerScreenPos, 0.25f * imgScale, ImColor(255, 255, 0));
-			}
-		}*/
 
 		// Viewport overlay.
 		{

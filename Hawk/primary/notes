@@ -1,0 +1,1 @@
+libcamera-still -t 0 --shutter 50000 --gain 1 --awbgains 1.0,1.0 --framerate 20

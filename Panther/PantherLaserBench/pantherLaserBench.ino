@@ -2,6 +2,9 @@
 // Laser test bench controller.
 //--------------------------------------------------------------------------------
 
+//--------------------------------------------------------------------------------
+// Hardware pinouts.
+//--------------------------------------------------------------------------------
 // Steppers:
 // 1 cs 33 stp 34 dir 35
 // 2 cs 37 stp 38 dir 39
@@ -33,288 +36,60 @@
 // 1 21 (A7)
 // 2 22 (A8)
 
+// Axis info:
+
+// X:
+// Y:
+// Z:
+// C:
+
+// A:
+// 90:1 gearbox.
+// 32 * 200 * 90 = 576000
+// 0.000625 steps per deg
+// 1600 steps per deg
 
 //--------------------------------------------------------------------------------
-
-#define PIN_STP_EN1				32
-#define PIN_LASER_PWM			3
-#define PIN_GALVO_CHIPSELECT	8
-#define PIN_DBG1				21
-#define PIN_DBG2				22
-#define PIN_DBG3				23
-
-#define PIN_ENC_Z				21
-#define PIN_ENC_B				22
-#define PIN_ENC_A				23
 
 #include <SPI.h>
 #include <stdint.h>
 #include <math.h>
 #include "stepper.h"
+#include "encoder.h"
+#include "laser.h"
+#include "galvo.h"
+
+#define PIN_STP_EN1				32
+#define PIN_DBG1				21
+#define PIN_DBG2				22
+#define PIN_DBG3				23
+
+#define PIN_LIMIT_C_INNER		21 // Analog 7
+#define PIN_LIMIT_C_OUTER		22 // Analog 8
 
 #define AXIS_ID_X			0
 #define AXIS_ID_Y			1
 #define AXIS_ID_Z			2
-#define AXIS_ID_A			3
-#define AXIS_ID_B			4
+#define AXIS_ID_C			3
+#define AXIS_ID_A			4
 
-abStepper st1 = abStepper(0, 33, 34, 35, 36);
-abStepper st2 = abStepper(0, 37, 38, 39, 9);
-abStepper st3 = abStepper(0, 14, 15, 16, 17);
-abStepper st4 = abStepper(0, 20, 19, 18, 10);
+#define AXIS_COUNT			5
 
-ldiStepTable stepLogTable;
-
-//--------------------------------------------------------------------------------
-// Galvo
-//--------------------------------------------------------------------------------
-// NOTE: DAC can go at 20Mhz SPI.
-// DAC takes 4.5us to settle.
-// 83us for SPI and settle.
-
-int _galvoStepX = 2048;
-int _galvoStepY = 2048;
-
-void WriteDacA(int Value) {
-	if (Value < 0) Value = 0;
-	else if (Value > 4095) Value = 4095;
-
-	uint16_t cmd = 0;
-	// Gain to 1x.
-	cmd |= 1 << 13;
-	// Turn on.
-	cmd |= 1 << 12;
-	// Output: 0 - 4095.
-	cmd |= Value;
-
-	// NOTE: 2MHz due to prototype setup.
-	SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
-	SPI.transfer16(cmd);
-	digitalWrite(PIN_GALVO_CHIPSELECT, HIGH);
-	SPI.endTransaction();
-}
-
-void WriteDacB(int Value) {
-	if (Value < 0) Value = 0;
-	else if (Value > 4095) Value = 4095;
-
-	uint16_t cmd = 0;
-	// Write DACb
-	cmd |= 1 << 15;
-	// Gain to 1x.
-	cmd |= 1 << 13;
-	// Turn on.
-	cmd |= 1 << 12;
-	// Output: 0 - 4095.
-	cmd |= Value;
-
-	// NOTE: 2MHz due to prototype setup.
-	SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
-	SPI.transfer16(cmd);
-	digitalWrite(PIN_GALVO_CHIPSELECT, HIGH);
-	SPI.endTransaction();
-}
-
-void galvoInit() {
-	// Enable chip select.
-	pinMode(PIN_GALVO_CHIPSELECT, OUTPUT);
-	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
-
-	SPI.begin();
-
-	_galvoStepX = 2048;
-	_galvoStepY = 2048;
-
-	WriteDacA(_galvoStepX);
-	WriteDacB(_galvoStepY);
-}
-
-void galvoMoveSteps(int StepX, int StepY) {
-	int wait = 0;
-	int maxSteps = max(abs(_galvoStepX - StepX), abs(_galvoStepY - StepY));
-
-	if (_galvoStepX	!= StepX) {
-		_galvoStepX = StepX;
-		WriteDacB(_galvoStepX);
-	}
-
-	if (_galvoStepY	!= StepY) {
-		_galvoStepY = StepY;
-		WriteDacA(_galvoStepY);
-	}
-
-	if (maxSteps >= 1024) {
-		wait = 50000;
-	} else if (maxSteps >= 512) {
-		wait = 3000;
-	} else if (maxSteps > 0) {
-		wait = 800;
-	}
-
-	delayMicroseconds(wait);
-}
-
-int galvoGetStep(float Value) {
-	// 0 to 4095 = 0mm to 40mm
-	float stepsPerMm = 4095.0 / 40.0;
-	int result = (int)(Value * stepsPerMm + 0.5f);
-
-	return result;
-}
-
-// Movement value in mm from 0 to 40.
-void galvoMove(float X, float Y) {
-	int targetStepX = galvoGetStep(X);
-	int targetStepY = galvoGetStep(40.0f - Y);
-	galvoMoveSteps(targetStepX, targetStepY);
-}
-
-void galvoPreviewSquare() {
-	digitalWrite(PIN_LASER_PWM, LOW);
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	analogWriteFrequency(PIN_LASER_PWM, 10000);
-	analogWrite(PIN_LASER_PWM, 40);
-
-	for (int j = 0; j < 100; ++j) {
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacA(i * 32);
-			delayMicroseconds(50);
-		}
-
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacB(i * 32);
-			delayMicroseconds(50);
-		}
-
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacA(4096 - i * 32);
-			delayMicroseconds(50);
-		}
-
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacB(4096 - i * 32);
-			delayMicroseconds(50);
-		}
-	}
-
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	digitalWrite(PIN_LASER_PWM, LOW);
-
-	WriteDacA(2048);
-	WriteDacB(2048);
-	_galvoStepX = 2048;
-	_galvoStepY = 2048;
-}
-
-void galvoPreviewTarget() {
-	digitalWrite(PIN_LASER_PWM, LOW);
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	analogWriteFrequency(PIN_LASER_PWM, 10000);
-	analogWrite(PIN_LASER_PWM, 0);
-
-	WriteDacA(0);
-	WriteDacB(2048);
-	delayMicroseconds(600);
-
-	for (int j = 0; j < 100; ++j) {
-		analogWrite(PIN_LASER_PWM, 40);
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacA(i * 32);
-			delayMicroseconds(50);
-		}
-		analogWrite(PIN_LASER_PWM, 0);
-		WriteDacA(2048);
-		WriteDacB(0);
-		delayMicroseconds(600);
-
-		analogWrite(PIN_LASER_PWM, 40);
-		for (int i = 0; i <= 128; ++i) {
-			WriteDacB(i * 32);
-			delayMicroseconds(50);
-		}
-		analogWrite(PIN_LASER_PWM, 0);
-
-		WriteDacA(0);
-		WriteDacB(2048);
-		delayMicroseconds(600);
-	}
-	
-	pinMode(PIN_LASER_PWM, OUTPUT);
-	digitalWrite(PIN_LASER_PWM, LOW);
-}
+ldiStepper steppers[5] = {
+	ldiStepper(0, 33, 34, 35, 36),
+	ldiStepper(0, 37, 38, 39,  9),
+	ldiStepper(0, 14, 15, 16, 17),
+	ldiStepper(0, 20, 19, 18, 10),
+	ldiStepper(0,  2,  1,  0,  5),
+};
 
 //--------------------------------------------------------------------------------
 // Functionality.
 //--------------------------------------------------------------------------------
-void homing() {
-	st1.moveRelative(-100000, 50);
-	st2.moveRelative(-100000, 50);
-	st3.moveRelative(100000, 50);
-
-	bool s1 = true;
-	bool s2 = true;
-	bool s3 = true;
-
-	while (s1 || s2 || s3) {
-		if (s1) { s1 = moveStepperUntilLimit(&st1); }
-		if (s2) { s2 = moveStepperUntilLimit(&st2); }
-		if (s3) { s3 = moveStepperUntilLimit(&st3); }
-	}
-
-	st1.home(50, 100, false, 0, 0, 20000);
-	st2.home(50, 100, false, 0, 0, 15000);
-	st3.home(50, 30, true, 17000, 0, 17000);
-
-	// Move to home position.
-	st1.moveTo(15000, 200);
-	st2.moveTo(5000, 100);
-	st3.moveTo(14400, 50);
-
-	s1 = true;
-	s2 = true;
-	s3 = true;
-
-	while (s1 || s2 || s3) {
-		s1 = st1.updateStepper();
-		s2 = st2.updateStepper();
-		s3 = st3.updateStepper();
-	}
-
-	// Zero home position.
-	st1.currentStep = 0;
-	st2.currentStep = 0;
-	st3.currentStep = 0;
-}
-
-void homingTest() {
-	st1.moveRelative(-100000, 10);
-	
-	while (moveStepperUntilLimit(&st1));
-
-	float dist = st1.currentStep * st1.mmPerStep;
-	dist *= 1000.0f;
-
-	// Target count for X axis: 420 TMC steps.
-	int tmcSteps = st1.getMicrostepCount();
-	int tmcDiffSteps = 420 - tmcSteps;
-	int actualSteps = tmcDiffSteps / 8;
-
-	char buff[256];
-	sprintf(buff, "Current step: %ld Dist: %.0f um (%d) Actual: %d\r\n", st1.currentStep, dist, st1.getMicrostepCount(), actualSteps);
-	Serial.print(buff);
-
-	st1.home(50, 100, false, 0, 0, 20000);
-
-	st1.moveTo(st1.stepsPerMm * 30, 200);
-	while (st1.updateStepper());
-}
-
-void testLimitSwitches() {
-	int lim1 = digitalRead(st1.limitPin);
-	int lim2 = digitalRead(st2.limitPin);
-	int lim3 = digitalRead(st3.limitPin);
+void printLimitSwitchStatus() {
+	int lim1 = digitalRead(steppers[0].limitPin);
+	int lim2 = digitalRead(steppers[1].limitPin);
+	int lim3 = digitalRead(steppers[2].limitPin);
 
 	Serial.print(lim1);
 	Serial.print(" ");
@@ -391,10 +166,10 @@ void sendMessage(const char* Message) {
 	Serial.write(buffer, strLen + 4);
 }
 
-unsigned long _t0 = 0;
 unsigned long _sendTimer = 0;
 
 void sendCmdSuccess() {
+	static unsigned long prevProcessTime = 0;
 	unsigned long t0 = micros();
 
 	uint8_t buffer[20];
@@ -403,18 +178,18 @@ void sendCmdSuccess() {
 	buffer[2] = 10;
 	buffer[sizeof(buffer) - 1] = FRAME_END;
 
-	float s1p = st1.currentStep * st1.mmPerStep;
-	float s2p = st2.currentStep * st2.mmPerStep;
-	float s3p = st3.currentStep * st3.mmPerStep;
+	float s1p = steppers[0].currentStep * steppers[0].mmPerStep;
+	float s2p = steppers[1].currentStep * steppers[1].mmPerStep;
+	float s3p = steppers[2].currentStep * steppers[2].mmPerStep;
 
 	memcpy(buffer + 3, &s1p, 4);
 	memcpy(buffer + 7, &s2p, 4);
 	memcpy(buffer + 11, &s3p, 4);
-	memcpy(buffer + 15, &_t0, 4);
+	memcpy(buffer + 15, &prevProcessTime, 4);
 	
 	Serial.write(buffer, sizeof(buffer));
 
-	_t0 = micros() - t0;
+	prevProcessTime = micros() - t0;
 }
 
 void sendCmdPosition() {
@@ -424,9 +199,9 @@ void sendCmdPosition() {
 	buffer[2] = 69;
 	buffer[sizeof(buffer) - 1] = FRAME_END;
 
-	float s1p = st1.currentStep * st1.mmPerStep;
-	float s2p = st2.currentStep * st2.mmPerStep;
-	float s3p = st3.currentStep * st3.mmPerStep;
+	float s1p = steppers[0].currentStep * steppers[0].mmPerStep;
+	float s2p = steppers[1].currentStep * steppers[1].mmPerStep;
+	float s3p = steppers[2].currentStep * steppers[2].mmPerStep;
 
 	memcpy(buffer + 3, &s1p, 4);
 	memcpy(buffer + 7, &s2p, 4);
@@ -435,7 +210,7 @@ void sendCmdPosition() {
 	Serial.write(buffer, sizeof(buffer));
 }
 
-bool moveStepperUntilLimit(abStepper* Stepper) {
+bool moveStepperUntilLimit(ldiStepper* Stepper) {
 	int p = digitalRead(Stepper->limitPin);
 
 	if (p == 0) {
@@ -459,64 +234,8 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendCmdSuccess();
 	} else if (cmdId == 1) {
 		// NOTE: Status command.
-		
-		sprintf(buff, "Panther diagnostics:\nST1: %d\nST2: %d\nST3: %d\nunsigned long: %d", st1.active, st2.active, st3.active, sizeof(unsigned long));
+		sprintf(buff, "Panther diagnostics:\nsteppers[0]: %d\nsteppers[1]: %d\nsteppers[2]: %d\nunsigned long: %d", steppers[0].active, steppers[1].active, steppers[2].active, sizeof(unsigned long));
 		sendMessage(buff);
-
-		sendCmdSuccess();
-
-
-		// int numAxis = Buffer[1];
-		// int bufIdx = 2;
-
-		// TODO: Check for length based on num axis.
-
-		// sprintf(buff, "Move %d", numAxis);
-		// sendMessage(buff);
-
-		// for (int i = 0; i < numAxis; ++i) {
-		// 	int axisId = Buffer[bufIdx++];
-		// 	int moveMode = Buffer[bufIdx++];
-		// 	int stepTarget = 0;
-		// 	float startVelocity = 0.0f;
-		// 	float endVelocity = 0.0f;
-		// 	float maxVelocity = 0.0f;
-
-		// 	memcpy(&stepTarget, Buffer + bufIdx, 4); bufIdx += 4;
-		// 	memcpy(&startVelocity, Buffer + bufIdx, 4); bufIdx += 4;
-		// 	memcpy(&endVelocity, Buffer + bufIdx, 4); bufIdx += 4;
-		// 	memcpy(&maxVelocity, Buffer + bufIdx, 4); bufIdx += 4;
-
-		// 	// Build stepper data here.
-
-		// 	if (axisId == AXIS_ID_X) {
-		// 		st4.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		while (st4.updateStepper());
-		// 	} else if (axisId == AXIS_ID_Y) {
-		// 		st1.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		while (st1.updateStepper());
-		// 	} else if (axisId == AXIS_ID_Z) {
-		// 		st2.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		st3.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		while (1) {
-		// 			bool z0 = st2.updateStepper();
-		// 			bool z1 = st3.updateStepper();
-
-		// 			if (z0 == false && z1 == false)
-		// 				break;
-		// 		}
-		// 	} else if (axisId == AXIS_ID_A) {
-		// 		st5.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		while (st5.updateStepper());
-		// 	} else if (axisId == AXIS_ID_B) {
-		// 		st6.moveTo(stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 		while (st6.updateStepper());
-		// 	}
-
-		// 	// sprintf(buff, "Axis: %d Mode: %d Step: %d Start: %f End: %f Max: %f", axisId, moveMode, stepTarget, startVelocity, endVelocity, maxVelocity);
-		// 	// sendMessage(buff);
-		// }
-
 		sendCmdSuccess();
 	} else if (cmdId == 2) {
 		int axisId = Buffer[1];
@@ -529,16 +248,16 @@ void processCmd(uint8_t* Buffer, int Len) {
 		//sprintf(buff, "Cmd2: axisId: %d stepTarget: %ld maxVelocity: %f", axisId, stepTarget, maxVelocity);
 		//sendMessage(buff);
 
-		abStepper* stepper;
+		ldiStepper* stepper;
 
 		if (axisId == 0) {
-			stepper = &st1;
+			stepper = &steppers[0];
 		} else if (axisId == 1) {
-			stepper = &st2;
+			stepper = &steppers[1];
 		} else if (axisId == 2) {
-			stepper = &st3;
+			stepper = &steppers[2];
 		} else if (axisId == 3) {
-			stepper = &st4;
+			stepper = &steppers[3];
 		} else {
 			// TODO: Cmd failed.
 		}
@@ -564,13 +283,13 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		if (axisId == 0) {
 			// X
-			st1.moveDirect((int32_t)(position * st1.stepsPerMm) + st1.currentStep, speed);
+			steppers[0].moveDirect((int32_t)(position * steppers[0].stepsPerMm) + steppers[0].currentStep, speed);
 		} else if (axisId == 1) {
 			// Y
-			st2.moveDirect((int32_t)(position * st2.stepsPerMm) + st2.currentStep, speed);
+			steppers[1].moveDirect((int32_t)(position * steppers[1].stepsPerMm) + steppers[1].currentStep, speed);
 		} else if (axisId == 2) {
 			// Z
-			st3.moveDirect((int32_t)(position * st3.stepsPerMm) + st3.currentStep, speed);
+			steppers[2].moveDirect((int32_t)(position * steppers[2].stepsPerMm) + steppers[2].currentStep, speed);
 		}
 
 		// sprintf(buff, "Simple move %d %f", axisId, position);
@@ -587,13 +306,13 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		if (axisId == 0) {
 			// X
-			st1.moveSimple(position, speed);
+			steppers[0].moveSimple(position, speed);
 		} else if (axisId == 1) {
 			// Y
-			st2.moveSimple(position, speed);
+			steppers[1].moveSimple(position, speed);
 		} else if (axisId == 2) {
 			// Z
-			st3.moveSimple(position, speed);
+			steppers[2].moveSimple(position, speed);
 		}
 
 		// sprintf(buff, "Simple move %d %f", axisId, position);
@@ -602,7 +321,6 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendCmdSuccess();
 	} else if (cmdId == 5 && Len == 5) {
 		// Burst laser.
-
 		int32_t time = 0;
 		memcpy(&time, Buffer + 1, 4);
 
@@ -654,7 +372,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		for (int i = 0; i < stopCounts; ++i) {
 			float position = 0.0f;
 			memcpy(&position, Buffer + 17 + i * 4, 4);
-			_targetSteps[i] = (int32_t)round(position * st1.stepsPerMm);
+			_targetSteps[i] = (int32_t)round(position * steppers[0].stepsPerMm);
 		}
 
 		t = micros() - t;
@@ -663,7 +381,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 		sendMessage(buff);
 
 		for (int i = 0; i < stopCounts; ++i) {
-			st1.moveDirect(_targetSteps[i], stepTime);
+			steppers[0].moveDirect(_targetSteps[i], stepTime);
 			delayMicroseconds(offTime);
 			digitalWrite(PIN_LASER_PWM, HIGH);
 			delayMicroseconds(onTime);
@@ -671,28 +389,20 @@ void processCmd(uint8_t* Buffer, int Len) {
 		}
 
 		sendCmdSuccess();
-	} else if (cmdId == 10) {
-		// Home all axes.
-		sprintf(buff, "Homing");
-		sendMessage(buff);
-
-		homing();
-		
-		sendCmdSuccess();
 	} else if (cmdId == 11) {
 		// Move to zero.
-		st1.moveTo(0, 200);
-		st2.moveTo(0, 100);
-		st3.moveTo(0, 50);
+		steppers[0].moveTo(0, 200);
+		steppers[1].moveTo(0, 100);
+		steppers[2].moveTo(0, 50);
 		
 		bool s1 = true;
 		bool s2 = true;
 		bool s3 = true;
 
 		while (s1 || s2 || s3) {
-			s1 = st1.updateStepper();
-			s2 = st2.updateStepper();
-			s3 = st3.updateStepper();
+			s1 = steppers[0].updateStepper();
+			s2 = steppers[1].updateStepper();
+			s3 = steppers[2].updateStepper();
 		}
 
 		sendCmdSuccess();
@@ -738,9 +448,9 @@ void processCmd(uint8_t* Buffer, int Len) {
 			}
 
 			float pos = startX + i * stopSize;
-			int32_t targetStep = (int32_t)round(pos * st1.stepsPerMm);
+			int32_t targetStep = (int32_t)round(pos * steppers[0].stepsPerMm);
 
-			st1.moveDirect(targetStep, stepTime);
+			steppers[0].moveDirect(targetStep, stepTime);
 			delayMicroseconds(offTime);
 			digitalWrite(PIN_LASER_PWM, HIGH);
 			delayMicroseconds(stopTime);
@@ -762,6 +472,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		sendCmdSuccess();
 	} else if (cmdId == 18) {
+		// Move galvo and burn at each point.
 		digitalWrite(PIN_DBG1, HIGH);
 		sendCmdSuccess();
 
@@ -793,7 +504,7 @@ void processCmd(uint8_t* Buffer, int Len) {
 	} else if (cmdId == 20) {
 		// Read motor status test.
 
-		abStepper* stepper = &st2;
+		ldiStepper* stepper = &steppers[1];
 
 		unsigned long t0 = micros();
 		uint32_t status = stepper->getDriverStatus();
@@ -829,14 +540,14 @@ void processCmd(uint8_t* Buffer, int Len) {
 		//sprintf(buff, "Cmd2: axisId: %d stepTarget: %ld maxVelocity: %f", axisId, stepTarget, maxVelocity);
 		//sendMessage(buff);
 
-		abStepper* stepper;
+		ldiStepper* stepper;
 
 		if (axisId == 0) {
-			stepper = &st1;
+			stepper = &steppers[0];
 		} else if (axisId == 1) {
-			stepper = &st2;
+			stepper = &steppers[1];
 		} else if (axisId == 2) {
-			stepper = &st3;
+			stepper = &steppers[2];
 		} else {
 			// TODO: Cmd failed, invalid axis.
 		}
@@ -844,81 +555,22 @@ void processCmd(uint8_t* Buffer, int Len) {
 		stepper->moveDirectRelative(stepTarget, delay);
 		
 		sendCmdSuccess();
-	} else if (cmdId == 22) {
-		// NOTE: Move relative and output/record step log table.
-
-		int axisId = Buffer[1];
-		int32_t stepTarget;
-		float maxVelocity;
-
-		memcpy(&stepTarget, Buffer + 2, 4);
-		memcpy(&maxVelocity, Buffer + 6, 4);
-
-		//sprintf(buff, "Cmd2: axisId: %d stepTarget: %ld maxVelocity: %f", axisId, stepTarget, maxVelocity);
-		//sendMessage(buff);
-
-		abStepper* stepper;
-
-		if (axisId == 0) {
-			stepper = &st1;
-		} else if (axisId == 1) {
-			stepper = &st2;
-		} else if (axisId == 2) {
-			stepper = &st3;
-		} else {
-			// TODO: Cmd failed.
-		}
-
-		stepLogTable.size = 0;
-
-		stepper->moveRelative(stepTarget, maxVelocity);
-		while (stepper->updateStepperLog(&stepLogTable)) {
-			unsigned long t0 = millis();
-			if (t0 >= _sendTimer) {
-				_sendTimer = t0 + 20;
-				//sendCmdPosition();
-
-				{
-					static unsigned long prevTime = 0;
-					unsigned long t0 = micros();
-
-					uint8_t buffer[255];
-					buffer[0] = 255;
-					buffer[1] = 252;
-					buffer[2] = 70;
-					buffer[sizeof(buffer) - 1] = 254;
-					memcpy(buffer + 3, &stepper->currentStep, 4);
-					
-					Serial.write(buffer, sizeof(buffer));
-
-					prevTime = micros() - t0;
-				}
-			}
-		}
-
-		sendCmdSuccess();
 	} else if (cmdId == 23) {
-		// st1.moveRelative(-10000, 10);
-		// while (moveStepperUntilLimit(&st1));
+		// steppers[0].moveRelative(-10000, 10);
+		// while (moveStepperUntilLimit(&steppers[0]));
 		// sendCmdSuccess();
 
-		// float dist = st1.currentStep * st1.mmPerStep;
+		// float dist = steppers[0].currentStep * steppers[0].mmPerStep;
 		// dist *= 1000.0f;
 
 		// // Target count for X axis: 420 TMC steps.
-		// int tmcSteps = st1.getMicrostepCount();
+		// int tmcSteps = steppers[0].getMicrostepCount();
 		// int tmcDiffSteps = 420 - tmcSteps;
 		// int actualSteps = tmcDiffSteps / 8;
 
 		// char buff[256];
-		// sprintf(buff, "Current step: %ld Dist: %.0f um (%d) Actual: %d\r\n", st1.currentStep, dist, st1.getMicrostepCount(), actualSteps);
+		// sprintf(buff, "Current step: %ld Dist: %.0f um (%d) Actual: %d\r\n", steppers[0].currentStep, dist, steppers[0].getMicrostepCount(), actualSteps);
 		// Serial.print(buff);
-
-		abStepper* steppers[] = {
-			&st1,
-			&st2,
-			&st3
-		};
 
 		bool homeDir[] = {
 			false,
@@ -927,34 +579,34 @@ void processCmd(uint8_t* Buffer, int Len) {
 		};
 
 		for (int i = 0; i < 3; ++i) {
-			steppers[i]->home(10, 30, homeDir[i], 0, 0, 20000);
-			int tmcSteps = steppers[i]->getMicrostepCount();
+			steppers[i].home(10, 30, homeDir[i], 0, 0, 20000);
+			int tmcSteps = steppers[i].getMicrostepCount();
 			sprintf(buff, "Step pos: %d", tmcSteps);
 			sendMessage(buff);
 		}
 
 		// Move to home position.
-		st1.moveTo(60000, 30);
-		st2.moveTo(90000, 30);
-		st3.moveTo(-80000, 30);
+		steppers[0].moveTo(60000, 30);
+		steppers[1].moveTo(90000, 30);
+		steppers[2].moveTo(-80000, 30);
 
 		bool s1 = true;
 		bool s2 = true;
 		bool s3 = true;
 
 		while (s1 || s2 || s3) {
-			s1 = st1.updateStepper();
-			s2 = st2.updateStepper();
-			s3 = st3.updateStepper();
+			s1 = steppers[0].updateStepper();
+			s2 = steppers[1].updateStepper();
+			s3 = steppers[2].updateStepper();
 		}
 
 		// Zero home position.
-		st1.currentStep = 0;
-		st2.currentStep = 0;
-		st3.currentStep = 0;
+		steppers[0].currentStep = 0;
+		steppers[1].currentStep = 0;
+		steppers[2].currentStep = 0;
 
-		//st1.moveTo(st1.stepsPerMm * 30, 30);
-		//while (st1.updateStepper());
+		//steppers[0].moveTo(steppers[0].stepsPerMm * 30, 30);
+		//while (steppers[0].updateStepper());
 
 		sendCmdSuccess();
 
@@ -1001,93 +653,21 @@ void updatePacketInput() {
 }
 
 //--------------------------------------------------------------------------------
-// Interrupts.
-//--------------------------------------------------------------------------------
-volatile int encStateA = 0;
-volatile int encStateB = 0;
-volatile int encStateZ = 0;
-
-volatile int encCount = 0;
-
-void interrupt_encA() {
-	encStateA = digitalRead(PIN_ENC_A);
-
-	if (encStateA == 1) {
-		if (encStateB == 0) {
-			++encCount;
-		} else {
-			--encCount;
-		}
-	} else {
-		if (encStateB == 1) {
-			++encCount;
-		} else {
-			--encCount;
-		}
-	}
-}
-
-void interrupt_encB() {
-	encStateB = digitalRead(PIN_ENC_B);
-
-	if (encStateB == 1) {
-		if (encStateA == 1) {
-			++encCount;
-		} else {
-			--encCount;
-		}
-	} else {
-		if (encStateA == 0) {
-			++encCount;
-		} else {
-			--encCount;
-		}
-	}
-}
-
-void interrupt_encZ() {
-	encStateZ = digitalRead(PIN_ENC_Z);
-}
-
-//--------------------------------------------------------------------------------
 // Setup.
 //--------------------------------------------------------------------------------
 void setup() {
 	Serial.begin(921600);
 
-	// NOTE: Y on LCS4.
-	st1.init(32, 0, 900, 0.00125, 200.0, false);
-	st2.init(32, 0, 900, 0.00125, 200.0, false);
-	
-	// st3.init(32, 1, 900, 0.00125, 200.0, true);
-
-	// Big rotary:
-	st3.init(32, 1, 900, 0.00125, 50.0, true);
-
-	// A
-	// 1:30
-	// st4.init(32, 1, 900, 0.00125, 200.0, false);
-
-	// Small harmonic:
-	// st4.init(32, 0, 400, 0.00125, 200.0, false);
-	// Big harmonic (Less current to keep vibrations down).
-	st4.init(32, 0, 400, 0.00125, 200.0, false);
-
-	// st1.init(32, 0, 900, 0.00625, 10000.0, true);
+	steppers[AXIS_ID_X].init(32, 0, 900, 0.00125, 200.0, false);
+	steppers[AXIS_ID_Y].init(32, 0, 900, 0.00125, 200.0, false);
+	steppers[AXIS_ID_Z].init(32, 0, 900, 0.00125, 200.0, false);
+	steppers[AXIS_ID_C].init(32, 0, 400, 0.00125, 200.0, false);
+	steppers[AXIS_ID_A].init(32, 1, 900, 0.00125, 50.0, true);
 
 	// Enable debug pins
 	// pinMode(PIN_DBG1, OUTPUT);
 	// pinMode(PIN_DBG2, OUTPUT);
 	// pinMode(PIN_DBG3, OUTPUT);
-
-	// Enable encoder pins.
-	pinMode(PIN_ENC_A, INPUT);
-	pinMode(PIN_ENC_B, INPUT);
-	pinMode(PIN_ENC_Z, INPUT);
-
-	attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), interrupt_encA, CHANGE);
-	attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), interrupt_encB, CHANGE);
-	attachInterrupt(digitalPinToInterrupt(PIN_ENC_Z), interrupt_encZ, CHANGE);
 
 	// Enable steppers.
 	pinMode(PIN_STP_EN1, OUTPUT);
@@ -1099,17 +679,6 @@ void setup() {
 
 	// Enable galvo.
 	galvoInit();
-	galvoMove(20, 20);
-}
-
-int getMicroPhase(int Step) {
-	int result = ((Step * 8) % 1024) + 4;
-
-	if (result < 0) {
-		result += 1024;
-	}
-
-	return result;
 }
 
 //--------------------------------------------------------------------------------
@@ -1117,870 +686,185 @@ int getMicroPhase(int Step) {
 //--------------------------------------------------------------------------------
 void loop() {
 	// Comms mode.
-	//while (1) {
-		//updatePacketInput();
-	//}
-
-	// NOTE: Limit switch inputs.
-	// pinMode(21, INPUT_PULLDOWN);
-	// pinMode(22, INPUT_PULLDOWN);
-	
 	// while (1) {
-	// 	int a0 = analogRead(7);
-	// 	int a1 = analogRead(8);
-	// 	// int a0 = digitalRead(21);
-	// 	// int a1 = digitalRead(22);
-
-	// 	st4.pulseStepper();
-		
-	// 	uint32_t t0 = millis();
-	// 	if (t0 >= timeRep) {
-	// 		timeRep = t0 + 20;
-	// 		Serial.print(a0);
-	// 		Serial.print(" ");
-	// 		Serial.println(a1);
-	// 	}
-
-	// 	delayMicroseconds(300);
+	// 	updatePacketInput();
 	// }
 
-	// Encoder:
-	// 8192 * 4 = 32768
-	// 360 / 32768 = 0.010986328125 degs per count.
-
-	double degsPerCount = 360.0 / 32768.0;
-	double degsPerStep = 360.0 / (200.0 * 256.0);
-
-	uint16_t startMicrostep = st4.getMicrostepCount();
-	st4.currentStep = (startMicrostep - 4) / 8;// % 128;
-
-	// Serial.printf("Step: %d Micro: %d\n", st4.currentStep, startMicrostep);
-
-	int lastDirection = 0;
-
-	int counter = millis();
-	int lastEncCount = 0;
-	
 	// Manual mode.
 	while (1) {
-		int newTime = millis();
-
-		if (newTime - counter >= 500) {
-			counter = newTime;
-
-			double degs = encCount * degsPerCount;
-
-			// Serial.printf("%d %f\n", encCount, degs);
-			// Serial.printf("Step:%d,Deg:%f\n", 100, 24.5);
-		}
-
 		int b = Serial.read();
 
-		// if (b == 'q') {
-		// 	st3.moveRelative(40000, 20);
-		// 	while (st3.updateStepper());
-		// } else if (b == 'w') {
-		// 	st3.moveRelative(-40000, 20);
-		// 	while (st3.updateStepper());
-		// }
-		// // 32 * 200 * 90 = 576000
-		// // 0.000625 steps per deg
-		// // 1600 steps per deg
-
-		// if (b == 'a') {
-		// 	st3.moveRelative(1600, 20);
-		// 	while (st3.updateStepper());
-		// } else if (b == 's') {
-		// 	st3.moveRelative(-1600, 20);
-		// 	while (st3.updateStepper());
-		// }
-
-		// if (b == 'z') {
-		// 	st3.moveRelative(160, 20);
-		// 	while (st3.updateStepper());
-		// } else if (b == 'x') {
-		// 	st3.moveRelative(-160, 20);
-		// 	while (st3.updateStepper());
-		// }
-
-		// continue;
-		
-		// if (b == 'u') {
-		// 	st4.setDirection(1);
-		// 	encCount = 0;
-		// 	int motorStep = 0;
-
-		// 	// uint16_t step = st4.getMicrostepCount();
-		// 	// Serial.printf("Start step: %d\n", step);
-
-		// 	for (int i = 0; i < 200 * 256; ++i) {
-		// 		// uint16_t step = st4.getMicrostepCount();
-
-		// 		double target = i * degsPerStep;
-		// 		double degs = encCount * -degsPerCount;
-		// 		double error = degs - target;
-
-		// 		// if (i % 1 == 0) {
-		// 			// Serial.printf("%d,%f,%f\n", step, target, degs);
-		// 			// Serial.printf("%d,%f,%f,%f\n", step, target, degs, error);
-		// 		// }
-
-		// 		// if (i == 1024) {
-		// 		// 	st4.setDirection(0);
-		// 		// }
-
-		// 		// digitalWrite(PIN_LASER_PWM, HIGH);
-		// 		st4.pulseStepper();
-		// 		// digitalWrite(PIN_LASER_PWM, LOW);
-		// 		// delayMicroseconds(200);
-		// 		delayMicroseconds(200);
-		// 		// delay(1);
-
-		// 		// if (i < 1024) {
-		// 		// 	motorStep += 1;
-		// 		// } else {
-		// 		// 	motorStep -= 1;
-		// 		// }
-		// 	}
-		// }
-
-		// if (b == 'h') {
-		// 	st4.setDirection(1);
-
-		// 	uint16_t currStep = st4.getMicrostepCount();
-		// 	Serial.printf("Start step: %d\n", currStep);
-
-		// 	while (true) {
-		// 		uint16_t step = st4.getMicrostepCount();
-
-		// 		if (step == 0) {
-		// 			break;
-		// 		}
-
-		// 		st4.pulseStepper();
-		// 		delayMicroseconds(200);
-		// 	}
-
-		// 	currStep = st4.getMicrostepCount();
-		// 	Serial.printf("End step: %d\n", currStep);
-		// }
-
-		// if (b == 'q') {
-		// 	st4.setDirection(0);
-			
-		// 	for (int i = 0; i < 1; ++i) {
-		// 		st4.pulseStepper();
-		// 		delayMicroseconds(200);
-		// 	}
-
-		// 	uint16_t step = st4.getMicrostepCount();
-		// 	Serial.printf("%d,%d\n", step, -encCount);
-		// } else if (b == 'w') {
-		// 	st4.setDirection(1);
-
-		// 	for (int i = 0; i < 1; ++i) {
-		// 		st4.pulseStepper();
-		// 		delayMicroseconds(200);
-		// 	}
-
-		// 	uint16_t step = st4.getMicrostepCount();
-		// 	Serial.printf("%d,%d\n", step, -encCount);
-		// }
-
-		// 32 microstepping = 0.001875 deg per step.
-
-		// 54 steps = 0.10125 degs.
-		// 0.01 deg = 5.4 steps.
-
-		// 48000 steps = 90.13 deg.
-		// 1 step = 0.001877 degs.
-
-		// Actual single turn degs: 360.44875
-		// Actual ratio: 29.962651:1
-
-		// if (b == 'h') {
-		// 	st4.setDirection(0);
-		// 	uint16_t driverStep = st4.getMicrostepCount();
-		// 	Serial.printf("Start step: %d (%d)\n", st4.currentStep, driverStep);
-
-		// 	while (true) {
-		// 		// uint16_t step = st4.getMicrostepCount();
-
-		// 		int lim = digitalRead(st1.limitPin);
-
-		// 		if (lim == 0) {
-		// 			uint16_t driverStep = st4.getMicrostepCount();
-		// 			Serial.printf("Found step: %d (%d)\n", st4.currentStep, driverStep);
-		// 			break;
-		// 		}
-
-		// 		st4.pulseStepper();
-		// 		st4.currentStep -= 1;
-		// 		delayMicroseconds(200);
-		// 	}
-		// }
-
-		
-
 		if (b == 'q') {
-			// 192000
-			Serial.printf("Current step: %d\n", st4.currentStep);			
-			st4.moveRelative(10000, 20);
-			while (st4.updateStepper());
-			Serial.printf("Current step: %d\n", st4.currentStep);
+			steppers[AXIS_ID_A].moveRelative(10000, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
 		} else if (b == 'w') {
-			Serial.printf("Current step: %d\n", st4.currentStep);
-			st4.moveRelative(-10000, 20);
-			while (st4.updateStepper());
-			Serial.printf("Current step: %d\n", st4.currentStep);
+			steppers[AXIS_ID_A].moveRelative(-10000, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
+		}
+		
+		if (b == 'a') {
+			steppers[AXIS_ID_A].moveRelative(1600, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
+		} else if (b == 's') {
+			steppers[AXIS_ID_A].moveRelative(-1600, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
 		}
 
-		// if (b == 'a') {
-		// 	st4.moveRelative(54, 5);
-		// 	while (st4.updateStepper());
-		// } else if (b == 's') {
-		// 	st4.moveRelative(-54, 5);
-		// 	while (st4.updateStepper());
-		// }
+		if (b == 'z') {
+			steppers[AXIS_ID_A].moveRelative(160, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
+		} else if (b == 'x') {
+			steppers[AXIS_ID_A].moveRelative(-160, 20);
+			while (steppers[AXIS_ID_A].updateStepper());
+		}
+	}
+}
 
-		// if (b == 'z') {
-		// 	st4.moveRelative(6, 5);
-		// 	while (st4.updateStepper());
-		// } else if (b == 'x') {
-		// 	st4.moveRelative(-6, 5);
-		// 	while (st4.updateStepper());
-		// }
+int homeAxisC() {
+	int state = 0;
+	int startStep = 0;
+	int endStep = 0;
 
+	// int innerLimit = analogRead(7);
+	// int outerLimit = analogRead(8);
+	// int innerLimit = digitalRead(PIN_LIMIT_C_INNER);
+	// int outerLimit = digitalRead(PIN_LIMIT_C_OUTER);
 
-		// if (b == 'p') {
-		// 	encCount = 0;
-		// 	st4.currentStep = 0;
-		// }
+	ldiStepper* stepper = &steppers[AXIS_ID_C];
 
-		// continue;
+	// Align step to micro phase.
+	stepper->currentStep = (stepper->getMicrostepCount() - 4) / 8;
 
-		// if (b == 'q') {
-		// 	int counts = 1000;
-		// 	if (lastDirection != 1) {
-		// 		lastDirection = 1;
-		// 		counts += 60;
-		// 	}
+	Serial.printf("Start home - Step: %d\n", stepper->currentStep);
 
-		// 	st4.moveRelative(counts, 20);
-		// 	while (st4.updateStepper());
-		// } else if (b == 'w') {
-		// 	int counts = 1000;
-		// 	if (lastDirection != 0) {
-		// 		lastDirection = 0;
-		// 		counts += 60;
-		// 	}
+	// NOTE: Back off if we are already inside limit.
+	{
+		int outerLimit = digitalRead(PIN_LIMIT_C_OUTER);
 
-		// 	st4.moveRelative(-counts, 20);
+		if (outerLimit == 1) {
+			Serial.println("Inside outer limit");
 
-		// 	while (st4.updateStepper());
-		// }
+			stepper->moveRelative(-7000, 20.0f);
+			while (stepper->updateStepper());
+		}
+	}
 
-		// if (b == 'a') {
-		// 	int counts = 10;
-		// 	if (lastDirection != 1) {
-		// 		lastDirection = 1;
-		// 		counts += 60;
-		// 	}
+	Serial.printf("Start home forward - Step: %d\n", stepper->currentStep);
 
-		// 	st4.moveRelative(counts, 20);
-		// 	while (st4.updateStepper());
-		// } else if (b == 's') {
-		// 	int counts = 10;
-		// 	if (lastDirection != 0) {
-		// 		lastDirection = 0;
-		// 		counts += 60;
-		// 	}
+	// NOTE: Only search for one full turn.
+	int lastVal = 0;
+	stepper->setDirection(true);
+	for (int i = 0; i < 192000; ++i) {
+		stepper->pulseStepper();
+		uint16_t step = stepper->getMicrostepCount();
 
-		// 	st4.moveRelative(-counts, 20);
+		delayMicroseconds(200);
 
-		// 	while (st4.updateStepper());
-		// }
+		int outerLimit = digitalRead(PIN_LIMIT_C_OUTER);
 
-		// continue;
-
-		if (b == 'a' || b == 's') {
-			st4.setDirection(b == 'a');
-			uint32_t timeRep = 0;
-
-			int state = 0;
-			int startStep = 0;
-			int endStep = 0;
-
-			for (int i = 0; i < 6400; ++i) {
-				
-				// int a0 = digitalRead(21);
-				// int a1 = digitalRead(22);
-
-				st4.pulseStepper();
-				uint16_t step = st4.getMicrostepCount();
-
-				delayMicroseconds(50);
-				int a0 = analogRead(7);
-				int a1 = analogRead(8);
-
-				if (st4.currentDir) {
-					--st4.currentStep;
-				} else {
-					++st4.currentStep;
-				}
-
-				if (a0 >= 400 && a0 <= 700) {
-					Serial.printf("%d:%d %d\n", st4.currentStep, step, a0);
-				}
-
-				delayMicroseconds(100);
-			}
-
-			Serial.println("------------------------------------------------------");
+		if (stepper->currentDir) {
+			--stepper->currentStep;
+		} else {
+			++stepper->currentStep;
 		}
 
-		if (b == 'e' || b == 'r') {
-			st4.setDirection(b == 'r');
-			uint32_t timeRep = 0;
-
-			int state = 0;
-			int startStep = 0;
-			int endStep = 0;
-			int startMicroStep = 0;
-			int endMicroStep = 0;
-
-			for (int i = 0; i < 6400; ++i) {
-				st4.pulseStepper();
-				uint16_t step = st4.getMicrostepCount();
-
-				delayMicroseconds(100);
-				int a0 = analogRead(7);
-				
-				if (st4.currentDir) {
-					--st4.currentStep;
-				} else {
-					++st4.currentStep;
-				}
-
-				if (state == 0) {
-					if (a0 > 600) {
-						startStep = st4.currentStep;
-						startMicroStep = step;
-						state = 1;
-					}
-				} else if (state == 1) {
-					if (a0 < 600) {
-						endStep = st4.currentStep;
-						endMicroStep = step;
-						state = 2;
-					}
-				}
-			}
-
-			if (state == 2) {
-				int totalSteps = endStep - startStep;
-				int midPoint = startStep + totalSteps / 2;
-				int midMicro = startMicroStep + (endMicroStep - startMicroStep) / 2;
-				Serial.printf("%d (%d) to %d (%d): Total: %d Mid: %d (%d)\n", startStep % 6400, startMicroStep, endStep % 6400, endMicroStep, totalSteps, midPoint % 6400, midMicro);
-			} else {
-				Serial.println("No limit detected");
-			}
-
-			// Serial.println("------------------------------------------------------");
+		if (outerLimit != lastVal) {
+			lastVal = outerLimit;
+			Serial.printf("%6d %3d %4d\n", stepper->currentStep, outerLimit, step);
 		}
 
-		if (b == 't' || b == 'y') {
-			st4.setDirection(b == 'y');
-			
-			st4.pulseStepper();
-			delayMicroseconds(100);
-
-			if (st4.currentDir) {
-				--st4.currentStep;
-			} else {
-				++st4.currentStep;
+		if (state == 0) {
+			if (outerLimit == 1) {
+				startStep = stepper->currentStep;
+				state = 1;
 			}
-
-			uint16_t step = st4.getMicrostepCount();
-			int microPhase = getMicroPhase(st4.currentStep);
-
-			Serial.printf("Step: %d Micro: %d Calc: %d\n", st4.currentStep, step, microPhase);
-		}
-
-		// if (b == 'q' || b == 'w') {
-		// 	st4.setDirection(b == 'q');
-		// 	uint32_t timeRep = 0;
-
-		// 	int state = 0;
-		// 	int startStep = 0;
-		// 	int endStep = 0;
-
-		// 	for (int i = 0; i < 10000; ++i) {
-				
-		// 		// int a0 = digitalRead(21);
-		// 		// int a1 = digitalRead(22);
-
-		// 		st4.pulseStepper();
-		// 		uint16_t step = st4.getMicrostepCount();
-
-		// 		delayMicroseconds(50);
-		// 		int a0 = analogRead(7);
-		// 		int a1 = analogRead(8);
-
-		// 		if (st4.currentDir) {
-		// 			--st4.currentStep;
-		// 		} else {
-		// 			++st4.currentStep;
-		// 		}
-
-		// 		if (state == 0) {
-		// 			if (a1 >= 600) {
-		// 				startStep = st4.currentStep;
-		// 				state = 1;
-		// 			}
-		// 		} else if (state == 1) {
-		// 			if (a1 >= 700) {
-		// 				state = 2;
-		// 			}
-		// 		} else if (state == 2) {
-		// 			if (a1 <= 600) {
-		// 				endStep = st4.currentStep;
-		// 				state = 3;
-		// 			}
-		// 		}
-
-		// 		// if (a1 >= 590 && a1 <= 610) {
-		// 		// 	Serial.printf("%d:%d %d\n", st4.currentStep, step, a1);
-		// 		// }
-
-		// 		// Serial.print(step);
-		// 		// Serial.print(" ");
-		// 		// Serial.print(a0);
-		// 		// Serial.print(" ");
-		// 		// Serial.println(a1);
-				
-		// 		// uint32_t t0 = millis();
-		// 		// if (t0 >= timeRep) {
-		// 		// 	timeRep = t0 + 20;
-		// 		// 	Serial.print(step);
-		// 		// 	Serial.print(" ");
-		// 		// 	// Serial.print(a0);
-		// 		// 	// Serial.print(" ");
-		// 		// 	Serial.println(a1);
-		// 		// }
-
-		// 		delayMicroseconds(200);
-		// 	}
-
-		// 	if (state == 3) {
-		// 		int totalSteps = endStep - startStep;
-		// 		int midPoint = startStep + totalSteps / 2;
-		// 		Serial.printf("%d to %d: Total: %d Mid: %d\n", startStep, endStep, totalSteps, midPoint);
-		// 	} else {
-		// 		Serial.println("No limit detected");
-		// 	}
-
-		// 	// Serial.println("------------------------------------------------------");
-		// }
-
-		if (b == 'p') {
-			st4.setDirection(true);
-			
-			while (true) {
-				delayMicroseconds(100);
-				int a0 = analogRead(7);
-				Serial.printf("%d\n", a0);
-
-				if (a0 > 600) {
-					break;
-				}
-
-				st4.pulseStepper();
-				uint16_t step = st4.getMicrostepCount();
-				
-				if (st4.currentDir) {
-					--st4.currentStep;
-				} else {
-					++st4.currentStep;
-				}
-			}
-
-			// Serial.println("No limit detected");
-		}
-
-		if (b == 'o') {
-			// st4.setDirection(true);
-
-			float aAvg = 0.0f;
-			
-			while (true) {
-				int c = Serial.read();
-
-				if (c == 'o') {
-					break;
-				} else if (c == 'e' || c == 'r') {
-					st4.setDirection(c == 'e');
-					st4.pulseStepper();
-					
-					if (st4.currentDir) {
-						--st4.currentStep;
-					} else {
-						++st4.currentStep;
-					}
-				}
-
-				delay(20);
-				// int a0 = analogRead(7);
-				// aAvg = aAvg * 0.9f + (float)a0 * 0.1f;
-				// Serial.printf("%d %f\n", st4.currentStep, aAvg);
-
-				int innerLimit = digitalRead(21);
-				int outerLimit = digitalRead(22);
-
-				Serial.printf("%6d %3d %3d\n", st4.currentStep, innerLimit, outerLimit);
-			}
-
-			// Serial.println("No limit detected");
-		}
-
-		if (b == 'h') {
-			// Find correct revolution.
-			int state = 0;
-			int startStep = 0;
-			int endStep = 0;
-
-			// int innerLimit = analogRead(7);
-			// int outerLimit = analogRead(8);
-			// int innerLimit = digitalRead(21);
-			// int outerLimit = digitalRead(22);
-
-			// Align step to micro phase.
-			st4.currentStep = (st4.getMicrostepCount() - 4) / 8;
-
-			Serial.printf("Start home - Step: %d\n", st4.currentStep);
-
-			// NOTE: Back off if we are already inside limit.
-			{
-				int outerLimit = digitalRead(22);
-
-				if (outerLimit == 1) {
-					Serial.println("Inside outer limit");
-
-					st4.moveRelative(-7000, 20.0f);
-					while (st4.updateStepper());
-				}
-			}
-
-			Serial.printf("Start home forward - Step: %d\n", st4.currentStep);
-
-			// NOTE: Only search for one full turn.
-			int lastVal = 0;
-			st4.setDirection(true);
-			for (int i = 0; i < 192000; ++i) {
-				st4.pulseStepper();
-				uint16_t step = st4.getMicrostepCount();
-
-				delayMicroseconds(200);
-
-				int outerLimit = digitalRead(22);
-
-				if (st4.currentDir) {
-					--st4.currentStep;
-				} else {
-					++st4.currentStep;
-				}
-
-				if (outerLimit != lastVal) {
-					lastVal = outerLimit;
-					Serial.printf("%6d %3d %4d\n", st4.currentStep, outerLimit, step);
-				}
-
-				if (state == 0) {
-					if (outerLimit == 1) {
-						startStep = st4.currentStep;
-						state = 1;
-					}
-				} else if (state == 1) {
-					if (abs(st4.currentStep - startStep) > 1000 && outerLimit == 0) {
-						endStep = st4.currentStep;
-						state = 2;
-						break;
-					}
-				}
-			}
-
-			if (state == 2) {
-				int midPointStep = startStep + (endStep - startStep) / 2;
-				int midMicroPhase = getMicroPhase(midPointStep);
-
-				Serial.printf("Found outer limit: %d to %d (%d to %d) Mid: %4d MidPhase: %4d\n", startStep, endStep, getMicroPhase(startStep), getMicroPhase(endStep), midPointStep, midMicroPhase);
-
-				// TODO: Move to position that is far from inner limit.
-				
-				// Move back to find inner center.
-				st4.setDirection(false);
-				lastVal = 0;
-				state = 0;
-				for (int i = 0; i < 3000; ++i) {
-					st4.pulseStepper();
-					uint16_t step = st4.getMicrostepCount();
-					delayMicroseconds(400);
-					int innerLimit = digitalRead(21);
-
-					if (st4.currentDir) {
-						--st4.currentStep;
-					} else {
-						++st4.currentStep;
-					}
-
-					if (innerLimit != lastVal) {
-						lastVal = innerLimit;
-						Serial.printf("%6d %3d %4d\n", st4.currentStep, innerLimit, step);
-					}
-
-					if (state == 0) {
-						if (innerLimit == 1) {
-							startStep = st4.currentStep;
-							state = 1;
-						}
-					} else if (state == 1) {
-						if (abs(st4.currentStep - startStep) > 100 && innerLimit == 0) {
-							endStep = st4.currentStep;
-							state = 2;
-							break;
-						}
-					}
-				}
-
-				if (state == 2) {
-					int midPointStep = startStep + (endStep - startStep) / 2;
-					int midMicroPhase = getMicroPhase(midPointStep);
-
-					Serial.printf("Found inner limit: %d to %d (%d to %d) Mid: %4d MidPhase: %4d\n", startStep, endStep, getMicroPhase(startStep), getMicroPhase(endStep), midPointStep, midMicroPhase);
-
-					// Get new step target from micro phase.
-					int adjustedPhase = midMicroPhase - 4;
-					int moveSteps = 0;
-
-					if (adjustedPhase >= 512) {
-						moveSteps = (1024 - adjustedPhase) / 8;
-					} else {
-						moveSteps = (-adjustedPhase) / 8;
-					}
-
-					int newStepTarget = midPointStep + moveSteps;
-
-					Serial.printf("Move to step: %d (%d)\n", newStepTarget, getMicroPhase(newStepTarget));
-
-					st4.moveTo(newStepTarget, 20.0f);
-					while (st4.updateStepper());
-
-					uint16_t ms = st4.getMicrostepCount();
-					Serial.printf("Final position: %d (%d)\n", st4.currentStep, ms);
-
-					// Move to zero pos and set as 0 step.
-					st4.moveRelative(-10000, 20.0f);
-					while (st4.updateStepper());
-					st4.currentStep = 0;
-
-				} else {
-					Serial.printf("Could not find inner limit\n");
-				}
-			} else {
-				Serial.printf("Could not find outer limit\n");
+		} else if (state == 1) {
+			if (abs(stepper->currentStep - startStep) > 1000 && outerLimit == 0) {
+				endStep = stepper->currentStep;
+				state = 2;
+				break;
 			}
 		}
 	}
 
-	// NOTE: Test limit switch.
-	// while (true) {
-	// 	int x = digitalRead(st1.limitPin);
-	// 	int y = digitalRead(st2.limitPin);
-	// 	int z = digitalRead(st3.limitPin);
+	if (state == 2) {
+		int midPointStep = startStep + (endStep - startStep) / 2;
+		int midMicroPhase = getMicroPhase(midPointStep);
 
-	// 	Serial.print("X ");
-	// 	Serial.print(x);
+		Serial.printf("Found outer limit: %d to %d (%d to %d) Mid: %4d MidPhase: %4d\n", startStep, endStep, getMicroPhase(startStep), getMicroPhase(endStep), midPointStep, midMicroPhase);
 
-	// 	Serial.print(" Y ");
-	// 	Serial.print(y);
-
-	// 	Serial.print(" Z ");
-	// 	Serial.println(z);
-
-	// 	delay(100);
-	// }
-
-	// digitalWrite(PIN_LASER_PWM, LOW);
-	// pinMode(PIN_LASER_PWM, OUTPUT);
-	// analogWriteFrequency(PIN_LASER_PWM, 1000);
-	// analogWrite(PIN_LASER_PWM, 8);
-
-	// galvoMove(20, 20);
-
-	// Always 400 us?
-	// Maybe 600us for max travel (0 to 4096).
-
-	// while (1) {
-	// 	// Grid
-	// 	// galvoMove(0, 0);
-	// 	// delay(100);
-
-	// 	// for (int iY = 0; iY < 40; ++iY) {
-	// 	// 	for (int iX = 0; iX < 40; ++iX) {
-	// 	// 		if (iY % 2 == 0) {
-	// 	// 			galvoMove(iX, iY);
-	// 	// 		} else {
-	// 	// 			galvoMove(39 - iX, iY);
-	// 	// 		}
-	// 	// 		delay(1);
-	// 	// 	}
-	// 	// }
-
-	// 	galvoPreviewSquare();
-	// 	delay(1000);
-	// 	galvoPreviewTarget();
-	// 	delay(1000);
-
+		// TODO: Move to position that is far from inner limit.
 		
+		// Move back to find inner center.
+		stepper->setDirection(false);
+		lastVal = 0;
+		state = 0;
+		for (int i = 0; i < 3000; ++i) {
+			stepper->pulseStepper();
+			uint16_t step = stepper->getMicrostepCount();
+			delayMicroseconds(400);
+			int innerLimit = digitalRead(PIN_LIMIT_C_INNER);
 
-	// 	// WriteDacB(1024);
-	// 	// delayMicroseconds(500);
-	// 	// WriteDacB(0);
-	// 	// delayMicroseconds(500);
+			if (stepper->currentDir) {
+				--stepper->currentStep;
+			} else {
+				++stepper->currentStep;
+			}
 
+			if (innerLimit != lastVal) {
+				lastVal = innerLimit;
+				Serial.printf("%6d %3d %4d\n", stepper->currentStep, innerLimit, step);
+			}
 
-	// 	// for (int i = 0; i < 128; ++i) {
-	// 	// 	WriteDacA(i * 32);
-	// 	// 	delayMicroseconds(100);
-	// 	// }
+			if (state == 0) {
+				if (innerLimit == 1) {
+					startStep = stepper->currentStep;
+					state = 1;
+				}
+			} else if (state == 1) {
+				if (abs(stepper->currentStep - startStep) > 100 && innerLimit == 0) {
+					endStep = stepper->currentStep;
+					state = 2;
+					break;
+				}
+			}
+		}
 
-	// 	// for (int i = 0; i < 128; ++i) {
-	// 	// 	WriteDacB(i * 32);
-	// 	// 	delayMicroseconds(100);
-	// 	// }
+		if (state == 2) {
+			int midPointStep = startStep + (endStep - startStep) / 2;
+			int midMicroPhase = getMicroPhase(midPointStep);
 
-	// 	// for (int i = 0; i < 128; ++i) {
-	// 	// 	WriteDacA(4096 - i * 32);
-	// 	// 	delayMicroseconds(100);
-	// 	// }
+			Serial.printf("Found inner limit: %d to %d (%d to %d) Mid: %4d MidPhase: %4d\n", startStep, endStep, getMicroPhase(startStep), getMicroPhase(endStep), midPointStep, midMicroPhase);
 
-	// 	// for (int i = 0; i < 128; ++i) {
-	// 	// 	WriteDacB(4096 - i * 32);
-	// 	// 	delayMicroseconds(100);
-	// 	// }
+			// Get new step target from micro phase.
+			int adjustedPhase = midMicroPhase - 4;
+			int moveSteps = 0;
 
-	// 	// WriteDacA(0);
-	// 	// WriteDacB(0);
-	// 	// delay(20);
-	// 	// WriteDacA(4095);
-	// 	// WriteDacB(0);
-	// 	// delay(20);
-	// 	// WriteDacA(4095);
-	// 	// WriteDacB(4095);
-	// 	// delay(20);
-	// 	// WriteDacA(0);
-	// 	// WriteDacB(4095);
-	// 	// delay(20);
+			if (adjustedPhase >= 512) {
+				moveSteps = (1024 - adjustedPhase) / 8;
+			} else {
+				moveSteps = (-adjustedPhase) / 8;
+			}
 
-	// 	// {
-	// 	// float pos = 0.0f;
-	// 	// float inc = 0.05f;
+			int newStepTarget = midPointStep + moveSteps;
 
-	// 	// while (true) {
-	// 	// 	int step = (pos / 0.050f) * 5.12f;
+			Serial.printf("Move to step: %d (%d)\n", newStepTarget, getMicroPhase(newStepTarget));
 
-	// 	// 	WriteDacB(400 + step);
-	// 	// 	delayMicroseconds(750);
-			
-	// 	// 	pos += inc;
-	// 	// 	if (pos >= 40.0f) {
-	// 	// 		break;
-	// 	// 	}
-	// 	// }
-	// 	// }
+			stepper->moveTo(newStepTarget, 20.0f);
+			while (stepper->updateStepper());
 
-	// 	// for (int i = 0; i < 3400; ++i) {
-	// 	// 	// WriteDacA(200 + i);
-	// 	// 	WriteDacB(400 + i);
-	// 	// 	delayMicroseconds(750);
-	// 	// }
+			uint16_t ms = stepper->getMicrostepCount();
+			Serial.printf("Final position: %d (%d)\n", stepper->currentStep, ms);
 
-	// // while (true) {
-	// // 	WriteDacA(400);
-	// // 	WriteDacB(400);
-	// // 	delay(1000);
+			// Move to zero pos and set as 0 step.
+			stepper->moveRelative(-10000, 20.0f);
+			while (stepper->updateStepper());
+			stepper->currentStep = 0;
 
-	// // 	WriteDacA(3600);
-	// // 	WriteDacB(3600);
-	// // 	delay(1000);
-	// // }
-
-	// }
-
-	// char buff[256];
-
-	// // Manual mode.
-	// while (1) {
-	// 	int b = Serial.read();
-
-	// 	if (b == 'l') {
-	// 		st1.currentStep = 0;
-	// 		Serial.println("Zeroed step counter");
-	// 	}
-
-	// 	if (b == 'i') {
-	// 		sprintf(buff, "X:%ld  Y:%ld  Z:%ld\r\n", st1.currentStep, st2.currentStep, st3.currentStep);
-	// 		Serial.print(buff);
-	// 	}
-
-	// 	if (b == '0') {
-	// 		st1.setMicrosteps(0);
-	// 		sprintf(buff, "Microsteps: 0 (%d)\r\n", st1.getMicrostepCount());
-	// 		Serial.print(buff);
-	// 	} else if (b == '9') {
-	// 		st1.setMicrosteps(32);
-	// 		sprintf(buff, "Microsteps: 32 (%d)\r\n", st1.getMicrostepCount());
-	// 		Serial.print(buff);
-	// 	}
-
-	// 	if (b == '1') {
-	// 		st1.moveDirectRelative(-1, 400);
-	// 		sprintf(buff, "Current step: %ld (%d) %d\r\n", st1.currentStep, st1.getMicrostepCount(), digitalRead(st1.limitPin));
-	// 		Serial.print(buff);
-	// 	} else if (b == '2') {
-	// 		st1.moveDirectRelative(1, 400);
-	// 		sprintf(buff, "Current step: %ld (%d) %d\r\n", st1.currentStep, st1.getMicrostepCount(), digitalRead(st1.limitPin));
-	// 		Serial.print(buff);
-	// 	}
-
-	// 	if (b == 'q') {
-	// 		st1.moveRelative(32000, 150);
-	// 		while (st1.updateStepper());
-	// 	} else if (b == 'w') {
-	// 		st1.moveRelative(-32000, 150);
-	// 		while (st1.updateStepper());
-	// 	}
-
-	// 	if (b == 'a') {
-	// 		st1.moveRelative(8000, 150);
-	// 		while (st1.updateStepper());
-	// 	} else if (b == 's') {
-	// 		st1.moveRelative(-8000, 150);
-	// 		while (st1.updateStepper());
-	// 	}
-
-	// 	if (b == 'z') {
-	// 		st1.moveRelative(8, 30);
-	// 		while (st1.updateStepper());
-	// 	} else if (b == 'x') {
-	// 		st1.moveRelative(-8, 30);
-	// 		while (st1.updateStepper());
-	// 	}
-
-	// 	if (b == 'h') {
-	// 		Serial.println("Homing...");
-	// 		homing();
-	// 		Serial.println("Done all homing");
-	// 	}
-	// }
+		} else {
+			Serial.printf("Could not find inner limit\n");
+		}
+	} else {
+		Serial.printf("Could not find outer limit\n");
+	}
 }

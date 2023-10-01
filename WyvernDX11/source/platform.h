@@ -1,5 +1,9 @@
 #pragma once
 
+#include "horse.h"
+#include "hawk.h"
+#include "panther.h"
+
 enum ldiPlatformJobType {
 	PJT_MOVE_AXIS,
 	PJT_MOTOR_STATUS,
@@ -30,12 +34,8 @@ struct ldiPlatform {
 	std::mutex					jobAvailableMutex;
 	std::condition_variable		jobAvailableCondVar;
 
-	ldiCamera					camera;
-	int							imageWidth;
-	int							imageHeight;
-	float						imageScale;
-	vec2						imageOffset;
-
+	//ldiCamera					camera;
+	
 	ldiRenderViewBuffers		mainViewBuffers;
 	int							mainViewWidth;
 	int							mainViewHeight;
@@ -44,12 +44,19 @@ struct ldiPlatform {
 	vec4						mainBackgroundColor = { 0.2f, 0.23f, 0.26f, 1.00f };
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 
+	// Motion platform.
 	ldiHorse					horse;
 	float						positionX;
 	float						positionY;
 	float						positionZ;
 	float						positionA;
-	float						positionB;
+	float						positionC;
+
+	// Dual machine vision cameras.
+	ldiHawk						hawks[2];
+
+	// Motion/Galvo/Laser control.
+	ldiPanther					panther;
 };
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
@@ -60,7 +67,7 @@ void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
 
 bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	ldiApp* appContext = Platform->appContext;
-	ldiPanther* panther = appContext->panther;
+	ldiPanther* panther = &Platform->panther;
 
 	// TODO: Make sure directories exist for saving results.
 
@@ -95,7 +102,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		networkSend(&Platform->appContext->server, (uint8_t*)&setMode, sizeof(ldiProtocolMode));
 
 		// Wait until next frame recvd.
-		imageInspectorWaitForCameraFrame(Platform->appContext->imageInspector);
+		//imageInspectorWaitForCameraFrame(Platform->appContext->imageInspector);
 		t0 = _getTime(appContext) - t0;
 		std::cout << "Frame: " << (t0 * 1000.0) << " ms\n";
 
@@ -105,7 +112,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		char fileName[256];
 		sprintf_s(fileName, sizeof(fileName), "../cache/calib/data_%d.dat", i);
 
-		int imageWidth = CAM_IMG_WIDTH;
+		/*int imageWidth = CAM_IMG_WIDTH;
 		int imageHeight = CAM_IMG_HEIGHT;
 
 		FILE* file;
@@ -113,7 +120,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		fwrite(&imageWidth, 4, 1, file);
 		fwrite(&imageHeight, 4, 1, file);
 		fwrite(Platform->appContext->imageInspector->camPixelsFinal, CAM_IMG_WIDTH * CAM_IMG_HEIGHT, 1, file);
-		fclose(file);
+		fclose(file);*/
 
 		t0 = _getTime(appContext) - t0;
 		std::cout << "Save: " << (t0 * 1000.0) << " ms\n";
@@ -134,7 +141,7 @@ void platformWorkerThread(ldiPlatform* Platform) {
 		Platform->jobAvailableCondVar.wait(lock);
 
 		while (Platform->jobExecuting) {
-			ldiPanther* panther = Platform->appContext->panther;
+			ldiPanther* panther = &Platform->panther;
 
 			switch (Platform->job->type) {
 				case PJT_MOVE_AXIS: {
@@ -169,17 +176,17 @@ void platformWorkerThread(ldiPlatform* Platform) {
 int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	Tool->appContext = AppContext;
 
-	Tool->imageScale = 1.0f;
-	Tool->imageOffset = vec2(0.0f, 0.0f);
-	Tool->imageWidth = 1600;
-	Tool->imageHeight = 1300;
+	//Tool->imageScale = 1.0f;
+	//Tool->imageOffset = vec2(0.0f, 0.0f);
+	//Tool->imageWidth = 1600;
+	//Tool->imageHeight = 1300;
 
-	Tool->camera = {};
-	// NOTE: Camera location relative to machine origin: 56.0, 0, 51.0.
-	Tool->camera.position = vec3(26.0f, 51.0f, 0);
-	Tool->camera.rotation = vec3(-90, 45, 0);
-	Tool->camera.projMat = glm::perspectiveFovRH_ZO(glm::radians(42.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 50.0f);
-	Tool->camera.fov = 42.0f;
+	//Tool->camera = {};
+	//// NOTE: Camera location relative to machine origin: 56.0, 0, 51.0.
+	//Tool->camera.position = vec3(26.0f, 51.0f, 0);
+	//Tool->camera.rotation = vec3(-90, 45, 0);
+	//Tool->camera.projMat = glm::perspectiveFovRH_ZO(glm::radians(42.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 50.0f);
+	//Tool->camera.fov = 42.0f;
 
 	Tool->mainCamera.position = vec3(-40, 60, 20);
 	Tool->mainCamera.rotation = vec3(55, 40, 0);
@@ -187,7 +194,15 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 
 	horseInit(&Tool->horse);
 
+	if (!pantherInit(AppContext, &Tool->panther)) {
+		std::cout << "Could not init panther\n";
+		return 1;
+	}
+
 	Tool->workerThread = std::thread(platformWorkerThread, Tool);
+
+	hawkInit(&Tool->hawks[0], "169.254.72.101", 6969);
+	hawkInit(&Tool->hawks[1], "169.254.73.101", 6969);
 
 	return 0;
 }
@@ -331,49 +346,49 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 	// Horse.
 	//----------------------------------------------------------------------------------------------------
 	{
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisB, "B", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisC, "C", TextBuffer);
 
-		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
-		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
-		mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
+		//mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
+		//viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
+		//mat4 camViewMat = viewRotMat * glm::translate(mat4(1.0f), -Tool->camera.position);
 
-		ldiTransform mvCameraTransform = {};
-		mvCameraTransform.world = glm::inverse(camViewMat);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
+		//ldiTransform mvCameraTransform = {};
+		//mvCameraTransform.world = glm::inverse(camViewMat);
+		//renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
 
-		// Render camera frustum.
-		mat4 projViewMat = Tool->camera.projMat * camViewMat;
-		mat4 invProjViewMat = glm::inverse(projViewMat);
+		//// Render camera frustum.
+		//mat4 projViewMat = Tool->camera.projMat * camViewMat;
+		//mat4 invProjViewMat = glm::inverse(projViewMat);
 
-		vec4 f0 = invProjViewMat * vec4(-1, -1, 0, 1); f0 /= f0.w;
-		vec4 f1 = invProjViewMat * vec4(1, -1, 0, 1); f1 /= f1.w;
-		vec4 f2 = invProjViewMat * vec4(1, 1, 0, 1); f2 /= f2.w;
-		vec4 f3 = invProjViewMat * vec4(-1, 1, 0, 1); f3 /= f3.w;
+		//vec4 f0 = invProjViewMat * vec4(-1, -1, 0, 1); f0 /= f0.w;
+		//vec4 f1 = invProjViewMat * vec4(1, -1, 0, 1); f1 /= f1.w;
+		//vec4 f2 = invProjViewMat * vec4(1, 1, 0, 1); f2 /= f2.w;
+		//vec4 f3 = invProjViewMat * vec4(-1, 1, 0, 1); f3 /= f3.w;
 
-		vec4 f4 = invProjViewMat * vec4(-1, -1, 1, 1); f4 /= f4.w;
-		vec4 f5 = invProjViewMat * vec4(1, -1, 1, 1); f5 /= f5.w;
-		vec4 f6 = invProjViewMat * vec4(1, 1, 1, 1); f6 /= f6.w;
-		vec4 f7 = invProjViewMat * vec4(-1, 1, 1, 1); f7 /= f7.w;
+		//vec4 f4 = invProjViewMat * vec4(-1, -1, 1, 1); f4 /= f4.w;
+		//vec4 f5 = invProjViewMat * vec4(1, -1, 1, 1); f5 /= f5.w;
+		//vec4 f6 = invProjViewMat * vec4(1, 1, 1, 1); f6 /= f6.w;
+		//vec4 f7 = invProjViewMat * vec4(-1, 1, 1, 1); f7 /= f7.w;
 
-		pushDebugLine(&appContext->defaultDebug, f0, f4, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f1, f5, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f2, f6, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f3, f7, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f0, f4, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f1, f5, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f2, f6, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f3, f7, vec3(1, 0, 1));
 
-		pushDebugLine(&appContext->defaultDebug, f0, f1, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f1, f2, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f2, f3, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f3, f0, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f0, f1, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f1, f2, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f2, f3, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f3, f0, vec3(1, 0, 1));
 
-		pushDebugLine(&appContext->defaultDebug, f4, f5, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f5, f6, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f6, f7, vec3(1, 0, 1));
-		pushDebugLine(&appContext->defaultDebug, f7, f4, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f4, f5, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f5, f6, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f6, f7, vec3(1, 0, 1));
+		//pushDebugLine(&appContext->defaultDebug, f7, f4, vec3(1, 0, 1));
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -398,11 +413,11 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	// TODO: Move update somewhere sensible.
 	// Copy values from panther.
-	appContext->panther->dataLockMutex.lock();
-	Tool->positionX = appContext->panther->positionX;
-	Tool->positionY = appContext->panther->positionY;
-	Tool->positionZ = appContext->panther->positionZ;
-	appContext->panther->dataLockMutex.unlock();
+	Tool->panther.dataLockMutex.lock();
+	Tool->positionX = Tool->panther.positionX;
+	Tool->positionY = Tool->panther.positionY;
+	Tool->positionZ = Tool->panther.positionZ;
+	Tool->panther.dataLockMutex.unlock();
 
 	Tool->horse.x = Tool->positionX / 10.0f - 7.5f;
 	Tool->horse.y = Tool->positionY / 10.0f - 0.0f;
@@ -416,7 +431,7 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
 
 	ImGui::Text("Connection");
-	ImGui::BeginDisabled(appContext->panther->serialPortConnected);
+	ImGui::BeginDisabled(Tool->panther.serialPortConnected);
 	/*char ipBuff[] = "192.168.0.50";
 	int port = 5000;
 	ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
@@ -427,21 +442,21 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	ImGui::EndDisabled();
 
-	if (appContext->panther->serialPortConnected) {
+	if (Tool->panther.serialPortConnected) {
 		if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
-			pantherDisconnect(appContext->panther);
+			pantherDisconnect(&Tool->panther);
 		};
 	} else {
 		if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-			if (pantherConnect(appContext->panther, "\\\\.\\COM4")) {
-				pantherSendTestCommand(appContext->panther);
+			if (pantherConnect(&Tool->panther, "\\\\.\\COM4")) {
+				pantherSendTestCommand(&Tool->panther);
 			}
 		}
 	}
 
 	ImGui::Separator();
 
-	ImGui::BeginDisabled(!appContext->panther->serialPortConnected);
+	ImGui::BeginDisabled(!Tool->panther.serialPortConnected);
 	ImGui::Text("Platform status");
 	ImGui::PushFont(Tool->appContext->fontBig);
 
@@ -464,7 +479,7 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	int labelIndex = 0;
 
-	if (appContext->panther->serialPortConnected) {
+	if (Tool->panther.serialPortConnected) {
 		labelIndex = 1;
 
 		if (Tool->jobExecuting) {
@@ -523,7 +538,7 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %.2f", Tool->positionA);
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(startX + availX / 3 * 1);
-	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "B: %.2f", Tool->positionB);
+	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "C: %.2f", Tool->positionC);
 	ImGui::PopFont();
 
 	ImGui::BeginDisabled(Tool->jobExecuting);
@@ -550,8 +565,12 @@ void platformShowUi(ldiPlatform* Tool) {
 		platformQueueJobMoveAxis(Tool, 2, -steps, accel);
 	}
 	ImGui::SameLine();
-	if (ImGui::Button("-A", ImVec2(32, 32))) {
+	if (ImGui::Button("-C", ImVec2(32, 32))) {
 		platformQueueJobMoveAxis(Tool, 3, -steps, accel);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("-A", ImVec2(32, 32))) {
+		platformQueueJobMoveAxis(Tool, 4, -steps, accel);
 	}
 
 	if (ImGui::Button("+X", ImVec2(32, 32))) {
@@ -566,8 +585,12 @@ void platformShowUi(ldiPlatform* Tool) {
 		platformQueueJobMoveAxis(Tool, 2, steps, accel);
 	}
 	ImGui::SameLine();
-	if (ImGui::Button("+A", ImVec2(32, 32))) {
+	if (ImGui::Button("+C", ImVec2(32, 32))) {
 		platformQueueJobMoveAxis(Tool, 3, steps, accel);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("+A", ImVec2(32, 32))) {
+		platformQueueJobMoveAxis(Tool, 4, steps, accel);
 	}
 
 	ImGui::Separator();

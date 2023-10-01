@@ -2668,26 +2668,9 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	return 0;
 }
 
-vec3 projectPoint(ldiCamera* Camera, vec3 Pos) {
-	vec4 worldPos = vec4(Pos.x, Pos.y, Pos.z, 1);
-	vec4 clipPos = Camera->projViewMat * worldPos;
-	clipPos.x /= clipPos.w;
-	clipPos.y /= clipPos.w;
 
-	vec3 screenPos;
-	screenPos.x = (clipPos.x * 0.5 + 0.5) * Camera->viewWidth;
-	screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * Camera->viewHeight;
-	screenPos.z = clipPos.z;
 
-	return screenPos;
-}
 
-void displayTextAtPoint(ldiCamera* Camera, vec3 Position, std::string Text, vec4 Color, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 projPos = projectPoint(Camera, Position);
-	if (projPos.z > 0) {
-		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
-	}
-}
 
 void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = ModelInspector->appContext;

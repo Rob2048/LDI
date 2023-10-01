@@ -1,26 +1,5 @@
 #pragma once
 
-struct ldiTransform {
-	vec3 localPos;
-	vec3 localRot;
-	mat4 local;
-	mat4 world;
-};
-
-struct ldiHorse {
-	ldiTransform origin;
-	ldiTransform axisX;
-	ldiTransform axisY;
-	ldiTransform axisZ;
-	ldiTransform axisA;
-	ldiTransform axisB;
-	float x;
-	float y;
-	float z;
-	float a;
-	float b;
-};
-
 struct ldiVisionSimulator {
 	ldiApp*						appContext;
 
@@ -93,72 +72,6 @@ struct ldiVisionSimulator {
 	std::vector<ldiCameraCalibSample> cameraCalibSamples;
 	int							cameraCalibSampleSelectId = -1;
 };
-
-void transformUpdateLocal(ldiTransform* Transform) {
-	Transform->local = glm::rotate(mat4(1.0f), glm::radians(Transform->localRot.x), vec3(1, 0, 0));
-	Transform->local = glm::rotate(Transform->local, glm::radians(Transform->localRot.y), vec3(0, 1, 0));
-	Transform->local = glm::rotate(Transform->local, glm::radians(Transform->localRot.z), vec3(0, 0, 1));
-	// TODO: Check if can put local instead of ident mat.
-	Transform->local = glm::translate(mat4(1.0f), Transform->localPos) * Transform->local;
-}
-
-void transformUpdateWorld(ldiTransform* Transform, ldiTransform* Parent) {
-	Transform->world = Transform->local;
-
-	if (Parent) {
-		Transform->world = Parent->world * Transform->world;
-	}
-}
-
-void transformInit(ldiTransform* Transform, vec3 Pos, vec3 Rot) {
-	Transform->localPos = Pos;
-	Transform->localRot = Rot;
-	transformUpdateLocal(Transform);
-}
-
-vec3 transformGetWorldPoint(ldiTransform* Transform, vec3 LocalPos) {
-	return Transform->world * vec4(LocalPos.x, LocalPos.y, LocalPos.z, 1.0f);
-}
-
-void horseUpdateMats(ldiHorse* Horse) {
-	transformUpdateWorld(&Horse->origin, 0);
-	transformUpdateWorld(&Horse->axisX, &Horse->origin);
-	transformUpdateWorld(&Horse->axisY, &Horse->axisX);
-	transformUpdateWorld(&Horse->axisZ, &Horse->axisY);
-	transformUpdateWorld(&Horse->axisA, &Horse->axisZ);
-	transformUpdateWorld(&Horse->axisB, &Horse->axisA);
-}
-
-void horseInit(ldiHorse* Horse) {
-	// X: -10 to 10
-	// Y: -10 to 10
-	// Z: -10 to 10
-
-	transformInit(&Horse->origin, vec3(-30.0f, 0, 0), vec3(-90, 0, 0));
-	transformInit(&Horse->axisX, vec3(19.5f, 0, 9.8f), vec3(0, 0, 0));
-	transformInit(&Horse->axisY, vec3(0, 0, 6.8f), vec3(0, 0, 0));
-	transformInit(&Horse->axisZ, vec3(0, 0, 17.4f), vec3(0, 0, 0));
-	transformInit(&Horse->axisA, vec3(6.9f, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisB, vec3(13.7f, 0, -7.5f), vec3(0, 0, 0));
-
-	horseUpdateMats(Horse);
-}
-
-void horseUpdate(ldiHorse* Horse) {
-	Horse->axisX.localPos.x = Horse->x + 19.5f;
-	Horse->axisY.localPos.y = Horse->y;
-	Horse->axisZ.localPos.z = Horse->z + 17.4f;
-	Horse->axisA.localRot.x = Horse->a;
-	Horse->axisB.localRot.z = Horse->b;
-
-	transformUpdateLocal(&Horse->axisX);
-	transformUpdateLocal(&Horse->axisY);
-	transformUpdateLocal(&Horse->axisZ);
-	transformUpdateLocal(&Horse->axisA);
-	transformUpdateLocal(&Horse->axisB);
-
-	horseUpdateMats(Horse);
-}
 
 void _visionSimulatorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	ldiApp* appContext = (ldiApp*)cmd->UserCallbackData;
@@ -435,16 +348,6 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	return 0;
 }
 
-void _renderTransformOrigin(ldiApp* AppContext, ldiCamera* Camera, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
-
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
-
-	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
-}
-
 void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = Tool->appContext;
 
@@ -510,12 +413,12 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	// Horse.
 	//----------------------------------------------------------------------------------------------------
 	{
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisB, "B", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisC, "C", TextBuffer);
 
 		mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
 		viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
@@ -523,7 +426,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 		ldiTransform mvCameraTransform = {};
 		mvCameraTransform.world = glm::inverse(camViewMat);
-		_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
+		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
 
 		// Render camera frustum.
 		mat4 projViewMat = Tool->camera.projMat * camViewMat;
@@ -579,7 +482,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 			ldiTransform boardTransform = {};
 			boardTransform.world = world;
-			_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "Board", TextBuffer);
+			renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "Board", TextBuffer);
 
 			vec3 v0 = world * vec4(0, 0, 0, 1);
 			vec3 v1 = world * vec4(0, cubeSize, 0, 1);
@@ -624,7 +527,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 	if (Tool->showTargetMain) {
 		for (int i = 0; i < 6; ++i) {
 			ldiBasicConstantBuffer constantBuffer;
-			constantBuffer.mvp = Tool->mainCamera.projMat * Tool->mainCamera.viewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
+			constantBuffer.mvp = Tool->mainCamera.projMat * Tool->mainCamera.viewMat * Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
 			constantBuffer.color = vec4(targetFaceColorDim[i], 1);
 
 			if (i == 5) {
@@ -641,8 +544,8 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			continue;
 		}
 
-		vec3 faceOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, chs, 0, 1);
-		vec3 faceWorldNormal = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, 1, 0, 0);
+		vec3 faceOrigin = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, chs, 0, 1);
+		vec3 faceWorldNormal = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(0, 1, 0, 0);
 
 		float fdc = glm::dot((Tool->mainCamera.position - faceOrigin), faceWorldNormal);
 
@@ -656,7 +559,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 			cv::Point3f p = _charucoBoards[b]->chessboardCorners[i];
 
 			vec3 offset(-chs, chs, chs);
-			vec3 worldOrigin = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
+			vec3 worldOrigin = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 			pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), vec3(1, 1, 1));
 			int globalId = b * 9 + i;
@@ -702,7 +605,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		for (size_t i = 0; i < Tool->barViews.size(); ++i) {
 			ldiTransform boardTransform = {};
 			boardTransform.world = glm::inverse(Tool->barViews[i]);
-			_renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->barViewIds[i]), TextBuffer);
+			renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->barViewIds[i]), TextBuffer);
 
 			//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
 		}
@@ -734,7 +637,7 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 		if (Tool->cameraCalibSampleSelectId != -1) {
 			ldiTransform boardTransform = {};
 			boardTransform.world = camWorldMat * Tool->cameraCalibSamples[Tool->cameraCalibSampleSelectId].camLocalMat;
-			_renderTransformOrigin(appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->cameraCalibSampleSelectId), TextBuffer);
+			renderTransformOrigin(appContext, &Tool->mainCamera, &boardTransform, "View " + std::to_string(Tool->cameraCalibSampleSelectId), TextBuffer);
 
 			for (size_t pointIter = 0; pointIter < _calibrationTargetLocalPoints.size(); ++pointIter) {
 				vec3 pWorld = boardTransform.world * vec4(_calibrationTargetLocalPoints[pointIter], 1.0f);
@@ -798,7 +701,7 @@ void visionSimulatorRender(ldiVisionSimulator* Tool) {
 	if (Tool->showTargetMain) {
 		for (int i = 0; i < 6; ++i) {
 			ldiBasicConstantBuffer constantBuffer;
-			constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
+			constantBuffer.mvp = projMat * camViewMat * Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[i];
 			constantBuffer.color = vec4(1, 1, 1, 1);
 
 			if (i == 5) {
@@ -832,7 +735,7 @@ vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
 
 	vec3 offset(-chs, chs, chs);
-	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
+	vec3 worldPos = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 	// TODO: Camera should really be updated only once.
 	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
@@ -862,7 +765,7 @@ vec3 visionSimulatorGetTargetCamPos(ldiVisionSimulator* Tool, int BoardId, int C
 	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
 
 	vec3 offset(-chs, chs, chs);
-	vec3 worldPos = Tool->horse.axisB.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
+	vec3 worldPos = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
 
 	// TODO: Camera should really be updated only once.
 	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);

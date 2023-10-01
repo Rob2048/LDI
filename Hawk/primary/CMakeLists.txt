@@ -18,7 +18,7 @@ message(STATUS ${LIBCAMERA_BASE_LIBRARY})
 
 include_directories(. "${CAMERA_INCLUDE_DIRS}")
 set(LIBCAMERA_LIBRARIES "${LIBCAMERA_LIBRARY}" "${LIBCAMERA_BASE_LIBRARY}")
-add_executable(libcamera-demo main.cpp LibCamera.cpp network.cpp lz4.c)
+add_executable(libcamera-demo main.cpp LibCamera.cpp network.cpp lz4.c camera.cpp)
 
 target_link_libraries(libcamera-demo "${LIBCAMERA_LIBRARIES}" pigpio)
 

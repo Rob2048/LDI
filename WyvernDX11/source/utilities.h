@@ -5,6 +5,9 @@
 #include <sstream>
 #include <string>
 
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+
 static bool endsWith(std::string_view str, std::string_view suffix) {
 	return str.size() >= suffix.size() && 0 == str.compare(str.size() - suffix.size(), suffix.size(), suffix);
 }
@@ -124,4 +127,51 @@ std::string GetMat4DebugString(mat4* Mat) {
 	str << (*Mat)[3][0] << " " << (*Mat)[3][1] << " " << (*Mat)[3][2] << " " << (*Mat)[3][3] << "\n";
 
 	return str.str();
+}
+
+vec3 HSVtoRGB(float H, float S, float V) {
+	/*if (H > 360 || H < 0 || S>100 || S < 0 || V>100 || V < 0) {
+		cout << "The givem HSV values are not in valid range" << endl;
+		return;
+	}*/
+
+	float s = S / 100;
+	float v = V / 100;
+	float C = s * v;
+	float X = C * (1 - abs(fmod(H / 60.0, 2) - 1));
+	float m = v - C;
+	float r, g, b;
+
+	if (H >= 0 && H < 60) {
+		r = C, g = X, b = 0;
+	} else if (H >= 60 && H < 120) {
+		r = X, g = C, b = 0;
+	} else if (H >= 120 && H < 180) {
+		r = 0, g = C, b = X;
+	} else if (H >= 180 && H < 240) {
+		r = 0, g = X, b = C;
+	} else if (H >= 240 && H < 300) {
+		r = X, g = 0, b = C;
+	} else {
+		r = C, g = 0, b = X;
+	}
+	
+	return vec3((r + m), (g + m), (b + m));
+}
+
+vec3 getRandomColorHighSaturation() {
+	float hue = ((float)rand() / (float)RAND_MAX) * 359;
+	float sat = ((float)rand() / (float)RAND_MAX) * 10 + 89;
+	float val = ((float)rand() / (float)RAND_MAX) * 10 + 89;
+
+	return HSVtoRGB(hue, sat, val);
+}
+
+vec3 getRandomColor() {
+	vec3 result;
+	result.x = (rand() % 255) / 255.0f;
+	result.y = (rand() % 255) / 255.0f;
+	result.z = (rand() % 255) / 255.0f;
+
+	return result;
 }

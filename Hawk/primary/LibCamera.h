@@ -27,22 +27,18 @@
 #include <libcamera/formats.h>
 #include <libcamera/transform.h>
 
-using namespace libcamera;
+#include "camera.h"
 
-typedef struct {
-    uint8_t *imageData;
-    uint32_t size;
-    uint64_t request;
-} LibcameraOutData;
+using namespace libcamera;
 
 class LibCamera {
     public:
         LibCamera(){};
         ~LibCamera(){};
-        
-        int initCamera(int width, int height, PixelFormat format, int buffercount, int rotation);
-        
-        int startCamera();
+
+        int initCamera();
+        int startCamera(int width, int height, PixelFormat format, int buffercount, int rotation, int* FrameSize, int* FrameStride);
+        int startCapture();
         bool readFrame(LibcameraOutData *frameData);
         void returnFrameBuffer(LibcameraOutData frameData);
 
@@ -50,11 +46,9 @@ class LibCamera {
         void stopCamera();
         void closeCamera();
     private:
-        int startCapture();
         int queueRequest(Request *request);
         void requestComplete(Request *request);
-        void processRequest(Request *request);
-
+        
         unsigned int cameraIndex_;
 	    uint64_t last_;
         std::unique_ptr<CameraManager> cm;

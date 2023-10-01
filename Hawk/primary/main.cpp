@@ -1,12 +1,15 @@
-#include "LibCamera.h"
 #include <iostream>
 #include <stdint.h>
-#include "lz4.h"
+#include <unistd.h>
+#include <poll.h>
 #include "network.h"
-#include <pigpio.h>
+#include <string.h>
+#include "camera.h"
+#include <vector>
+// #inlcude <pigpio.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+// #define STB_IMAGE_WRITE_IMPLEMENTATION
+// #include "stb_image_write.h"
 
 // NOTE: OV9281
 // #define IMG_WIDTH 1280
@@ -22,114 +25,134 @@
 // #define IMG_HEIGHT 3040
 
 // NOTE: IMX219
-#define IMG_WIDTH 1920
-#define IMG_HEIGHT 1080
-// #define IMG_WIDTH 3280
-// #define IMG_HEIGHT 2464
+// #define IMG_WIDTH 1920
+// #define IMG_HEIGHT 1080
+#define IMG_WIDTH 3280
+#define IMG_HEIGHT 2464
+// NOTE: Stride = 3328
 
-uint8_t tempBuffer[IMG_WIDTH * IMG_HEIGHT];
+// uint8_t tempBuffer[IMG_WIDTH * IMG_HEIGHT];
+uint8_t tempBuffer[3328 * IMG_HEIGHT];
 uint8_t pixelBuffer[IMG_WIDTH * IMG_HEIGHT];
 float floatBuffer[IMG_WIDTH * IMG_HEIGHT];
+float intBuffer[IMG_WIDTH * IMG_HEIGHT];
 
-bool _settingsUpdate = false;
-// int _shutterSpeed = 8000;
-// int _analogGain = 1;
-int _shutterSpeed = 400;
+uint8_t avgBuffer[5][IMG_WIDTH * IMG_HEIGHT * 5];
+int64_t averageModeStartTimeMs = 0;
+int averageModeCapturedFrames = 0;
+int averageModeCaptureTarget = 0;
+
+int _shutterSpeed = 66000;
 int _analogGain = 1;
 
-bool _modeUpdate = false;
-int _mode = 0;
+int contModeLastSendTimeUs = 0;
 
-uint8_t* compressedBuffer;
-int compressedBufferSize = 0;
+// NOTE: IMX219
+int frameWidth = 3280;
+int frameHeight = 2464;
+// int frameWidth = 1640;
+// int frameHeight = 1232;
+int frameStride = 0;
 
+FILE* ledProc = NULL;
+
+enum ldiCameraCaptureMode {
+	LDI_CAMERACAPTUREMODE_WAIT				= 0,
+	LDI_CAMERACAPTUREMODE_CONTINUOUS		= 1,
+	LDI_CAMERACAPTUREMODE_AVERAGE			= 2,
+	LDI_CAMERACAPTUREMODE_SINGLE			= 3,
+};
+
+ldiCameraCaptureMode _mode = LDI_CAMERACAPTUREMODE_WAIT;
+
+ldiCamContext*		camContext		= nullptr;
+ldiNet*				net				= nullptr;
+
+//-------------------------------------------------------------------------
+// Platform implementation.
+//-------------------------------------------------------------------------
 int64_t platformGetMicrosecond() {
 	timespec time;
-	clock_gettime(CLOCK_REALTIME, &time);
+	clock_gettime(CLOCK_MONOTONIC, &time);
 
-	return time.tv_sec * 1000000 + time.tv_nsec / 1000;
+	return ((int64_t)time.tv_sec * 1000000 + (int64_t)time.tv_nsec / 1000);
 }
 
-void processImageSRGGB8(uint8_t* Data, int Size) {
-	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
+//-------------------------------------------------------------------------
+// LED ring.
+//-------------------------------------------------------------------------
+int ledsStartProcess() {
+	ledProc = popen("python /home/pi/projects/leds.py", "w");
 
-	memcpy(pixelBuffer, Data, pixelCount);
-}
-
-void processImageSRGGB8Avg(uint8_t* Data, int Size, int FrameId, int TotalFrames) {
-	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
-
-	if (FrameId == 0) {
-		memset(floatBuffer, 0, pixelCount * 4);
+	if (ledProc == NULL) {
+		std::cout << "Failed to open leds\n";
+		return 1;
 	}
 
-	memcpy(tempBuffer, Data, pixelCount);
+	std::cout << "Opened leds" << "\n";
 
-	// int result = LZ4_compress_default((const char*)tempBuffer, (char*)compressedBuffer, Size, compressedBufferSize);
-	// std::cout << "Comp: " << result << "\n";
-
-	for (int i = 0; i < pixelCount; ++i) {
-		// pixelBuffer[i] += (uint8_t)((float)tempBuffer[i] / (float)TotalFrames);
-		floatBuffer[i] += (float)tempBuffer[i] / (float)TotalFrames;
-		pixelBuffer[i] = (uint8_t)floatBuffer[i];
-	}
+	// pclose(ledProc);
+	return 0;
 }
 
-void processImage(uint8_t* Data, int Size) {
-	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
-
-	// int result = LZ4_compress_default((const char*)Data, (char*)compressedBuffer, Size, compressedBufferSize);
-
-	// NOTE: 10bit to 8bit conversion.
-	for (int i = 0; i < pixelCount; ++i) {
-		uint16_t pixel = ((uint16_t*)Data)[i];
-		pixel = pixel >> 2;
-		pixelBuffer[i] = (uint8_t)pixel;
-
-		// uint8_t pixel = (Data[i * 2 + 1] << 6) | (Data[i * 2 + 0] >> 2);
-		// pixelBuffer[i] = pixel;
-	}
-
-	
-	// std::cout << "Frame: " << result << " " << (t0 / 1000.0) << " ms\n";
-	// std::cout << "Frame: " << (Size / 1024) << " KB to " << (sizeof(pixelBuffer) / 1024) << " KB in " << (t0 / 1000.0) << " ms\n";
-
-	// static bool savedToFile = false;
-	// if (!savedToFile) {
-	// 	stbi_write_png("raw.png", IMG_WIDTH, IMG_HEIGHT, 1, pixelBuffer, IMG_WIDTH);
-	// 	savedToFile = true;
-
-	// 	// FILE* fd = fopen("raw.img", "wb");
-	// 	// fwrite(pixelBuffer, sizeof(pixelBuffer), 1, fd);
-	// 	// fclose(fd);
-	// }
+void startFlash() {
+	fprintf(ledProc, "6\r\n");
+	fflush(ledProc);
 }
 
-void processImage12to8(uint8_t* Data, int Size) {
-	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
-
-	for (int i = 0; i < pixelCount; ++i) {
-		uint16_t pixel = ((uint16_t*)Data)[i];
-		pixel = pixel >> 4;
-		pixelBuffer[i] = (uint8_t)pixel;
-
-		// uint8_t pixel = (Data[i * 2 + 1] << 6) | (Data[i * 2 + 0] >> 2);
-		// pixelBuffer[i] = pixel;
-	}
+void stopLeds() {
+	fprintf(ledProc, "0\r\n");
+	fflush(ledProc);
 }
 
-void processImageRGB888to8(uint8_t* Data, int Size) {
-	int pixelCount = IMG_WIDTH * IMG_HEIGHT;
+//-------------------------------------------------------------------------
+// Image processing.
+//-------------------------------------------------------------------------
+bool restartCamera(int Width, int Height, int Fps) {
+	cameraStop(camContext);
 
-	for (int i = 0; i < pixelCount; ++i) {
-		uint8_t pixel = Data[i * 3 + 0];
-		pixelBuffer[i] = pixel;
+	int frameSize = 0;
 
-		// uint8_t pixel = (Data[i * 2 + 1] << 6) | (Data[i * 2 + 0] >> 2);
-		// pixelBuffer[i] = pixel;
+	if (cameraStart(camContext, Width, Height, Fps, _shutterSpeed, _analogGain, &frameSize, &frameStride) != 0) {
+		std::cout << "Starting camera failed\n";
+		return false;
+	}
+
+	frameSize = frameStride * Height;
+	std::cout << "Frame size: " << frameSize << " Frame stride: " << frameStride << "\n";
+
+	if (frameSize > sizeof(tempBuffer)) {
+		std::cout << "Frame data size mismatch\n";
+		return false;
+	}
+
+	return true;
+}
+
+void setCameraMode(ldiCameraCaptureMode Mode) {
+	_mode = Mode;
+
+	if (_mode == LDI_CAMERACAPTUREMODE_CONTINUOUS) {
+		cameraSetFps(camContext, 3);
+	}
+
+	if (_mode == LDI_CAMERACAPTUREMODE_AVERAGE) {
+		cameraSetFps(camContext, 15);
+		// if (!restartCamera(3280, 2464, 15)) {
+		// 	exit(1);
+		// }
+
+		averageModeStartTimeMs = platformGetMicrosecond() / 1000;
+		averageModeCapturedFrames = 0;
+		averageModeCaptureTarget = 5;
+
+		startFlash();
 	}
 }
 
+//-------------------------------------------------------------------------
+// Networking.
+//-------------------------------------------------------------------------
 struct ldiProtocolHeader {
 	int packetSize;
 	int opcode;
@@ -152,6 +175,11 @@ struct ldiProtocolMode {
 	int mode;
 };
 
+struct ldiProtocolCapture {
+	ldiProtocolHeader header;
+	int avgCount;
+};
+
 struct ldiPacket {
 	uint8_t buffer[1024 * 1024];
 	int len = 0;
@@ -159,716 +187,334 @@ struct ldiPacket {
 	int payloadLen = 0;
 };
 
-void handlePacket(ldiPacket* Packet) {
-	ldiProtocolHeader* header = (ldiProtocolHeader*)Packet->buffer;
-
-	if (header->opcode == 0) {
-		ldiProtocolSettings* packet = (ldiProtocolSettings*)Packet->buffer;
-		_shutterSpeed = packet->shutterSpeed;
-		_analogGain = packet->analogGain;
-		_settingsUpdate = true;
-	} else if (header->opcode == 1) {
-		ldiProtocolMode* packet = (ldiProtocolMode*)Packet->buffer;
-		_mode = packet->mode;
-		_modeUpdate = true;
-	} else {
-		std::cout << "Unknown opcode\n";
-	}
-}
-
-ldiPacket _packet;
-
 void packetInit(ldiPacket* Packet) {
 	Packet->len = 0;
 	Packet->state = 0;
 	Packet->payloadLen = 0;
 }
 
-int packetProcessData(ldiPacket* Packet, uint8_t* Data, int Size) {
+int packetProcessByte(ldiPacket* Packet, uint8_t Data) {
+	if (Packet->state == 0) {
+		Packet->buffer[Packet->len++] = Data;
+
+		if (Packet->len == 4) {
+			Packet->payloadLen = *(int*)Packet->buffer;
+			Packet->state = 1;
+		}
+	} else if (Packet->state == 1) {
+		Packet->buffer[Packet->len++] = Data;
+
+		if (Packet->len - 4 == Packet->payloadLen) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+struct ldiControlAppClient {
+	int id;
+	ldiPacket packet;
+};
+
+std::vector<ldiControlAppClient> clients;
+
+void handlePacket(ldiNet* Net, ldiControlAppClient* Client) {
+	ldiPacket* clientPacket = &Client->packet;
+	ldiProtocolHeader* header = (ldiProtocolHeader*)clientPacket->buffer;
+
+	if (header->opcode == 0) {
+		// NOTE: Set camera settings.
+		ldiProtocolSettings* packet = (ldiProtocolSettings*)clientPacket->buffer;
+		_shutterSpeed = packet->shutterSpeed;
+		_analogGain = packet->analogGain;
+		
+		cameraSetControls(camContext, _shutterSpeed, _analogGain);
+
+	} else if (header->opcode == 1) {
+		// NOTE: Set camera mode.
+		ldiProtocolMode* packet = (ldiProtocolMode*)clientPacket->buffer;
+		setCameraMode((ldiCameraCaptureMode)packet->mode);
+	} else if (header->opcode == 2) {
+		// NOTE: Get camera settings.
+		ldiProtocolSettings settings;
+		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
+		settings.header.opcode = 0;
+		settings.shutterSpeed = _shutterSpeed;
+		settings.analogGain = _analogGain;
+
+		std::cout << "Send camera settings to network client\n";
+
+		if (networkClientWrite(Net, Client->id, (uint8_t*)&settings, sizeof(settings)) != 0) {
+			std::cout << "Settings write failed\n";
+			return;
+		}
+	} else if (header->opcode == 3) {
+
+	} else {
+		std::cout << "Unknown opcode\n";
+		return;
+	}
+
+	packetInit(clientPacket);
+}
+
+ldiControlAppClient* addClient(int Id) {
+	ldiControlAppClient client;
+	client.id = Id;
+	packetInit(&client.packet);
+	clients.push_back(client);
+
+	return &clients[clients.size() - 1];
+}
+
+void removeClient(int Id) {
+	for (size_t i = 0; i < clients.size(); ++i) {
+		if (clients[i].id == Id) {
+			clients.erase(clients.begin() + i);
+			return;
+		}
+	}
+}
+
+void readClient(ldiNet* Net, int Id, uint8_t* Data, int Size) {
+	ldiControlAppClient* client = nullptr;
+
+	for (size_t i = 0; i < clients.size(); ++i) {
+		if (clients[i].id == Id) {
+			client = &clients[i];
+			break;
+		}
+	}
+
+	if (client == nullptr) {
+		std::cout << "Client not found\n";
+		return;
+	}
+
 	for (int i = 0; i < Size; ++i) {
-		if (Packet->state == 0) {
-			Packet->buffer[Packet->len++] = Data[i];
+		int packetResult = packetProcessByte(&client->packet, Data[i]);
 
-			if (Packet->len == 4) {
-				Packet->payloadLen = *(int*)Packet->buffer;
-				Packet->state = 1;
-			}
-		} else if (Packet->state == 1) {
-			Packet->buffer[Packet->len++] = Data[i];
-
-			if (Packet->len - 4 == Packet->payloadLen) {
-				handlePacket(Packet);
-				packetInit(Packet);
-			}
+		if (packetResult == 1) {
+			handlePacket(Net, client);
 		}
 	}
-
-	return 0;
 }
 
-int runIMX219() {
-	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
-	// compressedBufferSize = LZ4_compressBound(decompressedSize);
-	// std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
-	// compressedBuffer = new uint8_t[compressedBufferSize];
+void writeAllClients(ldiNet* Net, uint8_t* Data, int Size) {
+	std::cout << "Client size: " << clients.size() << "\n";
 
-	LibCamera cam;
-
-	// formats::RGB888
-	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB8, 4, 0);
-
-	if (ret) {
-		std::cout << "Cam init failure\n";
-		cam.closeCamera();
-		return 1;
+	for (size_t i = 0; i < clients.size(); ++i) {
+		if (networkClientWrite(Net, clients[i].id, Data, Size) != 0) {
+			std::cout << "Write failed\n";
+			return;
+		}
 	}
+}
 
-	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
-	ControlList controls_;
-	int64_t frame_time = 1000000 / 10;
-	controls_.set(controls::FrameDurationLimits, { frame_time, frame_time });
-	controls_.set(controls::ExposureTime, _shutterSpeed);
-	// NOTE: Analog gain at 0 is some kind of automatic?
-	controls_.set(controls::AnalogueGain, _analogGain);
-	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
-	controls_.set(controls::Sharpness, 0);
-	controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
-	controls_.set(controls::ColourGains, { 0.0f, 0.0f });
-	cam.set(controls_);
+void sendAverageGatherDoneToClients() {
+	ldiProtocolHeader packet;
+	packet.packetSize = sizeof(ldiProtocolHeader) - 4;
+	packet.opcode = 4;
 
-	LibcameraOutData frameData;
-	cam.startCamera();
+	for (size_t i = 0; i < clients.size(); ++i) {
+		if (networkClientWrite(net, clients[i].id, (uint8_t*)&packet, sizeof(packet)) != 0) {
+			std::cout << "Write failed\n";
+			continue;
+		}
+	}
+}
 
-	ldiNet* net = networkCreate();
-		
-	int64_t timeAtLastFrame = 0;
-	
-	while (true) {
-		packetInit(&_packet);
+void sendPixelBufferToClients(int Width, int Height) {
+	ldiProtocolImageHeader header;
+	header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + (Width * Height);
+	header.header.opcode = 1;
+	header.width = Width;
+	header.height = Height;
 
-		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
-			std::cout << "Network failed to connect\n";
-			// sleep(1);
+	int64_t t0 = platformGetMicrosecond();
+	for (size_t i = 0; i < clients.size(); ++i) {
+		if (networkClientWrite(net, clients[i].id, (uint8_t*)&header, sizeof(header)) != 0) {
+			std::cout << "Write failed\n";
 			continue;
 		}
 
-		// NOTE: Just connected, send initial data.
-		ldiProtocolSettings settings;
-		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-		settings.header.opcode = 0;
-		settings.shutterSpeed = _shutterSpeed;
-		settings.analogGain = _analogGain;
-
-		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
+		if (networkClientWrite(net, clients[i].id, pixelBuffer, Width * Height) != 0) {
 			std::cout << "Write failed\n";
-			break;
-		}
-
-		while (true) {
-			uint8_t buff[256];
-
-			int readBytes = networkRead(net, buff, 256);
-
-			if (readBytes == -1) {
-				std::cout << "Read failed\n";
-				break;
-			} else if (readBytes > 0) {
-				// Process packet bytes.
-				std::cout << "Read: " << readBytes << "\n";
-
-				packetProcessData(&_packet, buff, readBytes);
-			}
-
-			// NOTE: Get next frame.
-			bool flag = cam.readFrame(&frameData);
-			if (!flag) {
-				usleep(1000);
-				continue;
-			}
-
-			if (_settingsUpdate) {
-				std::cout << "Update settings\n";
-				_settingsUpdate = false;
-				controls_.set(controls::ExposureTime, _shutterSpeed);
-				controls_.set(controls::AnalogueGain, _analogGain);
-				cam.set(controls_);
-			}
-
-			int64_t timeAtFrame = platformGetMicrosecond();
-			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
-			float fps = 1000.0 / frameDeltaTime;
-			timeAtLastFrame = timeAtFrame;
-
-			int64_t t0 = platformGetMicrosecond();
-			processImageSRGGB8(frameData.imageData, frameData.size);
-			t0 = platformGetMicrosecond() - t0;
-
-			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms\n";
-
-			cam.returnFrameBuffer(frameData);
-
-			ldiProtocolImageHeader header;
-			header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-			header.header.opcode = 1;
-			header.width = IMG_WIDTH;
-			header.height = IMG_HEIGHT;
-
-			if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-				std::cout << "Write failed\n";
-				break;
-			}
-
-			if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-				std::cout << "Write failed\n";
-				break;
-			}
-
-			// sleep(1);
-		}
-	}
-
-	cam.stopCamera();
-	cam.closeCamera();
-
-	return 0;
-}
-
-int runIMX477() {
-	// int decompressedSize = IMG_WIDTH * IMG_HEIGHT * 2;
-	// compressedBufferSize = LZ4_compressBound(decompressedSize);
-	// std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
-	// compressedBuffer = new uint8_t[compressedBufferSize];
-
-	LibCamera cam;
-
-	// formats::RGB888
-	// int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB8, 4, 0);
-	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::RGB888, 4, 0);
-
-	if (ret) {
-		std::cout << "Cam init failure\n";
-		cam.closeCamera();
-		return 1;
-	}
-
-	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
-	ControlList controls_;
-	int64_t frame_time = 1000000 / 2;
-	controls_.set(controls::FrameDurationLimits, { frame_time, frame_time });
-	controls_.set(controls::ExposureTime, _shutterSpeed);
-	// NOTE: Analog gain at 0 is some kind of automatic?
-	controls_.set(controls::AnalogueGain, _analogGain);
-	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
-	controls_.set(controls::Sharpness, 0);
-	controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
-	controls_.set(controls::ColourGains, { 0.0f, 0.0f });
-	cam.set(controls_);
-
-	LibcameraOutData frameData;
-	cam.startCamera();
-
-	ldiNet* net = networkCreate();
-		
-	int64_t timeAtLastFrame = 0;
-	
-	while (true) {
-		packetInit(&_packet);
-
-		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
-			std::cout << "Network failed to connect\n";
-			// sleep(1);
 			continue;
 		}
-
-		// NOTE: Just connected, send initial data.
-		ldiProtocolSettings settings;
-		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-		settings.header.opcode = 0;
-		settings.shutterSpeed = _shutterSpeed;
-		settings.analogGain = _analogGain;
-
-		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
-			std::cout << "Write failed\n";
-			break;
-		}
-
-		while (true) {
-			uint8_t buff[256];
-			int readBytes = networkRead(net, buff, 256);
-
-			if (readBytes == -1) {
-				std::cout << "Read failed\n";
-				break;
-			} else if (readBytes > 0) {
-				// Process packet bytes.
-				std::cout << "Read: " << readBytes << "\n";
-
-				packetProcessData(&_packet, buff, readBytes);
-			}
-
-			// NOTE: Get next frame.
-			bool flag = cam.readFrame(&frameData);
-			if (!flag) {
-				usleep(1000);
-				continue;
-			}
-
-			if (_settingsUpdate) {
-				std::cout << "Update settings\n";
-				_settingsUpdate = false;
-				controls_.set(controls::ExposureTime, _shutterSpeed);
-				controls_.set(controls::AnalogueGain, _analogGain);
-				cam.set(controls_);
-			}
-
-			int64_t timeAtFrame = platformGetMicrosecond();
-			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
-			float fps = 1000.0 / frameDeltaTime;
-			timeAtLastFrame = timeAtFrame;
-
-			int64_t t0 = platformGetMicrosecond();
-			// processImage12to8(frameData.imageData, frameData.size);
-			processImageRGB888to8(frameData.imageData, frameData.size);
-			t0 = platformGetMicrosecond() - t0;
-
-			// std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms\n";
-			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms" << " size: " << frameData.size << "\n";
-
-			cam.returnFrameBuffer(frameData);
-
-			ldiProtocolImageHeader header;
-			header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-			header.header.opcode = 1;
-			header.width = IMG_WIDTH;
-			header.height = IMG_HEIGHT;
-
-			if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-				std::cout << "Write failed\n";
-				break;
-			}
-
-			if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-				std::cout << "Write failed\n";
-				break;
-			}
-
-			// sleep(1);
-		}
 	}
-
-	cam.stopCamera();
-	cam.closeCamera();
-
-	return 0;
+	t0 = platformGetMicrosecond() - t0;
+	// std::cout << "Wrote to " << clients.size() << " clients in " << (t0 / 1000.0) << " ms\n";
 }
 
-int runOV2311() {
-	std::cout << "runOV2311\n";
-	
-	int decompressedSize = IMG_WIDTH * IMG_HEIGHT;
-	compressedBufferSize = LZ4_compressBound(decompressedSize);
-	std::cout << "Decompressed size: " << decompressedSize << " Compressed size: " << compressedBufferSize << "\n";
-	compressedBuffer = new uint8_t[compressedBufferSize];
-
-	LibCamera cam;
-
-	// formats::RGB888
-	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB8, 4, 0);
-	// int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::SRGGB10, 4, 0);
-
-	if (ret) {
-		std::cout << "Cam init failure\n";
-		cam.closeCamera();
-		return 1;
-	}
-
-	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
-	ControlList controls_;
-	int64_t frame_time = 1000000 / 60;
-	controls_.set(controls::FrameDurationLimits, { frame_time, frame_time });
-	controls_.set(controls::ExposureTime, _shutterSpeed);
-	// NOTE: Analog gain at 0 is some kind of automatic?
-	controls_.set(controls::AnalogueGain, _analogGain);
-	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
-	controls_.set(controls::Sharpness, 0);
-	// controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
-	// controls_.set(controls::ColourGains, { 0.0f, 0.0f });
-	cam.set(controls_);
-
-	LibcameraOutData frameData;
-	cam.startCamera();
-		
-	ldiNet* net = networkCreate();
-
-	int64_t timeAtLastFrame = 0;
-	
-	while (true) {
-		packetInit(&_packet);
-
-		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
-			std::cout << "Network failed to connect\n";
-			// sleep(1);
-			continue;
-		}
-
-		// NOTE: Just connected, send initial data.
-		ldiProtocolSettings settings;
-		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-		settings.header.opcode = 0;
-		settings.shutterSpeed = _shutterSpeed;
-		settings.analogGain = _analogGain;
-
-		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
-			std::cout << "Write failed\n";
-			break;
-		}
-
-		while (true) {
-			uint8_t buff[256];
-
-			int readBytes = networkRead(net, buff, 256);
-
-			if (readBytes == -1) {
-				std::cout << "Read failed\n";
-				break;
-			} else if (readBytes > 0) {
-				// Process packet bytes.
-				std::cout << "Read: " << readBytes << "\n";
-
-				packetProcessData(&_packet, buff, readBytes);
-			}
-
-			if (_settingsUpdate) {
-				std::cout << "Update settings\n";
-				_settingsUpdate = false;
-				controls_.set(controls::ExposureTime, _shutterSpeed);
-				controls_.set(controls::AnalogueGain, _analogGain);
-				cam.set(controls_);
-			}
-
-			// NOTE: Get next frame.
-			bool flag = cam.readFrame(&frameData);
-			if (!flag) {
-				// usleep(100);
-				continue;
-			}
-
-			int64_t timeAtFrame = platformGetMicrosecond();
-			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
-			float fps = 1000.0 / frameDeltaTime;
-			timeAtLastFrame = timeAtFrame;
-
-			static int frameNum = 0;
-
-			if (_modeUpdate) {
-				frameNum = 0;
-				_modeUpdate = false;
-			}
-
-			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << "\n";
-
-			if (_mode == 1) {
-				// Continuous mode.
-				int64_t t0 = platformGetMicrosecond();
-				// processImage(frameData.imageData, frameData.size);
-				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 3);
-				// processImageSRGGB8(frameData.imageData, frameData.size);
-				t0 = platformGetMicrosecond() - t0;
-
-				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
-
-				frameNum++;
-
-				// Only send out every Nth frame.
-				if (frameNum >= 3) {
-					std::cout << "Send\n";
-					frameNum = 0;
-
-					ldiProtocolImageHeader header;
-					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-					header.header.opcode = 1;
-					header.width = IMG_WIDTH;
-					header.height = IMG_HEIGHT;
-
-					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-				}
-			} else if (_mode == 2) {
-				// One shot gather mode.
-				int64_t t0 = platformGetMicrosecond();
-				// processImage(frameData.imageData, frameData.size);
-				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
-				// processImageSRGGB8(frameData.imageData, frameData.size);
-				t0 = platformGetMicrosecond() - t0;
-
-				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
-
-				frameNum++;
-
-				// Only send out every Nth frame.
-				if (frameNum >= 10) {
-					std::cout << "Send\n";
-					frameNum = 0;
-
-					ldiProtocolImageHeader header;
-					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-					header.header.opcode = 1;
-					header.width = IMG_WIDTH;
-					header.height = IMG_HEIGHT;
-
-					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					_mode = 0;
-				}
-			}
-
-			cam.returnFrameBuffer(frameData);
-		}
-	}
-
-	cam.stopCamera();
-	cam.closeCamera();
-
-	return 0;
-}
-
-int runOV9281() {
-	std::cout << "runOV9281\n";
-
-	LibCamera cam;
-
-	int ret = cam.initCamera(IMG_WIDTH, IMG_HEIGHT, formats::YUV420, 4, 0);
-
-	if (ret) {
-		std::cout << "Cam init failure\n";
-		cam.closeCamera();
-		return 1;
-	}
-
-	// NOTE: https://github.com/raspberrypi/libcamera-apps/blob/main/core/libcamera_app.cpp
-	ControlList controls_;
-	int64_t frame_time = 1000000 / 30;
-	int64_t minFrameTime = 1000000 / 30;
-	controls_.set(controls::FrameDurationLimits, { minFrameTime, frame_time });
-	controls_.set(controls::ExposureTime, _shutterSpeed);
-	controls_.set(controls::AnalogueGain, _analogGain);
-	controls_.set(controls::draft::NoiseReductionMode, controls::draft::NoiseReductionModeOff);
-	controls_.set(controls::DigitalGain, 1);
-	// controls_.set(controls::Sharpness, 0);
-
-	controls_.set(controls::AwbMode, libcamera::controls::AwbCustom);
-	controls_.set(controls::ColourGains, { 0.0f, 0.0f });
-	cam.set(controls_);
-
-	LibcameraOutData frameData;
-	cam.startCamera();
-		
-	ldiNet* net = networkCreate();
-
-	int64_t timeAtLastFrame = 0;
-	
-	while (true) {
-		packetInit(&_packet);
-
-		if (networkConnect(net, "192.168.3.49", 20000) != 0) {
-			std::cout << "Network failed to connect\n";
-			// sleep(1);
-			continue;
-		}
-
-		// NOTE: Just connected, send initial data.
-		ldiProtocolSettings settings;
-		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-		settings.header.opcode = 0;
-		settings.shutterSpeed = _shutterSpeed;
-		settings.analogGain = _analogGain;
-
-		if (networkWrite(net, (uint8_t*)&settings, sizeof(settings)) != 0) {
-			std::cout << "Write failed\n";
-			break;
-		}
-
-		while (true) {
-			uint8_t buff[256];
-
-			int readBytes = networkRead(net, buff, 256);
-
-			if (readBytes == -1) {
-				std::cout << "Read failed\n";
-				break;
-			} else if (readBytes > 0) {
-				// Process packet bytes.
-				std::cout << "Read: " << readBytes << "\n";
-
-				packetProcessData(&_packet, buff, readBytes);
-			}
-
-			if (_settingsUpdate) {
-				std::cout << "Update settings\n";
-				_settingsUpdate = false;
-				controls_.set(controls::ExposureTime, _shutterSpeed);
-				controls_.set(controls::AnalogueGain, _analogGain);
-				cam.set(controls_);
-			}
-
-			// NOTE: Get next frame.
-			bool flag = cam.readFrame(&frameData);
-			if (!flag) {
-				usleep(100);
-				continue;
-			}
-
-			int64_t timeAtFrame = platformGetMicrosecond();
-			float frameDeltaTime = (timeAtFrame - timeAtLastFrame) / 1000.0;
-			float fps = 1000.0 / frameDeltaTime;
-			timeAtLastFrame = timeAtFrame;
-
-			static int frameNum = 0;
-
-			if (_modeUpdate) {
-				frameNum = 0;
-				_modeUpdate = false;
-			}
-
-			std::cout << "[" << frameNum << "] DT: " << frameDeltaTime << " ms FPS: " << fps << " " << frameData.size << "\n";
-
-			if (_mode == 1) {
-				// Continuous mode.
-				int64_t t0 = platformGetMicrosecond();
-				// processImage(frameData.imageData, frameData.size);
-				// processImageSRGGB8(frameData.imageData, frameData.size);
-				memcpy(pixelBuffer, frameData.imageData, frameData.size);
-				// processImageSRGGB8(frameData.imageData, frameData.size);
-				t0 = platformGetMicrosecond() - t0;
-
-				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
-
-				frameNum++;
-
-				// Only send out every Nth frame.
-				if (frameNum >= 0) {
-					std::cout << "Send\n";
-					frameNum = 0;
-
-					ldiProtocolImageHeader header;
-					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-					header.header.opcode = 1;
-					header.width = IMG_WIDTH;
-					header.height = IMG_HEIGHT;
-
-					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-				}
-			} else if (_mode == 2) {
-				// One shot gather mode.
-				int64_t t0 = platformGetMicrosecond();
-				// processImage(frameData.imageData, frameData.size);
-				processImageSRGGB8Avg(frameData.imageData, frameData.size, frameNum, 10);
-				// processImageSRGGB8(frameData.imageData, frameData.size);
-				t0 = platformGetMicrosecond() - t0;
-
-				std::cout << "Proctime: " << (t0 / 1000.0) << " ms\n";
-
-				frameNum++;
-
-				// Only send out every Nth frame.
-				if (frameNum >= 10) {
-					std::cout << "Send\n";
-					frameNum = 0;
-
-					ldiProtocolImageHeader header;
-					header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + sizeof(pixelBuffer);
-					header.header.opcode = 1;
-					header.width = IMG_WIDTH;
-					header.height = IMG_HEIGHT;
-
-					if (networkWrite(net, (uint8_t*)&header, sizeof(header)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					if (networkWrite(net, pixelBuffer, sizeof(pixelBuffer)) != 0) {
-						std::cout << "Write failed\n";
-						break;
-					}
-
-					_mode = 0;
-				}
-			}
-
-			cam.returnFrameBuffer(frameData);
-		}
-	}
-
-	cam.stopCamera();
-	cam.closeCamera();
-
-	return 0;
-}
-
-// OV9281 external trigger mode: https://forums.raspberrypi.com/viewtopic.php?t=293959
-//
-// Enable:
-// i2cset -y -f 10 0x60 0x4F 0x00 0x01 i
-// i2cset -y -f 10 0x60 0x01 0x00 0x00 i
-
-// Disable:
-// i2cset -y -f 10 0x60 0x4F 0x00 0x00 i
-// i2cset -y -f 10 0x60 0x01 0x00 0x01 i
-
-// GPIO 4 (PIN 16) (BCM 23)
-#define TRIGGER_GPIO_PIN 23
-
+//-------------------------------------------------------------------------
+// Main application.
+//-------------------------------------------------------------------------
 int main() {
-	// Modes:
-	// - Continuous.
-	// - Capture on demand.
+	ledsStartProcess();
 
-	// int gv = gpioInitialise();
+	net = networkInit();
+	
+	if (networkListen(net, 6969) != 0) {
+		std::cout << "Network listen failed\n";
+		return 1;
+	}
 
-	// if (gv == PI_INIT_FAILED) {
-	// 	std::cout << "PIGPIO failed to init.\n";
+	camContext = cameraCreateContext();
+	cameraInit(camContext);
+
+	int frameSize = 0;
+	
+	if (cameraStart(camContext, frameWidth, frameHeight, 15, _shutterSpeed, _analogGain, &frameSize, &frameStride) != 0) {
+		std::cout << "Failed to start camera\n";
+		return 1;
+	}
+
+	// if (!restartCamera(frameWidth, frameHeight, 15)) {
 	// 	return 1;
 	// }
+
+	setCameraMode(_mode);
 	
-	// gpioSetMode(TRIGGER_GPIO_PIN, PI_OUTPUT);
-	// gpioWrite(TRIGGER_GPIO_PIN, PI_HIGH);
+	int64_t timeAtLastFrame = 0;
+	int frameId = 0;
 
-	// std::cout << "GPIO version: " << gv << "\n";
+	int64_t lastSync = 0;
 
-	// while (true) {
-	// 	gpioWrite(TRIGGER_GPIO_PIN, PI_HIGH);
-	// 	sleep(2);
-	// 	gpioWrite(TRIGGER_GPIO_PIN, PI_LOW);
-	// 	sleep(2);
-	// }
+	std::cout << "Starting main loop...\n";
+	while (true) {
+		// Update server tasks.
+		bool waitForNone = true;
+		while (waitForNone) {
+			ldiNetworkLoopResult serverResult = networkServerLoop(net);
 
-	// return 0;
+			switch (serverResult.type) {
+				case ldiNetworkTypeNone:
+					waitForNone = false;
+					break;
 
-	// return runOV9281();
-	// return runOV2311();
-	// return runIMX477();
-	return runIMX219();
+				case ldiNetworkTypeFailure:
+					std::cout << "Network server failed\n";
+					return 1;
+
+				case ldiNetworkTypeClientNew:
+					std::cout << "Got new client" << serverResult.id << "\n";
+					addClient(serverResult.id);
+					break;
+
+				case ldiNetworkTypeClientRead:
+					std::cout << "Got client data" << serverResult.id << "\n";
+					readClient(net, serverResult.id, serverResult.data, serverResult.size);
+					networkClearClientRead(net, serverResult.id);
+					break;
+
+				case ldiNetworkTypeClientLost:
+					std::cout << "Lost client" << serverResult.id << "\n";
+					removeClient(serverResult.id);
+					break;
+			}
+		}
+		
+		// NOTE: Get next frame.
+		if (!cameraReadFrame(camContext)) {
+			usleep(1000);
+			continue;
+		}
+
+		int64_t timeFrameRead = platformGetMicrosecond();
+		LibcameraOutData* frameData = cameraGetFrameData(camContext);
+
+		float frameDeltaTime = (timeFrameRead - timeAtLastFrame) / 1000.0;
+		float fps = 1000.0 / frameDeltaTime;
+		timeAtLastFrame = timeFrameRead;
+
+		int64_t frameTimestampNs = frameData->timestamp;
+		int64_t frameTimestampMs = frameTimestampNs / 1000000;
+
+		int64_t timestampVsLastSync = frameTimestampMs - (lastSync / 1000);
+		int64_t timestampVsRecv = (timeFrameRead / 1000) - frameTimestampMs;
+		lastSync = timeFrameRead;
+
+		// NOTE: Takes ~93ms from first pixel read (frame timestamp) to callback read.
+		// Assuming first pixel read must happen after required exposure. How long before first pixel read does exposure occur?
+		// Camera takes ~50ms to read out entire sensor. (Very close to 66ms max FPS). 
+
+		// NOTE: ~300us to respond.
+		// fprintf(ledProc, "5\r\n");
+		// fflush(ledProc);
+		// std::cout << "Sent sync at " << timeFrameRead << "\n";
+
+		if (_mode == LDI_CAMERACAPTUREMODE_WAIT) {
+			// ...
+		} else if (_mode == LDI_CAMERACAPTUREMODE_AVERAGE) {
+			// NOTE: Discard frames before start time.
+			if (frameTimestampMs < averageModeStartTimeMs) {
+				std::cout << "Skipped early frame\n";
+			} else {
+				int64_t t0 = platformGetMicrosecond();
+				cameraCopyFrame(camContext, tempBuffer);
+
+				for (int iY = 0; iY < frameHeight; ++iY) {
+					memcpy(&avgBuffer[averageModeCapturedFrames][iY * frameWidth], &tempBuffer[iY * frameStride], frameWidth);
+				}
+
+				t0 = platformGetMicrosecond() - t0;
+
+				++averageModeCapturedFrames;
+
+				std::cout << "Average: " << averageModeCapturedFrames << "/" << averageModeCaptureTarget << " Proctime: " << (t0 / 1000.0) << " ms\n";
+
+				if (averageModeCapturedFrames == averageModeCaptureTarget) {
+					sendAverageGatherDoneToClients();
+					stopLeds();
+
+					int64_t averageTime = (platformGetMicrosecond() / 1000) - averageModeStartTimeMs;
+					std::cout << "Gather time: " << averageTime << " ms\n";
+
+					t0 = platformGetMicrosecond();
+					for (int i = 0; i < frameWidth * frameHeight; ++i) {
+						int finalValue = avgBuffer[0][i];
+						finalValue += avgBuffer[1][i];
+						finalValue += avgBuffer[2][i];
+						finalValue += avgBuffer[3][i];
+						finalValue += avgBuffer[4][i];
+
+						pixelBuffer[i] = (uint8_t)(finalValue / 5);
+					}
+
+					t0 = platformGetMicrosecond() - t0;
+					std::cout << "Merge time: " << (t0 / 1000) << " ms\n";
+
+					sendPixelBufferToClients(frameWidth, frameHeight);
+					setCameraMode(LDI_CAMERACAPTUREMODE_WAIT);
+				}
+			}
+		} else if (_mode == LDI_CAMERACAPTUREMODE_CONTINUOUS || _mode == LDI_CAMERACAPTUREMODE_SINGLE) {
+			int64_t t0 = platformGetMicrosecond();
+			cameraCopyFrame(camContext, tempBuffer);
+			
+			for (int iY = 0; iY < frameHeight; ++iY) {
+				memcpy(&pixelBuffer[iY * frameWidth], &tempBuffer[iY * frameStride], frameWidth);
+			}
+
+			t0 = platformGetMicrosecond() - t0;
+
+			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms Size: " << frameData->size << " " << timestampVsLastSync << "\n";
+			std::cout << "Timestamp: " << frameTimestampMs << " Recv delay: " << timestampVsRecv << " ms Exposure: " << frameData->exposureTime << " Gain: " << frameData->analogGain << " Lux: " << frameData->lux << "\n";
+
+			if (_mode == LDI_CAMERACAPTUREMODE_SINGLE) {
+				sendPixelBufferToClients(frameWidth, frameHeight);
+				setCameraMode(LDI_CAMERACAPTUREMODE_WAIT);
+			} else {
+				sendPixelBufferToClients(frameWidth, frameHeight);
+			}
+		}
+			
+		cameraReturnFrameBuffer(camContext);
+	}
+
+	cameraStop(camContext);
+
+	return 0;
 }

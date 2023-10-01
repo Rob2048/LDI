@@ -185,6 +185,41 @@ void networkWorkerThread(ldiServer* Server) {
 	std::cout << "Network thread completed\n";
 }
 
+bool networkConnect(std::string Hostname, int Port, SOCKET* Socket) {
+	std::cout << "Connecting TCP/IP to " << Hostname << ":" << Port << "\n";
+
+	SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (client == INVALID_SOCKET) {
+		std::cout << "Create client socket failed: " << WSAGetLastError() << "\n";
+		return false;
+	}
+
+	sockaddr_in addr = {};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(Port);
+
+	inet_pton(AF_INET, Hostname.c_str(), &addr.sin_addr);
+
+	int connectResult = connect(client, (SOCKADDR*)&addr, sizeof(addr));
+	std::cout << "Connect result: " << connectResult << "\n";
+
+	if (connectResult == 0) {
+		u_long nonBlocking = 1;
+		if (ioctlsocket(client, FIONBIO, &nonBlocking) != 0) {
+			std::cout << "Could not set blocking\n";
+			closesocket(client);
+			return false;
+		}
+
+		std::cout << "Connected successfully\n";
+		*Socket = client;
+
+		return true;
+	}
+
+	return false;
+}
+
 int networkInit(ldiServer* Server, const char* Port) {
 	WSADATA wsaData;
 	int iResult;
@@ -314,4 +349,61 @@ bool networkWaitForPacket(ldiServer* Server, ldiPacketView* PacketView) {
 	}
 
 	return false;
+}
+
+void packetBuilderReset(ldiPacketBuilder* Builder) {
+	Builder->len = 0;
+	Builder->state = 0;
+	Builder->payloadLen = 0;
+}
+
+void packetBuilderInit(ldiPacketBuilder* Builder, int Size) {
+	Builder->data = new uint8_t[Size];
+	Builder->size = Size;
+	packetBuilderReset(Builder);
+}
+
+void packetBuilderDestroy(ldiPacketBuilder* Builder) {
+	delete[] Builder->data;
+	Builder->data = nullptr;
+	Builder->size = 0;
+	packetBuilderReset(Builder);
+}
+
+int packetBuilderProcessData(ldiPacketBuilder* Builder, uint8_t* Data, int Size) {
+	int bytesProcessed = 0;
+
+	for (int i = 0; i < Size; ++i) {
+		++bytesProcessed;
+
+		if (Builder->state == 0) {
+			if (Builder->len == Builder->size) {
+				std::cout << "Packet builder buffer overflow.\n";
+				--bytesProcessed;
+				break;
+			}
+
+			Builder->data[Builder->len++] = Data[i];
+
+			if (Builder->len == 4) {
+				Builder->payloadLen = *(int*)Builder->data;
+				Builder->state = 1;
+			}
+		} else if (Builder->state == 1) {
+			if (Builder->len == Builder->size) {
+				std::cout << "Packet builder buffer overflow.\n";
+				--bytesProcessed;
+				break;
+			}
+
+			Builder->data[Builder->len++] = Data[i];
+
+			if (Builder->len - 4 == Builder->payloadLen) {
+				Builder->state = 2;
+				break;
+			}
+		}
+	}
+
+	return bytesProcessed;
 }
