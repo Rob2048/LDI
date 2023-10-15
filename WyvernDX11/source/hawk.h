@@ -4,36 +4,57 @@
 #define CAMERA_FRAME_BUFFER_SIZE (1024 * 1024 * 12)
 
 enum ldiCameraCaptureMode {
-	LDI_CAMERACAPTUREMODE_WAIT = 0,
-	LDI_CAMERACAPTUREMODE_CONTINUOUS = 1,
-	LDI_CAMERACAPTUREMODE_AVERAGE = 2,
-	LDI_CAMERACAPTUREMODE_SINGLE = 3,
+	CCM_WAIT = 0,
+	CCM_CONTINUOUS = 1,
+	CCM_AVERAGE = 2,
+	CCM_SINGLE = 3,
+};
+
+enum ldiHawkOpcode {
+	HO_NONE = -1,
+	HO_SETTINGS = 0,
+	HO_FRAME = 1,
+	HO_AVERAGE_GATHERED = 2,
+	
+	HO_SETTINGS_REQUEST = 10,
+	HO_SET_VALUES = 11,
+	HO_SET_CAPTURE_MODE = 12,
 };
 
 struct ldiHawk {
 	// Only main thread.
-	int							imgWidth;
-	int							imgHeight;
-		
-	uint8_t*					frameBuffer;
-	int							latestFrameId;
-
+	
 	// NOTE: Capture mode DOES NOT reflect the actual state of the camera at all times.
-	ldiCameraCaptureMode		captureMode;
-	int							shutterSpeed;
-	int							analogGain;
+	// NOTE: Precommited values for UI.
+	ldiCameraCaptureMode		uiCaptureMode;
+	int							uiShutterSpeed;
+	int							uiAnalogGain;
+
+	cv::Mat						defaultCameraMat;
+	cv::Mat						defaultDistMat;
 
 	// Shared by threads.
 	std::thread					workerThread;
 	std::atomic_bool			workerThreadRunning = true;
 	std::atomic_bool			connected = false;
 	std::mutex					socketWriteMutex;
+	std::mutex					packetRecvdMutex;
+	std::condition_variable		packetRecvdCondVar;
+	ldiHawkOpcode				packetRecvdOpcode = HO_NONE;
 	
-	ldiThreadSafeQueue			packetQueue;
+	//ldiThreadSafeQueue			packetQueue;
 
 	std::string					hostname;
 	int							port;
 	SOCKET						socket;
+
+	std::mutex					valuesMutex;
+	int							imgWidth;
+	int							imgHeight;
+	uint8_t*					frameBuffer;
+	int							latestFrameId;
+	int							shutterSpeed;
+	int							analogGain;
 
 	// Only worker thread.
 	uint8_t*					rxBuffer;
@@ -59,6 +80,52 @@ void hawkSocketWrite(ldiHawk* Cam, uint8_t* Data, int Size) {
 	//std::cout << "Send result: " << result << "\n";
 }
 
+void hawkProcessPacket(ldiHawk* Cam, ldiPacketBuilder* Packet) {
+	uint8_t* rawPacket = Packet->data;
+
+	if (rawPacket != nullptr) {
+		ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)rawPacket;
+
+		if (packetHeader->opcode == HO_SETTINGS) {
+			ldiProtocolSettings* packet = (ldiProtocolSettings*)rawPacket;
+			std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
+
+			{
+				std::unique_lock<std::mutex> lock(Cam->valuesMutex);
+				Cam->shutterSpeed = packet->shutterSpeed;
+				Cam->analogGain = packet->analogGain;
+			}
+		} else if (packetHeader->opcode == HO_FRAME) {
+			ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)rawPacket;
+			//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
+
+			if (imageHeader->width * imageHeader->height > CAMERA_FRAME_BUFFER_SIZE) {
+				std::cout << "Received image bigger than frame buffer: " << (imageHeader->width * imageHeader->height) << " bytes, max: " << CAMERA_FRAME_BUFFER_SIZE << " bytes\n";
+			} else {
+				std::unique_lock<std::mutex> lock(Cam->valuesMutex);
+				Cam->imgWidth = imageHeader->width;
+				Cam->imgHeight = imageHeader->height;
+
+				uint8_t* frameData = rawPacket + sizeof(ldiProtocolImageHeader);
+				memcpy(Cam->frameBuffer, frameData, imageHeader->width * imageHeader->height);
+
+				++Cam->latestFrameId;
+			}
+		} else if (packetHeader->opcode == HO_AVERAGE_GATHERED) {
+			std::cout << "Hawk average finished gather\n";
+		} else {
+			std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
+		}
+
+		{
+			std::unique_lock<std::mutex> lock(Cam->packetRecvdMutex);
+			Cam->packetRecvdOpcode = (ldiHawkOpcode)packetHeader->opcode;
+		}
+
+		Cam->packetRecvdCondVar.notify_all();
+	}
+}
+
 void hawkWorkerThread(ldiHawk* Cam) {
 	std::cout << "Running machine vision cam thread\n";
 
@@ -77,7 +144,7 @@ void hawkWorkerThread(ldiHawk* Cam) {
 			{
 				ldiProtocolHeader packet;
 				packet.packetSize = sizeof(ldiProtocolHeader) - 4;
-				packet.opcode = 2;
+				packet.opcode = HO_SETTINGS_REQUEST;
 
 				hawkSocketWrite(Cam, (uint8_t*)&packet, sizeof(ldiProtocolHeader)); 
 			}
@@ -122,10 +189,8 @@ void hawkWorkerThread(ldiHawk* Cam) {
 
 								if (Cam->packetBuilder.state == 2) {
 									//std::cout << "Net layer got full packet\n";
-									uint8_t* newPacket = new uint8_t[Cam->packetBuilder.len];
-									memcpy(newPacket, Cam->packetBuilder.data, Cam->packetBuilder.len);
+									hawkProcessPacket(Cam, &Cam->packetBuilder);
 									packetBuilderReset(&Cam->packetBuilder);
-									tsqPush(&Cam->packetQueue, newPacket);
 								}
 							}
 						}
@@ -153,73 +218,72 @@ void hawkInit(ldiHawk* Cam, const std::string& Hostname, int Port) {
 
 	Cam->rxBuffer = new uint8_t[DEVICE_RECV_TEMP_SIZE];
 	packetBuilderInit(&Cam->packetBuilder, 1024 * 1024 * 32);
+
+	Cam->latestFrameId = 0;
 	
-	Cam->workerThread = std::thread(hawkWorkerThread, Cam);
-}
-
-bool hawkUpdate(ldiApp* AppContext, ldiHawk* Cam) {
-	uint8_t* rawPacket = (uint8_t*)tsqPop(&Cam->packetQueue);
-	
-	if (rawPacket != nullptr) {
-		ldiProtocolHeader* packetHeader = (ldiProtocolHeader*)rawPacket;
-
-		if (packetHeader->opcode == 0) {
-			ldiProtocolSettings* packet = (ldiProtocolSettings*)rawPacket;
-			std::cout << "Got settings: " << packet->shutterSpeed << " " << packet->analogGain << "\n";
-
-			Cam->shutterSpeed = packet->shutterSpeed;
-			Cam->analogGain = packet->analogGain;
-
-		} else if (packetHeader->opcode == 1) {
-			ldiProtocolImageHeader* imageHeader = (ldiProtocolImageHeader*)rawPacket;
-			//std::cout << "Got image " << imageHeader->width << " " << imageHeader->height << "\n";
-
-			if (imageHeader->width * imageHeader->height > CAMERA_FRAME_BUFFER_SIZE) {
-				std::cout << "Received image bigger than frame buffer: " << (imageHeader->width * imageHeader->height) << " bytes, max: " << CAMERA_FRAME_BUFFER_SIZE << " bytes\n";
-				return false;
-			}
-
-			Cam->imgWidth = imageHeader->width;
-			Cam->imgHeight = imageHeader->height;
-
-			uint8_t* frameData = rawPacket + sizeof(ldiProtocolImageHeader);
-			memcpy(Cam->frameBuffer, frameData, imageHeader->width * imageHeader->height);
-			
-			delete[] rawPacket;
-			return true;
-		} else if (packetHeader->opcode == 4) {
-			std::cout << "Hawk average finished gather\n";
-		} else {
-			std::cout << "Error: Got unknown opcode (" << packetHeader->opcode << ") from packet\n";
-		}
-
-		delete[] rawPacket;
-	}
-
-	return false;
-}
-
-void hawkCommitSettings(ldiHawk* Cam) {
-	ldiProtocolSettings packet;
-	packet.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-	packet.header.opcode = 0;
-	packet.shutterSpeed = Cam->shutterSpeed;
-	packet.analogGain = Cam->analogGain;
-
-	hawkSocketWrite(Cam, (uint8_t*)&packet, sizeof(ldiProtocolSettings));
+	//Cam->workerThread = std::thread(hawkWorkerThread, Cam);
 }
 
 void hawkTriggerAndGetFrame(ldiHawk* Cam) {
 
 }
 
+// Copies values from worker thread to global access.
+void hawkUpdateValues(ldiHawk* Cam) {
+	std::unique_lock<std::mutex> lock(Cam->valuesMutex);
+
+	Cam->uiAnalogGain = Cam->analogGain;
+	Cam->uiShutterSpeed = Cam->shutterSpeed;
+}
+
+void hawkCommitValues(ldiHawk* Cam) {
+	{
+		std::unique_lock<std::mutex> lock(Cam->valuesMutex);
+		Cam->analogGain = Cam->uiAnalogGain;
+		Cam->shutterSpeed = Cam->uiShutterSpeed;
+	}
+
+	ldiProtocolSettings packet;
+	packet.header.packetSize = sizeof(ldiProtocolSettings) - 4;
+	packet.header.opcode = HO_SET_VALUES;
+	packet.shutterSpeed = Cam->uiShutterSpeed;
+	packet.analogGain = Cam->uiAnalogGain;
+
+	hawkSocketWrite(Cam, (uint8_t*)&packet, sizeof(ldiProtocolSettings));
+}
+
 void hawkSetMode(ldiHawk* Cam, ldiCameraCaptureMode Mode) {
-	Cam->captureMode = Mode;
+	Cam->uiCaptureMode = Mode;
 
 	ldiProtocolMode packet;
 	packet.header.packetSize = sizeof(ldiProtocolMode) - 4;
-	packet.header.opcode = 1;
+	packet.header.opcode = HO_SET_CAPTURE_MODE;
 	packet.mode = (int)Mode;
 
 	hawkSocketWrite(Cam, (uint8_t*)&packet, sizeof(ldiProtocolMode));
+}
+
+void hawkClearWaitPacket(ldiHawk* Cam) {
+	std::unique_lock<std::mutex> lock(Cam->packetRecvdMutex);
+	Cam->packetRecvdOpcode == HO_NONE;
+}
+
+bool hawkWaitForPacket(ldiHawk* Cam, ldiHawkOpcode Opcode) {
+	while (true) {
+		{
+			std::unique_lock<std::mutex> lock(Cam->packetRecvdMutex);
+			if (Cam->packetRecvdOpcode == Opcode) {
+				return true;
+			}
+		}
+
+		{
+			//std::cout << "Wait\n";
+			std::unique_lock<std::mutex> lock(Cam->packetRecvdMutex);
+			Cam->packetRecvdCondVar.wait(lock);
+			//std::cout << "Awake " << Cam->packetRecvdOpcode << "\n";
+		}
+	}
+
+	return false;
 }

@@ -5,6 +5,44 @@
 #define PANTHER_PACKET_END 254
 #define PANTHER_RECV_TEMP_SIZE 4096
 
+enum ldiPantherOpcode {
+	PO_PING = 0,
+	PO_DIAG = 1,
+	
+	PO_HOME = 10,
+	PO_MOVE_RELATIVE = 11,
+	PO_MOVE = 12,
+	
+	PO_LASER_BURST = 20,
+	PO_LASER_PULSE = 21,
+	PO_LASER_STOP = 22,
+	PO_MODULATE_LASER = 23,
+
+	PO_GALVO_PREVIEW_SQUARE = 30,
+	PO_GALVO_MOVE = 31,
+	PO_GALVO_BURN = 32,
+
+	PO_CMD_RESPONSE = 100,
+	PO_POSITION = 101,
+	PO_MESSAGE = 102,
+	PO_SETUP = 103,
+};
+
+enum ldiPantherStatus {
+	PS_OK = 0,
+	PS_ERROR = 1,
+	PS_NOT_HOMED = 2,
+	PS_INVALID_PARAM = 3,
+};
+
+enum ldiPantherAxis {
+	PA_X = 0,
+	PA_Y = 1,
+	PA_Z = 2,
+	PA_C = 3,
+	PA_A = 4,
+};
+
 struct ldiPanther {
 	ldiApp* appContext;
 
@@ -30,13 +68,15 @@ struct ldiPanther {
 	std::mutex				operationCompleteMutex;
 	std::condition_variable operationCompleteCondVar;
 
+	// Shared data.
 	std::mutex				dataLockMutex;
-	// TODO: These should be in steps. Should they?
-	float positionX;
-	float positionY;
-	float positionZ;
-	float positionA;
-	float positionB;
+	ldiPantherStatus		lastSuccessState;
+	bool					homed;
+	int						positionX;
+	int						positionY;
+	int						positionZ;
+	int						positionC;
+	int						positionA;
 };
 
 void pantherProcessPacket(ldiPanther* Panther) {
@@ -47,49 +87,51 @@ void pantherProcessPacket(ldiPanther* Panther) {
 	uint8_t opcode = Panther->recvPacketBuffer[0];
 
 	switch (opcode) {
-		case 13: {
+		case PO_MESSAGE: {
 			std::cout << "Panther message: " << (Panther->recvPacketBuffer + 1) << "\n";
 		} break;
 
-		case 10: {
-			float x = *(float*)(Panther->recvPacketBuffer + 1);
-			float y = *(float*)(Panther->recvPacketBuffer + 5);
-			float z = *(float*)(Panther->recvPacketBuffer + 9);
-			unsigned long time = *(unsigned long*)(Panther->recvPacketBuffer + 13);
-
+		case PO_CMD_RESPONSE: {
+			int x = *(int*)(Panther->recvPacketBuffer + 1);
+			int y = *(int*)(Panther->recvPacketBuffer + 5);
+			int z = *(int*)(Panther->recvPacketBuffer + 9);
+			int c = *(int*)(Panther->recvPacketBuffer + 13);
+			int a = *(int*)(Panther->recvPacketBuffer + 17);
+			int status = *(int*)(Panther->recvPacketBuffer + 21);
+			int homed = *(int*)(Panther->recvPacketBuffer + 25);
+			
 			Panther->dataLockMutex.lock();
 			Panther->positionX = x;
 			Panther->positionY = y;
 			Panther->positionZ = z;
+			Panther->positionC = c;
+			Panther->positionA = a;
+			Panther->homed = homed;
+			Panther->lastSuccessState = (ldiPantherStatus)status;
 			Panther->dataLockMutex.unlock();
 
-			std::cout << "Panther command success " << x << ", " << y << ", " << z << " " << time << "\n";
+			std::cout << "Panther command response: " << status << "\n";
 
 			std::unique_lock<std::mutex> lock(Panther->operationCompleteMutex);
 			Panther->operationExecuting = false;
 			Panther->operationCompleteCondVar.notify_all();
 		} break;
 
-		case 69: {
-			float x = *(float*)(Panther->recvPacketBuffer + 1);
-			float y = *(float*)(Panther->recvPacketBuffer + 5);
-			float z = *(float*)(Panther->recvPacketBuffer + 9);
+		case PO_POSITION: {
+			int x = *(int*)(Panther->recvPacketBuffer + 1);
+			int y = *(int*)(Panther->recvPacketBuffer + 5);
+			int z = *(int*)(Panther->recvPacketBuffer + 9);
+			int c = *(int*)(Panther->recvPacketBuffer + 13);
+			int a = *(int*)(Panther->recvPacketBuffer + 17);
 
 			Panther->dataLockMutex.lock();
 			Panther->positionX = x;
 			Panther->positionY = y;
 			Panther->positionZ = z;
+			Panther->positionC = c;
+			Panther->positionA = a;
 			Panther->dataLockMutex.unlock();
 
-		} break;
-
-		case 70: {
-			/*float x = *(float*)(Panther->recvPacketBuffer + 1);
-			float y = *(float*)(Panther->recvPacketBuffer + 5);
-			float z = *(float*)(Panther->recvPacketBuffer + 9);*/
-			unsigned long time = *(unsigned long*)(Panther->recvPacketBuffer + 1);
-
-			std::cout << "Log " << time << "\n";
 		} break;
 
 		default: {
@@ -195,13 +237,15 @@ bool pantherIsExecuting(ldiPanther* Panther) {
 	return Panther->operationExecuting;
 }
 
-void pantherWaitForExecutionComplete(ldiPanther* Panther) {
+bool pantherWaitForExecutionComplete(ldiPanther* Panther) {
 	if (!Panther->operationExecuting) {
-		return;
+		return true;
 	}
 
 	std::unique_lock<std::mutex> lock(Panther->operationCompleteMutex);
 	Panther->operationCompleteCondVar.wait(lock);
+
+	return Panther->lastSuccessState == PS_OK;
 }
 
 void pantherIssueCommand(ldiPanther* Panther, uint8_t* Data, int Size) {
@@ -222,30 +266,30 @@ void pantherSendPingCommand(ldiPanther* Panther) {
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 0;
+	cmd[3] = PO_PING;
 	cmd[4] = PANTHER_PACKET_END;
 
 	pantherIssueCommand(Panther, cmd, 5);
 }
 
-void pantherSendTestCommand(ldiPanther* Panther) {
+void pantherSendDiagCommand(ldiPanther* Panther) {
 	uint8_t cmd[5];
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 1;
+	cmd[3] = PO_DIAG;
 	cmd[4] = PANTHER_PACKET_END;
 
 	pantherIssueCommand(Panther, cmd, 5);
 }
 
-void pantherSendMoveRelativeCommand(ldiPanther* Panther, uint8_t AxisId, int32_t Steps, float MaxVelocity) {
+void pantherSendMoveRelativeCommand(ldiPanther* Panther, ldiPantherAxis AxisId, int32_t Steps, float MaxVelocity) {
 	uint8_t cmd[64];
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 2;
-	cmd[4] = AxisId;
+	cmd[3] = PO_MOVE_RELATIVE;
+	cmd[4] = (uint8_t)AxisId;
 	memcpy(cmd + 5, &Steps, 4);
 	memcpy(cmd + 9, &MaxVelocity, 4);
 	cmd[13] = PANTHER_PACKET_END;
@@ -253,38 +297,32 @@ void pantherSendMoveRelativeCommand(ldiPanther* Panther, uint8_t AxisId, int32_t
 	pantherIssueCommand(Panther, cmd, 14);
 }
 
-void pantherSendMoveRelativeDirectCommand(ldiPanther* Panther, uint8_t AxisId, int32_t Steps, int32_t Delay) {
+void pantherSendMoveCommand(ldiPanther* Panther, ldiPantherAxis AxisId, int32_t Step, float MaxVelocity) {
 	uint8_t cmd[64];
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 10;
-	cmd[3] = 21;
-	cmd[4] = AxisId;
-	memcpy(cmd + 5, &Steps, 4);
-	memcpy(cmd + 9, &Delay, 4);
+	cmd[3] = PO_MOVE;
+	cmd[4] = (uint8_t)AxisId;
+	memcpy(cmd + 5, &Step, 4);
+	memcpy(cmd + 9, &MaxVelocity, 4);
 	cmd[13] = PANTHER_PACKET_END;
 
 	pantherIssueCommand(Panther, cmd, 14);
 }
 
-void pantherSendReadMotorStatusCommand(ldiPanther* Panther) {
-	uint8_t cmd[5];
+void pantherSendHomingCommand(ldiPanther* Panther) {
+	uint8_t cmd[64];
 
 	cmd[0] = PANTHER_PACKET_START;
 	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 20;
+	cmd[3] = PO_HOME;
 	cmd[4] = PANTHER_PACKET_END;
 
 	pantherIssueCommand(Panther, cmd, 5);
 }
 
-void pantherSendHomingTestCommand(ldiPanther* Panther) {
-	uint8_t cmd[64];
-
-	cmd[0] = PANTHER_PACKET_START;
-	*(uint16_t*)(cmd + 1) = 1;
-	cmd[3] = 23;
-	cmd[4] = PANTHER_PACKET_END;
-
-	pantherIssueCommand(Panther, cmd, 5);
+bool pantherMoveAndWait(ldiPanther* Panther, ldiPantherAxis AxisId, int32_t Step, float MaxVelocity) {
+	pantherSendMoveCommand(Panther, AxisId, Step, MaxVelocity);
+	return pantherWaitForExecutionComplete(Panther);
 }

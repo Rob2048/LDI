@@ -201,7 +201,7 @@ bool networkConnect(std::string Hostname, int Port, SOCKET* Socket) {
 	inet_pton(AF_INET, Hostname.c_str(), &addr.sin_addr);
 
 	int connectResult = connect(client, (SOCKADDR*)&addr, sizeof(addr));
-	std::cout << "Connect result: " << connectResult << "\n";
+	//std::cout << "Connect result: " << connectResult << "\n";
 
 	if (connectResult == 0) {
 		u_long nonBlocking = 1;

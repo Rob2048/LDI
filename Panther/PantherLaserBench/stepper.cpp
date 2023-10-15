@@ -15,12 +15,14 @@ ldiStepper::ldiStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int3
 	}
 }
 
-bool ldiStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, bool Invert) {
+bool ldiStepper::init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, float MaxVelocity, bool Invert, bool Continuous) {
 	bool success = true;
 	mmPerStep = MmPerStep;
 	stepsPerMm = 1.0 / MmPerStep;
 	globalAcceleration = Acceleration;
+	globalMaxVelocity = MaxVelocity;
 	invert = Invert;
+	continuous = Continuous;
 
 	if (type == 0) {
 		_tmc->begin();
@@ -134,11 +136,11 @@ bool ldiStepper::updateStepper() {
 	
 		uint32_t delayTimeUs = (uint32_t)(t * 1000000.0);
 		stepperTimeUs += delayTimeUs;		
-	} else if (u >= maxVelocity) {
+	} else if (u >= moveMaxVelocity) {
 		// NOTE: Cruising phase.
-		u = maxVelocity;
+		u = moveMaxVelocity;
 		
-		uint32_t cruiseStepDelay = (uint32_t)((mmPerStep / maxVelocity) * 1000000.0);
+		uint32_t cruiseStepDelay = (uint32_t)((mmPerStep / moveMaxVelocity) * 1000000.0);
 		stepperTimeUs = stepperTimeUs + cruiseStepDelay;		
 	} else {
 		// NOTE: Acceleration phase.
@@ -156,6 +158,23 @@ bool ldiStepper::updateStepper() {
 void ldiStepper::moveRelative(int32_t StepTarget, float MaxVelocity) {
 	StepTarget = currentStep + StepTarget;
 	moveTo(StepTarget, MaxVelocity);
+}
+
+bool ldiStepper::validateMove(int32_t StepTarget) {
+	if (continuous) {
+		return true;
+	}
+
+	if (StepTarget < minStep || StepTarget > maxStep) {
+		return false;
+	}
+
+	return true;
+}
+
+bool ldiStepper::validateMoveRelative(int32_t StepTarget) {
+	StepTarget = currentStep + StepTarget;
+	return validateMove(StepTarget);
 }
 
 void ldiStepper::setDirection(bool Dir) {
@@ -186,63 +205,12 @@ void ldiStepper::setDirection(bool Dir) {
 	}
 }
 
-// void ldiStepper::moveTo(int32_t StepTarget, float StartVelocity, float EndVelocity, float MaxVelocity) {
-// 	uint32_t t0 = micros();
-// 	// char buff[256];
-// 	// sprintf(buff, "Motion block: %ld -> %ld (%.2f, %.2f, %.2f)\r\n", currentStep, StepTarget, StartVelocity, EndVelocity, MaxVelocity);
-// 	// Serial.print(buff);
-	
-// 	int32_t tSteps = StepTarget - currentStep;
-
-// 	if (tSteps == 0) {
-// 		return;
-// 	}
-
-// 	if (tSteps < 0) {
-// 		setDirection(false);
-// 	} else {
-// 		setDirection(true);
-// 	}
-
-// 	moveStartTimeUs = micros();
-// 	stepperTimeUs = moveStartTimeUs;
-// 	maxVelocity = MaxVelocity;
-// 	s = mmPerStep;
-// 	a = globalAcceleration;
-// 	u = StartVelocity;
-// 	t = 0;
-// 	totalSteps = tSteps;
-
-// 	// Time to accelerate from start to max.
-// 	float accelT = (maxVelocity - StartVelocity) / a;
-// 	float accelS = (a * (accelT * accelT)) / 2;
-// 	float moveSteps = accelS * stepsPerMm;
-// 	accelSteps = (int32_t)moveSteps;
-
-// 	// Time to decellerate from max to end.
-// 	accelT = (maxVelocity - EndVelocity) / a;
-// 	accelS = (a * (accelT * accelT)) / 2;
-// 	moveSteps = accelS * stepsPerMm;
-// 	decelSteps = (int32_t)moveSteps;
-
-// 	stepTarget = StepTarget;
-
-// 	// TODO: This does not account for uneven steps.
-// 	// TOOD: This does not account for vastly differeing accel/decell step counts.
-// 	// TODO: Check if it is possible to reach end velocity from start velocity.
-// 	int32_t absTotalSteps = abs(totalSteps);
-
-// 	if (accelSteps + decelSteps > absTotalSteps) {
-// 		accelSteps = absTotalSteps / 2;
-// 		decelSteps = absTotalSteps / 2;
-// 	}
-
-// 	t0 = micros() - t0;
-// 	//Serial.println(t0);
-// }
-
 void ldiStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	uint32_t t0 = micros();
+
+	if (MaxVelocity > globalMaxVelocity) {
+		MaxVelocity = globalMaxVelocity;
+	}
 
 	float maxTime = mmPerStep * 1000000;
 	maxTime /= MaxVelocity;
@@ -265,7 +233,7 @@ void ldiStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 		setDirection(true);
 	}
 
-	maxVelocity = MaxVelocity;
+	moveMaxVelocity = MaxVelocity;
 	s = mmPerStep;
 	a = globalAcceleration;
 	u = 0;
@@ -273,7 +241,7 @@ void ldiStepper::moveTo(int32_t StepTarget, float MaxVelocity) {
 	totalSteps = tSteps;
 
 	// NOTE: Steps to accell/decell.
-	float accelT = maxVelocity / a;
+	float accelT = moveMaxVelocity / a;
 	float accelS = (a * (accelT * accelT)) / 2;
 	float moveSteps = accelS * stepsPerMm;
 	int32_t totalAccelSteps = (int32_t)moveSteps;
@@ -362,11 +330,13 @@ void ldiStepper::zero() {
 	currentStep = 0;
 }
 
-void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep) {
+void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int FirstStageSteps) {
+	int startStep = currentStep;
+	
 	if (HomeDir) {
-		moveRelative(100000, SlowSpeed);
+		moveRelative(FirstStageSteps, SlowSpeed);
 	} else {
-		moveRelative(-100000, SlowSpeed);
+		moveRelative(-FirstStageSteps, SlowSpeed);
 	}
 
 	while (true) {
@@ -376,6 +346,7 @@ void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentSte
 			break;
 		}
 
+		// TODO: If we don't travel far enough, then this will loop forever.
 		updateStepper();
 	}
 
@@ -386,6 +357,8 @@ void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentSte
 	}
 
 	while (updateStepper());
+
+	// TODO: If the limit pin has not been released, then there is a problem.
 
 	setDirection(HomeDir);
 	while (true) {
@@ -399,9 +372,9 @@ void ldiStepper::home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentSte
 		delayMicroseconds(2000);
 	}
 
-	currentStep = CurrentStep;
-	minStep = MinStep;
-	maxStep = MaxStep;
+	// Serial.printf("Start: %d End: %d Diff:%d\n", startStep, currentStep, currentStep - startStep);
+
+	currentStep = 0;
 }
 
 /*

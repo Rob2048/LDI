@@ -119,14 +119,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\opencv-4.5.2\modules\videoio\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;C:\Utilities\Little-CMS\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.8.0\opencv-4.8.0\include;C:\opencv-4.8.0\opencv_contrib-4.8.0\modules\aruco\include;C:\opencv-4.8.0\opencv-4.8.0\modules\core\include;C:\opencv-4.8.0\opencv-4.8.0\modules\calib3d\include;C:\opencv-4.8.0\opencv-4.8.0\modules\features2d\include;C:\opencv-4.8.0\opencv_build-4.8.0;C:\opencv-4.8.0\opencv-4.8.0\modules\flann\include;C:\opencv-4.8.0\opencv-4.8.0\modules\imgproc\include;C:\opencv-4.8.0\opencv-4.8.0\modules\imgcodecs\include;C:\opencv-4.8.0\opencv-4.8.0\modules\videoio\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;C:\Utilities\Little-CMS\include;C:\opencv-4.8.0\opencv-4.8.0\modules\objdetect\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452d.lib;opencv_aruco452d.lib;opencv_calib3d452d.lib;opencv_features2d452d.lib;opencv_imgproc452d.lib;opencv_imgcodecs452d.lib;opencv_videoio452d.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;lcms2.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Debug;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\debug;C:\Utilities\Little-CMS\bin</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core480d.lib;opencv_aruco480d.lib;opencv_calib3d480d.lib;opencv_features2d480d.lib;opencv_imgproc480d.lib;opencv_imgcodecs480d.lib;opencv_videoio480d.lib;opencv_objdetect480d.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;lcms2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opencv-4.8.0\opencv_build-4.8.0\lib\Debug;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\debug;C:\Utilities\Little-CMS\bin</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -137,7 +137,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.5.2\include;C:\opencv_contrib-4.5.2\modules\aruco\include;C:\opencv-4.5.2\modules\core\include;C:\opencv-4.5.2\modules\calib3d\include;C:\opencv-4.5.2\modules\features2d\include;C:\opencv_build-4.5.2;C:\opencv-4.5.2\modules\flann\include;C:\opencv-4.5.2\modules\imgproc\include;C:\opencv-4.5.2\modules\imgcodecs\include;C:\opencv-4.5.2\modules\videoio\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;C:\Utilities\Little-CMS\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>source\imgui;source\imgui\backends;source\glm;C:\opencv-4.8.0\opencv-4.8.0\include;C:\opencv-4.8.0\opencv_contrib-4.8.0\modules\aruco\include;C:\opencv-4.8.0\opencv-4.8.0\modules\core\include;C:\opencv-4.8.0\opencv-4.8.0\modules\calib3d\include;C:\opencv-4.8.0\opencv-4.8.0\modules\features2d\include;C:\opencv-4.8.0\opencv_build-4.8.0;C:\opencv-4.8.0\opencv-4.8.0\modules\flann\include;C:\opencv-4.8.0\opencv-4.8.0\modules\imgproc\include;C:\opencv-4.8.0\opencv-4.8.0\modules\imgcodecs\include;C:\opencv-4.8.0\opencv-4.8.0\modules\videoio\include;C:\Utilities\PhysX\physx\include;C:\Utilities\PhysX\pxshared\include;C:\Utilities\Little-CMS\include;C:\opencv-4.8.0\opencv-4.8.0\modules\objdetect\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -145,8 +145,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core452.lib;opencv_aruco452.lib;opencv_calib3d452.lib;opencv_features2d452.lib;opencv_imgproc452.lib;opencv_imgcodecs452.lib;opencv_videoio452.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;lcms2.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\opencv_build-4.5.2\lib\Release;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\release;C:\Utilities\Little-CMS\bin</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;opencv_core480.lib;opencv_aruco480.lib;opencv_calib3d480.lib;opencv_features2d480.lib;opencv_imgproc480.lib;opencv_imgcodecs480.lib;opencv_videoio480.lib;opencv_objdetect480.lib;PhysX_64.lib;PhysXCommon_64.lib;PhysXCooking_64.lib;PhysXFoundation_64.lib;PhysXExtensions_static_64.lib;lcms2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opencv-4.8.0\opencv_build-4.8.0\lib\Release;C:\Utilities\PhysX\physx\bin\win.x86_64.vc142.mt\release;C:\Utilities\Little-CMS\bin</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -171,6 +171,7 @@
     <ClCompile Include="source\stlLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="source\camera.h" />
     <ClInclude Include="source\computerVision.h" />
     <ClInclude Include="source\elipseCollision.h" />
     <ClInclude Include="source\galvoInspector.h" />

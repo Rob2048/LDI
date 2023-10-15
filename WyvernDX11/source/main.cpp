@@ -31,6 +31,7 @@
 #include "stlLoader.h"
 #include "image.h"
 #include "threadSafeQueue.h"
+#include "camera.h"
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -49,21 +50,10 @@ struct ldiPointCloudConstantBuffer {
 	vec4 size;
 };
 
-struct ldiCamera {
-	vec3 position;
-	vec3 rotation;
-	mat4 viewMat;
-	mat4 projMat;
-	mat4 invProjMat;
-	mat4 projViewMat;
-	float fov;
-	int viewWidth;
-	int viewHeight;
-};
-
 struct ldiPhysics;
 struct ldiImageInspector;
 struct ldiProjectContext;
+struct ldiCalibrationContext;
 struct ldiPlatform;
 
 struct ldiDebugPrims {
@@ -168,6 +158,7 @@ struct ldiApp {
 	ldiPlatform*				platform = 0;
 	
 	ldiProjectContext*			projectContext;
+	ldiCalibrationContext*		calibrationContext;
 };
 
 double _getTime(ldiApp* AppContext) {
@@ -179,25 +170,12 @@ double _getTime(ldiApp* AppContext) {
 	return result;
 }
 
-// TODO: Move to another location.
-void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight) {
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
-	
-	Camera->viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
-	Camera->projMat = glm::perspectiveFovRH_ZO(glm::radians(Camera->fov), ViewWidth, ViewHeight, 0.01f, 100.0f);
-	Camera->invProjMat = inverse(Camera->projMat);
-	Camera->projViewMat = Camera->projMat * Camera->viewMat;
-	Camera->viewWidth = ViewWidth;
-	Camera->viewHeight = ViewHeight;
-}
-
+#include "computerVision.h"
 #include "serialPort.h"
 #include "graphics.h"
 #include "debugPrims.h"
 #include "physics.h"
 #include "platform.h"
-#include "computerVision.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
 #include "visionSimulator.h"
@@ -205,16 +183,17 @@ void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight
 #include "modelEditor.h"
 #include "galvoInspector.h"
 
-ldiPhysics			_physics = {};
-ldiApp				_appContext = {};
-ldiModelInspector	_modelInspector = {};
-ldiSamplerTester	_samplerTester = {};
-ldiPlatform			_platform = {};
-ldiVisionSimulator	_visionSimulator = {};
-ldiImageInspector	_imageInspector = {};
-ldiModelEditor		_modelEditor = {};
-ldiGalvoInspector	_galvoInspector = {};
-ldiProjectContext	_projectContext = {};
+ldiPhysics				_physics = {};
+ldiApp					_appContext = {};
+ldiModelInspector		_modelInspector = {};
+ldiSamplerTester		_samplerTester = {};
+ldiPlatform				_platform = {};
+ldiVisionSimulator		_visionSimulator = {};
+ldiImageInspector		_imageInspector = {};
+ldiModelEditor			_modelEditor = {};
+ldiGalvoInspector		_galvoInspector = {};
+ldiProjectContext		_projectContext = {};
+ldiCalibrationContext	_calibrationContext = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing and GUI helpers.
@@ -855,6 +834,7 @@ int main() {
 	_initTiming(appContext);
 
 	appContext->projectContext = &_projectContext;
+	appContext->calibrationContext = &_calibrationContext;
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
@@ -876,7 +856,7 @@ int main() {
 	_initImgui(appContext);
 
 	// TODO: Move to callibration machine vision setup.
-	createCharucos(false);
+	createCharucos(true);
 	cameraCalibCreateTarget(9, 6, 1.0f, 64);
 
 	if (!_initResources(appContext)) {

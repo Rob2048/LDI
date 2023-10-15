@@ -175,3 +175,11 @@ vec3 getRandomColor() {
 
 	return result;
 }
+
+inline ImVec2 toImVec2(vec2 A) {
+	return ImVec2(A.x, A.y);
+}
+
+inline vec2 toVec2(ImVec2 A) {
+	return vec2(A.x, A.y);
+}

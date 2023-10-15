@@ -57,13 +57,23 @@ int frameStride = 0;
 FILE* ledProc = NULL;
 
 enum ldiCameraCaptureMode {
-	LDI_CAMERACAPTUREMODE_WAIT				= 0,
-	LDI_CAMERACAPTUREMODE_CONTINUOUS		= 1,
-	LDI_CAMERACAPTUREMODE_AVERAGE			= 2,
-	LDI_CAMERACAPTUREMODE_SINGLE			= 3,
+	CCM_WAIT = 0,
+	CCM_CONTINUOUS = 1,
+	CCM_AVERAGE = 2,
+	CCM_SINGLE = 3,
 };
 
-ldiCameraCaptureMode _mode = LDI_CAMERACAPTUREMODE_WAIT;
+enum ldiHawkOpcode {
+	HO_SETTINGS = 0,
+	HO_FRAME = 1,
+	HO_AVERAGE_GATHERED = 2,
+	
+	HO_SETTINGS_REQUEST = 10,
+	HO_SET_VALUES = 11,
+	HO_SET_CAPTURE_MODE = 12,
+};
+
+ldiCameraCaptureMode _mode = CCM_WAIT;
 
 ldiCamContext*		camContext		= nullptr;
 ldiNet*				net				= nullptr;
@@ -132,11 +142,11 @@ bool restartCamera(int Width, int Height, int Fps) {
 void setCameraMode(ldiCameraCaptureMode Mode) {
 	_mode = Mode;
 
-	if (_mode == LDI_CAMERACAPTUREMODE_CONTINUOUS) {
+	if (_mode == CCM_CONTINUOUS) {
 		cameraSetFps(camContext, 3);
 	}
 
-	if (_mode == LDI_CAMERACAPTUREMODE_AVERAGE) {
+	if (_mode == CCM_AVERAGE) {
 		cameraSetFps(camContext, 15);
 		// if (!restartCamera(3280, 2464, 15)) {
 		// 	exit(1);
@@ -223,7 +233,7 @@ void handlePacket(ldiNet* Net, ldiControlAppClient* Client) {
 	ldiPacket* clientPacket = &Client->packet;
 	ldiProtocolHeader* header = (ldiProtocolHeader*)clientPacket->buffer;
 
-	if (header->opcode == 0) {
+	if (header->opcode == HO_SET_VALUES) {
 		// NOTE: Set camera settings.
 		ldiProtocolSettings* packet = (ldiProtocolSettings*)clientPacket->buffer;
 		_shutterSpeed = packet->shutterSpeed;
@@ -231,15 +241,15 @@ void handlePacket(ldiNet* Net, ldiControlAppClient* Client) {
 		
 		cameraSetControls(camContext, _shutterSpeed, _analogGain);
 
-	} else if (header->opcode == 1) {
+	} else if (header->opcode == HO_SET_CAPTURE_MODE) {
 		// NOTE: Set camera mode.
 		ldiProtocolMode* packet = (ldiProtocolMode*)clientPacket->buffer;
 		setCameraMode((ldiCameraCaptureMode)packet->mode);
-	} else if (header->opcode == 2) {
+	} else if (header->opcode == HO_SETTINGS_REQUEST) {
 		// NOTE: Get camera settings.
 		ldiProtocolSettings settings;
 		settings.header.packetSize = sizeof(ldiProtocolSettings) - 4;
-		settings.header.opcode = 0;
+		settings.header.opcode = HO_SETTINGS;
 		settings.shutterSpeed = _shutterSpeed;
 		settings.analogGain = _analogGain;
 
@@ -249,8 +259,6 @@ void handlePacket(ldiNet* Net, ldiControlAppClient* Client) {
 			std::cout << "Settings write failed\n";
 			return;
 		}
-	} else if (header->opcode == 3) {
-
 	} else {
 		std::cout << "Unknown opcode\n";
 		return;
@@ -315,7 +323,7 @@ void writeAllClients(ldiNet* Net, uint8_t* Data, int Size) {
 void sendAverageGatherDoneToClients() {
 	ldiProtocolHeader packet;
 	packet.packetSize = sizeof(ldiProtocolHeader) - 4;
-	packet.opcode = 4;
+	packet.opcode = HO_AVERAGE_GATHERED;
 
 	for (size_t i = 0; i < clients.size(); ++i) {
 		if (networkClientWrite(net, clients[i].id, (uint8_t*)&packet, sizeof(packet)) != 0) {
@@ -328,7 +336,7 @@ void sendAverageGatherDoneToClients() {
 void sendPixelBufferToClients(int Width, int Height) {
 	ldiProtocolImageHeader header;
 	header.header.packetSize = sizeof(ldiProtocolImageHeader) - 4 + (Width * Height);
-	header.header.opcode = 1;
+	header.header.opcode = HO_FRAME;
 	header.width = Width;
 	header.height = Height;
 
@@ -445,9 +453,9 @@ int main() {
 		// fflush(ledProc);
 		// std::cout << "Sent sync at " << timeFrameRead << "\n";
 
-		if (_mode == LDI_CAMERACAPTUREMODE_WAIT) {
+		if (_mode == CCM_WAIT) {
 			// ...
-		} else if (_mode == LDI_CAMERACAPTUREMODE_AVERAGE) {
+		} else if (_mode == CCM_AVERAGE) {
 			// NOTE: Discard frames before start time.
 			if (frameTimestampMs < averageModeStartTimeMs) {
 				std::cout << "Skipped early frame\n";
@@ -487,10 +495,10 @@ int main() {
 					std::cout << "Merge time: " << (t0 / 1000) << " ms\n";
 
 					sendPixelBufferToClients(frameWidth, frameHeight);
-					setCameraMode(LDI_CAMERACAPTUREMODE_WAIT);
+					setCameraMode(CCM_WAIT);
 				}
 			}
-		} else if (_mode == LDI_CAMERACAPTUREMODE_CONTINUOUS || _mode == LDI_CAMERACAPTUREMODE_SINGLE) {
+		} else if (_mode == CCM_CONTINUOUS || _mode == CCM_SINGLE) {
 			int64_t t0 = platformGetMicrosecond();
 			cameraCopyFrame(camContext, tempBuffer);
 			
@@ -503,9 +511,9 @@ int main() {
 			std::cout << "Frame delta time: " << frameDeltaTime << " ms FPS: " << fps << " Proctime: " << (t0 / 1000.0) << " ms Size: " << frameData->size << " " << timestampVsLastSync << "\n";
 			std::cout << "Timestamp: " << frameTimestampMs << " Recv delay: " << timestampVsRecv << " ms Exposure: " << frameData->exposureTime << " Gain: " << frameData->analogGain << " Lux: " << frameData->lux << "\n";
 
-			if (_mode == LDI_CAMERACAPTUREMODE_SINGLE) {
+			if (_mode == CCM_SINGLE) {
 				sendPixelBufferToClients(frameWidth, frameHeight);
-				setCameraMode(LDI_CAMERACAPTUREMODE_WAIT);
+				setCameraMode(CCM_WAIT);
 			} else {
 				sendPixelBufferToClients(frameWidth, frameHeight);
 			}

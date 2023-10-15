@@ -121,10 +121,10 @@ void _visionSimulatorBuildTargetLocalPoints(ldiVisionSimulator* Tool) {
 			continue;
 		}
 
-		int cornerCount = (int)_charucoBoards[boardIter]->chessboardCorners.size();
+		int cornerCount = (int)_charucoBoards[boardIter]->getChessboardCorners().size();
 
 		for (int cornerIter = 0; cornerIter < cornerCount; ++cornerIter) {
-			cv::Point3f p = _charucoBoards[boardIter]->chessboardCorners[cornerIter];
+			cv::Point3f p = _charucoBoards[boardIter]->getChessboardCorners()[cornerIter];
 
 			vec3 offset(-chs, chs, chs);
 			vec3 localPos = Tool->targetFaceMat[boardIter] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
@@ -234,7 +234,7 @@ int visionSimulatorInit(ldiApp* AppContext, ldiVisionSimulator* Tool) {
 	// NOTE: Load charucos as textures from cv engine.
 	for (int i = 0; i < 6; ++i) {
 		cv::Mat markerImage;
-		_charucoBoards[i]->draw(cv::Size(boardSize, boardSize), markerImage, 0, 1);
+		_charucoBoards[i]->generateImage(cv::Size(boardSize, boardSize), markerImage, 0, 1);
 
 		//imageWrite("chrtestbrd.png", boardSize, boardSize, 1, boardSize, markerImage.data);
 
@@ -555,8 +555,8 @@ void visionSimulatorMainRender(ldiVisionSimulator* Tool, int Width, int Height, 
 
 		displayTextAtPoint(&Tool->mainCamera, faceOrigin + faceWorldNormal * 0.5f, "<" + std::to_string(b) + ">", vec4(targetFaceColorBright[b], 1.0f), TextBuffer);
 
-		for (size_t i = 0; i < _charucoBoards[b]->chessboardCorners.size(); ++i) {
-			cv::Point3f p = _charucoBoards[b]->chessboardCorners[i];
+		for (size_t i = 0; i < _charucoBoards[b]->getChessboardCorners().size(); ++i) {
+			cv::Point3f p = _charucoBoards[b]->getChessboardCorners()[i];
 
 			vec3 offset(-chs, chs, chs);
 			vec3 worldOrigin = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[b] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
@@ -732,7 +732,7 @@ vec3 visionSimulatorGetTargetImagePos(ldiVisionSimulator* Tool, int BoardId, int
 	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
-	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
+	cv::Point3f p = _charucoBoards[BoardId]->getChessboardCorners()[CornerId];
 
 	vec3 offset(-chs, chs, chs);
 	vec3 worldPos = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
@@ -762,7 +762,7 @@ vec3 visionSimulatorGetTargetCamPos(ldiVisionSimulator* Tool, int BoardId, int C
 	const float squareCount = 4.0f;
 	const float oneCellSize = cubeSize / squareCount;
 
-	cv::Point3f p = _charucoBoards[BoardId]->chessboardCorners[CornerId];
+	cv::Point3f p = _charucoBoards[BoardId]->getChessboardCorners()[CornerId];
 
 	vec3 offset(-chs, chs, chs);
 	vec3 worldPos = Tool->horse.axisC.world * Tool->targetModelMat.local * Tool->targetFaceMat[BoardId] * vec4(vec3(p.x, p.z, -p.y) + offset, 1);
@@ -960,7 +960,7 @@ void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 }
 
 void visionSimulatorBundleAdjust(ldiVisionSimulator* Tool) {
-	int cornerSize = (int)_charucoBoards[0]->chessboardCorners.size();
+	int cornerSize = (int)_charucoBoards[0]->getChessboardCorners().size();
 	
 	// Bundle adjust needs:
 	// Pose estimation for each sample.

@@ -17,6 +17,8 @@ public:
 	float		mmPerStep;
 	float		stepsPerMm;
 	float		globalAcceleration;
+	float		globalMaxVelocity;
+	bool		continuous = false;
 	int32_t		minStep = 0;
 	int32_t		maxStep = 0;
 
@@ -25,7 +27,7 @@ public:
 
 	// Move command data.
 	uint32_t 	moveStartTimeUs;
-	float 		maxVelocity;
+	float 		moveMaxVelocity;
 	float 		s;
 	float 		a;
 	float 		u;
@@ -37,7 +39,7 @@ public:
 	uint32_t 	stepperTimeUs;
 
 	ldiStepper(int8_t Type, int32_t ChipSelectPin, int32_t StepPin, int32_t DirPin, int32_t LimitPin);
-	bool init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, bool Invert);
+	bool init(int MicroSteps, int StealthChop, int Current, float MmPerStep, float Acceleration, float MaxVelocity, bool Invert, bool Continuous);
 	void setDirection(bool Dir);
 	void setMicrosteps(int Steps);
 	uint16_t getMicrostepCount();
@@ -46,11 +48,13 @@ public:
 	int8_t getSgt();
 
 	void zero();
-	void home(int SlowSpeed, int FastSpeed, bool HomeDir, int CurrentStep, int MinStep, int MaxStep);
+	void home(int SlowSpeed, int FastSpeed, bool HomeDir, int FirstStageSteps = 200000);
 
+	bool updateStepper();
 	void moveTo(int32_t StepTarget, float MaxVelocity);
 	void moveRelative(int32_t StepTarget, float MaxVelocity);
-	bool updateStepper();
+	bool validateMove(int32_t StepTarget);
+	bool validateMoveRelative(int32_t StepTarget);
 	
 	void moveSimple(float Position, int32_t Speed);
 	void moveDirect(int32_t StepTarget, int32_t Speed);

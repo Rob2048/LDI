@@ -1,11 +1,5 @@
 #pragma once
 
-struct ldiTextInfo {
-	vec2 position;
-	std::string text;
-	vec4 color;
-};
-
 struct ldiTransform {
 	vec3 localPos;
 	vec3 localRot;
@@ -93,33 +87,26 @@ void horseUpdate(ldiHorse* Horse) {
 	horseUpdateMats(Horse);
 }
 
-vec3 projectPoint(ldiCamera* Camera, vec3 Pos) {
-	vec4 worldPos = vec4(Pos.x, Pos.y, Pos.z, 1);
-	vec4 clipPos = Camera->projViewMat * worldPos;
-	clipPos.x /= clipPos.w;
-	clipPos.y /= clipPos.w;
-
-	vec3 screenPos;
-	screenPos.x = (clipPos.x * 0.5 + 0.5) * Camera->viewWidth;
-	screenPos.y = (1.0f - (clipPos.y * 0.5 + 0.5)) * Camera->viewHeight;
-	screenPos.z = clipPos.z;
-
-	return screenPos;
-}
-
-void displayTextAtPoint(ldiCamera* Camera, vec3 Position, std::string Text, vec4 Color, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 projPos = projectPoint(Camera, Position);
-	if (projPos.z > 0) {
-		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
-	}
-}
-
 void renderTransformOrigin(ldiApp* AppContext, ldiCamera* Camera, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
 	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
 
 	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
 	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
 	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
+
+	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+}
+
+void renderOrigin(ldiApp* AppContext, ldiCamera* Camera, mat4 WorldMatrix, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
+	vec3 root = WorldMatrix * vec4(0, 0, 0, 1);
+
+	vec3 p0 = WorldMatrix * vec4(1, 0, 0, 1);
+	vec3 p1 = WorldMatrix * vec4(0, 1, 0, 1);
+	vec3 p2 = WorldMatrix * vec4(0, 0, 1, 1);
+
+	pushDebugLine(&AppContext->defaultDebug, root, p0, vec3(1, 0, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, p1, vec3(0, 1, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, p2, vec3(0, 0, 1));
 
 	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 }
