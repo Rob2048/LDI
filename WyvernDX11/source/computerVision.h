@@ -10,6 +10,15 @@
 
 #include <fstream>
 
+// Things to investigate:
+// https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
+
+// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
+// https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
+// https://bitbucket.org/kaess/isam/src/master/examples/stereo.cpp
+// http://people.csail.mit.edu/kaess/isam/
+// https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py
+
 struct ldiLineFit {
 	vec3 origin;
 	vec3 direction;
@@ -165,6 +174,7 @@ struct ldiCalibrationJob {
 	std::vector<vec3> stBasisXPoints;
 	std::vector<vec3> stBasisYPoints;
 	std::vector<vec3> stBasisZPoints;
+	vec3 stVolumeCenter;
 };
 
 struct ldiCameraCalibrationContext {
@@ -803,27 +813,19 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
 		auto parameters = cv::aruco::DetectorParameters();
 		parameters.minMarkerPerimeterRate = 0.015;
+		// TODO: Check if this is doing anything.
 		parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
 
-		//parameters.useAruco3Detection = true;
-		//cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::Ptr<cv::aruco::DetectorParameters>(&rawParams);
-		// TODO: Enable subpixel corner refinement. WTF is this doing?
-		//parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
-
-		//cv::aruco::RefineParameters();
-
 		double t0 = _getTime(AppContext);
-		//cv::aruco::detectMarkers(image, _dictionary, markerCorners, markerIds, parameters, rejectedCandidates);
-
+		
 		cv::aruco::ArucoDetector arucoDetector(_dictionary, parameters);
 		arucoDetector.detectMarkers(image, markerCorners, markerIds, rejectedCandidates);
+		// TODO: Use refine strategy to detect more markers.
+		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
+		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 		
 		t0 = _getTime(AppContext) - t0;
 		std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
-		
-		// Use refine strategy to detect more markers.
-		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
-		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 
 		Results->markers.clear();
 		Results->boards.clear();
@@ -864,9 +866,9 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 					cv::Mat rvec;
 					cv::Mat tvec;
 
-					std::cout << "Check board pose:\n";
+					//std::cout << "Check board pose:\n";
 					if (cv::aruco::estimatePoseCharucoBoard(charucoCorners, charucoIds, _charucoBoards[i], *CameraMatrix, *CameraDist, rvec, tvec)) {
-						std::cout << "Found board pose: " << i << rvec << "\n";
+						//std::cout << "Found board pose: " << i << rvec << "\n";
 						board.rejected = false;
 
 						cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
@@ -905,7 +907,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 						vec3 camDir = glm::normalize(centerPoint);
 						board.charucoEstimatedBoardAngle = glm::dot(camDir, centerNormal);
 
-						std::cout << "Dot: " << board.charucoEstimatedBoardAngle << "\n";
+						//std::cout << "Dot: " << board.charucoEstimatedBoardAngle << "\n";
 
 						if (board.charucoEstimatedBoardAngle < 0.3f) {
 							board.rejected = true;
@@ -919,7 +921,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 						board.charucoEstimatedImageCenter = vec2(imagePoints[0].x, imagePoints[0].y);
 						board.charucoEstimatedImageNormal = vec2(imagePoints[1].x, imagePoints[1].y);
 					} else {
-						std::cout << "Invalid\n";
+						//std::cout << "Invalid\n";
 					}
 
 					for (int j = 0; j < charucoIds.size(); ++j) {
@@ -933,7 +935,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 					if (!board.rejected) {
 						Results->boards.push_back(board);
 					} else {
-						std::cout << "Board rejected\n";
+						//std::cout << "Board rejected\n";
 					}
 				}
 			}
@@ -3391,6 +3393,11 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 	// TODO: Account for view error to decide if view should be included.
 	for (size_t sampleIter = 0; sampleIter < rvecs.size(); ++sampleIter) {
 		ldiCalibStereoSample* sample = &Job->samples[stereoSampleId[sampleIter]];
+
+		if (sample->A != 0 || sample->C != 13000) {
+			continue;
+		}
+
 		int x = sample->X;
 		int y = sample->Y;
 		int z = sample->Z;
@@ -3422,7 +3429,7 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 			pose.pose = poses[sampleIter];
 			columnX[columnId].poses.push_back(pose);
 
-			std::cout << "(X) View: " << sampleIter << " Sample: " << stereoSampleId[sampleIter] <<  " Mech: " << x << "," << y << "," << z << "\n";
+			//std::cout << "(X) View: " << sampleIter << " Sample: " << stereoSampleId[sampleIter] <<  " Mech: " << x << "," << y << "," << z << "\n";
 		}
 
 		// Y.
@@ -3515,7 +3522,7 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 					distAccum += distNorm;
 					distAccumCount += 1;
 
-					std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
+					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
 				}
 			}
 		}
@@ -3545,7 +3552,7 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 					distAccum += distNorm;
 					distAccumCount += 1;
 
-					std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
+					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
 				}
 			}
 		}
@@ -3575,7 +3582,7 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 					distAccum += distNorm;
 					distAccumCount += 1;
 
-					std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
+					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
 				}
 			}
 		}
@@ -3667,12 +3674,24 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 	worldToVolume[1] = vec4(Job->basisY, 0.0f);
 	worldToVolume[2] = vec4(Job->basisZ, 0.0f);
 
-	mat4 volumeToWorld = glm::inverse(worldToVolume);
-	mat4 volumeRealign = glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1.0f, 0.0f, 0.0f));
-	volumeToWorld = volumeRealign * volumeToWorld;
+	mat4 volumeRealign = glm::rotate(mat4(1.0f), glm::radians(90.0f), Job->basisX);
+	worldToVolume = volumeRealign * worldToVolume;
 
-	volumeRealign = glm::translate(mat4(1.0f), vec3(0.0f, 14.0f, 0.0f));
-	volumeToWorld = volumeRealign * volumeToWorld;
+	// Volume center point is at 0,0,0.
+	// Use sample 0 as basis for location.
+	// TODO: Calculate better calib cube center.
+	glm::f64vec3 samp0(Job->samples[0].X, Job->samples[0].Y, Job->samples[0].Z);
+	samp0 *= Job->stepsToCm;
+	samp0 -= vec3(-2.0, 0.9, 0.9);
+	samp0 = (float)samp0.x * Job->axisX.direction + (float)samp0.y * Job->axisY.direction + -(float)samp0.z * Job->axisZ.direction;
+	vec3 volPos = poses[0][3];
+	volPos -= samp0;
+	//std::cout << "Offset from center: " << volPos.x << ", " << volPos.y << ", " << volPos.z << "\n";
+	
+	volumeRealign = glm::translate(mat4(1.0f), volPos);
+	worldToVolume = volumeRealign * worldToVolume;
+
+	mat4 volumeToWorld = glm::inverse(worldToVolume);
 
 	//----------------------------------------------------------------------------------------------------
 	// Move all volume elements into world space.
@@ -3682,6 +3701,9 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 		Job->axisX.direction = glm::normalize(volumeToWorld * vec4(Job->axisX.direction, 0.0f));
 		Job->axisY.direction = glm::normalize(volumeToWorld * vec4(Job->axisY.direction, 0.0f));
 		Job->axisZ.direction = glm::normalize(volumeToWorld * vec4(Job->axisZ.direction, 0.0f));
+
+		// Center point.
+		Job->stVolumeCenter = volumeToWorld * vec4(volPos, 1.0);
 
 		// Move mass model.
 		/*for (size_t i = 0; i < Job->massModelBundleAdjustPointIds.size(); ++i) {
@@ -3721,8 +3743,3 @@ void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
 		}
 	}
 }
-
-// https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
-// https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
-// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
-// https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py

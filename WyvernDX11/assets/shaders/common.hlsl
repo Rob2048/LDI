@@ -8,6 +8,7 @@
 		float4 ObjectColor;
 		float4x4 viewMat;
 		float4x4 projMat;
+		float4x4 worldMat;
 	};
 #endif
 

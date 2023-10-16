@@ -65,6 +65,10 @@ struct ldiPlatform {
 	int							testPosX;
 	int							testPosY;
 	int							testPosZ;
+
+	vec3						testCubeOffset = vec3(0.0f, 0.0f, 0.0f);
+
+	ldiRenderModel				cubeModel;
 };
 
 void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
@@ -632,6 +636,12 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	dd->at<double>(2) = 0.000113651;
 	dd->at<double>(3) = -0.000941601;
 
+	//----------------------------------------------------------------------------------------------------
+	// Cube.
+	//----------------------------------------------------------------------------------------------------
+	ldiModel cube = objLoadModel("../../assets/models/cube.obj");
+	Tool->cubeModel = gfxCreateRenderModel(AppContext, &cube);
+
 	return 0;
 }
 
@@ -706,19 +716,8 @@ bool platformQueueJobCaptureCalibration(ldiPlatform* Platform) {
 	return true;
 }
 
-void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
+void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int Width, int Height, ldiCamera* Camera, std::vector<ldiTextInfo>* TextBuffer, bool Clear) {
 	ldiApp* appContext = Tool->appContext;
-
-	if (Width != Tool->mainViewWidth || Height != Tool->mainViewHeight) {
-		Tool->mainViewWidth = Width;
-		Tool->mainViewHeight = Height;
-		gfxCreateRenderView(appContext, &Tool->mainViewBuffers, Width, Height);
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Update camera.
-	//----------------------------------------------------------------------------------------------------
-	updateCamera3dBasicFps(&Tool->mainCamera, (float)Tool->mainViewWidth, (float)Tool->mainViewHeight);
 
 	//----------------------------------------------------------------------------------------------------
 	// Initial debug primitives.
@@ -743,35 +742,42 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 	//----------------------------------------------------------------------------------------------------
 	// Rendering.
 	//----------------------------------------------------------------------------------------------------
-	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->mainViewBuffers.mainViewRtView, Tool->mainViewBuffers.depthStencilView);
+	appContext->d3dDeviceContext->OMSetRenderTargets(1, &RenderBuffers->mainViewRtView, RenderBuffers->depthStencilView);
 
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
 	viewport.TopLeftY = 0;
-	viewport.Width = Tool->mainViewWidth;
-	viewport.Height = Tool->mainViewHeight;
+	viewport.Width = Width;
+	viewport.Height = Height;
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 
 	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->mainViewBuffers.mainViewRtView, (float*)&Tool->mainBackgroundColor);
-	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->mainViewBuffers.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	vec4 bgCol(0, 0, 0, 0);
+
+	if (Clear) {
+		bgCol = Tool->mainBackgroundColor;
+	}
+		
+	appContext->d3dDeviceContext->ClearRenderTargetView(RenderBuffers->mainViewRtView, (float*)&bgCol);
+	appContext->d3dDeviceContext->ClearDepthStencilView(RenderBuffers->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	//----------------------------------------------------------------------------------------------------
 	// Calibration stuff.
 	//----------------------------------------------------------------------------------------------------
 	{
-		ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
+		ldiCalibrationContext* calibContext = appContext->calibrationContext;
 		std::vector<vec3>* modelPoints = &calibContext->bundleAdjustResult.modelPoints;
 
 		for (size_t i = 0; i < modelPoints->size(); ++i) {
 			vec3 point = (*modelPoints)[i];
 			pushDebugSphere(&appContext->defaultDebug, point, 0.1, vec3(1, 0, 0), 8);
 
-			displayTextAtPoint(&Tool->mainCamera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+			displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 		}
-		
+
 		ldiCalibTargetInfo targetInfo = calibContext->bundleAdjustResult.targetInfo;
 
 		ldiPlane targetPlane = calibContext->bundleAdjustResult.targetInfo.plane;
@@ -814,7 +820,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 			//invSampleMat = glm::inverse(invSampleMat);
 
-			renderOrigin(Tool->appContext, &Tool->mainCamera, invSampleMat, std::to_string(i), TextBuffer);
+			renderOrigin(appContext, Camera, invSampleMat, std::to_string(i), TextBuffer);
 		}
 	}
 
@@ -822,7 +828,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 	// Calibration job stuff.
 	//----------------------------------------------------------------------------------------------------
 	{
-		ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
+		ldiCalibrationContext* calibContext = appContext->calibrationContext;
 		ldiCalibrationJob* job = &calibContext->calibJob;
 
 		std::vector<vec3>* modelPoints = &calibContext->calibJob.massModelTriangulatedPoints;
@@ -831,7 +837,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 			vec3 point = (*modelPoints)[i] * 10.0f;
 			pushDebugSphere(&appContext->defaultDebug, point, 0.01, vec3(1, 0, 0), 8);
 
-			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+			//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 		}
 
 		modelPoints = &calibContext->calibJob.massModelTriangulatedPointsBundleAdjust;
@@ -851,7 +857,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 			pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 
-			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
+			//displayTextAtPoint(Camera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
 		}
 
 		/*for (size_t i = 0; i < calibContext->calibJob.centeredPointGroups.size(); ++i) {
@@ -899,9 +905,9 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 		{
 			mat4 invSampleMat = calibContext->calibJob.camVolumeMat[0];
-			renderOrigin(Tool->appContext, &Tool->mainCamera, invSampleMat, "Hawk W0", TextBuffer);
+			renderOrigin(appContext, Camera, invSampleMat, "Hawk W0", TextBuffer);
 			invSampleMat = calibContext->calibJob.camVolumeMat[1];
-			renderOrigin(Tool->appContext, &Tool->mainCamera, invSampleMat, "Hawk W1", TextBuffer);
+			renderOrigin(appContext, Camera, invSampleMat, "Hawk W1", TextBuffer);
 		}
 
 		{
@@ -925,7 +931,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 				int boardId = globalId / 9;
 				int pointId = globalId % 9;
 
-				displayTextAtPoint(&Tool->mainCamera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
+				displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
 			}
 		}
 
@@ -936,7 +942,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 				vec3 point = (*modelPoints)[i];
 
 				pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-				displayTextAtPoint(&Tool->mainCamera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+				displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
 			}
 
 			//for (size_t i = 0; i < job->baViews.size(); ++i) {
@@ -953,10 +959,10 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 			//	if (job->baViewIds[i] < 1000) {
 			//		boardTransform.world[3] = vec4(10, 0, 0, 1.0);
-			//		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "0", TextBuffer);
+			//		renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "0", TextBuffer);
 			//	} else {
 			//		boardTransform.world[3] = vec4(10, 0, dist, 1.0);
-			//		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "1", TextBuffer);
+			//		renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "1", TextBuffer);
 			//	}
 
 			//	//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
@@ -967,11 +973,11 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 				{
 					ldiTransform boardTransform = {};
 					boardTransform.world = pair->cam0world;
-					renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, std::to_string(pair->sampleId), TextBuffer);
+					renderTransformOrigin(Tool->appContext, Camera, &boardTransform, std::to_string(pair->sampleId), TextBuffer);
 					pushDebugSphere(&appContext->defaultDebug, pair->cam0world[3], 0.1, vec3(1, 0, 0), 8);
 
 					boardTransform.world = pair->cam1world;
-					renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "", TextBuffer);
+					renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "", TextBuffer);
 					pushDebugSphere(&appContext->defaultDebug, pair->cam1world[3], 0.1, vec3(0, 1, 0), 8);
 				}
 
@@ -981,17 +987,17 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 			/*{
 				ldiTransform boardTransform = {};
 				boardTransform.world = job->baStereoCamWorld[0];
-				renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "Hawk 0", TextBuffer);
+				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 0", TextBuffer);
 				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(1, 0, 1), 8);
-				
+
 				boardTransform.world = job->baStereoCamWorld[1];
-				renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &boardTransform, "Hawk 1", TextBuffer);
+				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 1", TextBuffer);
 				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(0, 0, 1), 8);
 
 			}*/
 		}
 
-		{	
+		{
 			std::vector<vec3>* modelPoints = &job->stCubePoints;
 			for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
 				srand(cubeIter);
@@ -1002,7 +1008,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 					vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
 
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-					//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+					//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
 				}
 			}
 
@@ -1035,6 +1041,103 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 				vec3 point = calibContext->calibJob.stBasisZPoints[i];
 				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 			}
+
+			pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
+		}
+	
+		{
+			// TODO: Rotate cube to match measured cube rotation.
+			// TODO: Cube not exact match.
+			vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
+			vec3 point(0.0f, 0.0f, 0.0f);
+			point += offset.x * job->axisX.direction;
+			point += offset.y * job->axisY.direction;
+			point += offset.z * -job->axisZ.direction;
+
+			mat4 worldMat = glm::identity<mat4>();
+			worldMat = glm::scale(worldMat, vec3(4.0f, 4.0f, 4.0f));
+			
+			mat4 cubesamp0Rot = glm::identity<mat4>();
+			if (job->stCubeWorlds.size() > 0) {
+				cubesamp0Rot = job->stCubeWorlds[0];
+			}
+
+			worldMat = worldMat * cubesamp0Rot;
+			//worldMat = glm::rotate(worldMat, glm::radians((float)_getTime(appContext) * 90.0f), vec3(0, 1.0f, 0));
+			worldMat[3] = vec4(point + Tool->testCubeOffset, 1.0f);
+
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = Camera->projViewMat * worldMat;
+			constantBuffer->world = worldMat;
+			constantBuffer->color = vec4(1.0f, 0.25f, 0.05f, 1.0f);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			//gfxRenderModel(appContext, &Tool->cubeModel, false);
+			gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+		}
+
+		{
+			vec3 offset = glm::f64vec3(Tool->testPosX + 16000, Tool->testPosY + 16000, Tool->testPosZ + 16000) * job->stepsToCm;
+			vec3 point(0.0f, 0.0f, 0.0f);
+			point += offset.x * job->axisX.direction;
+			point += offset.y * job->axisY.direction;
+			point += offset.z * -job->axisZ.direction;
+
+			vec3 offsetX = offset.x * job->axisX.direction;
+			vec3 offsetY = offset.y * job->axisY.direction;
+
+			// X Slab.
+			{
+				mat4 worldMat = glm::scale(mat4(1.0f), vec3(70.0f, 6.0f, 12.0f));
+				worldMat[3] = vec4(-6.0f, -(39.0f + 3.0f), -0.5f, 1.0f);
+			
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * worldMat;
+				constantBuffer->world = worldMat;
+				constantBuffer->color = vec4(0.3f, 0.3f, 0.3f, 1.0f);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				//gfxRenderModel(appContext, &Tool->cubeModel, false);
+				gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+			}
+
+			// Y Slab.
+			{
+				mat4 worldMat = glm::scale(mat4(1.0f), vec3(12.0f, 3.0f, 38.0f));
+				worldMat[3] = vec4(vec3(-23.0f, -(32.0f + 1.5f), -2.5f) + offsetX, 1.0f);
+
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * worldMat;
+				constantBuffer->world = worldMat;
+				constantBuffer->color = vec4(0.3f, 0.3f, 0.3f, 1.0f);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				//gfxRenderModel(appContext, &Tool->cubeModel, false);
+				gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+			}
+
+			// Z Slab.
+			{
+				mat4 worldMat = glm::scale(mat4(1.0f), vec3(12.0f, 39.0f, 3.0f));
+				worldMat[3] = vec4(vec3(-23.0f, -(-10.0f + (39.0f / 2.0f)), -3.7f) + offsetX + offsetY, 1.0f);
+
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * worldMat;
+				constantBuffer->world = worldMat;
+				constantBuffer->color = vec4(0.3f, 0.3f, 0.3f, 1.0f);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				//gfxRenderModel(appContext, &Tool->cubeModel, false);
+				gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+			}
 		}
 	}
 
@@ -1042,12 +1145,12 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 	// Horse.
 	//----------------------------------------------------------------------------------------------------
 	{
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.origin, "Origin", TextBuffer);
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisX, "X", TextBuffer);
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisY, "Y", TextBuffer);
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisZ, "Z", TextBuffer);
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisA, "A", TextBuffer);
-		renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &Tool->horse.axisC, "C", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.origin, "Origin", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisX, "X", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisY, "Y", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisZ, "Z", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisA, "A", TextBuffer);
+		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisC, "C", TextBuffer);
 
 		//mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
 		//viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
@@ -1055,7 +1158,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 		//ldiTransform mvCameraTransform = {};
 		//mvCameraTransform.world = glm::inverse(camViewMat);
-		//renderTransformOrigin(Tool->appContext, &Tool->mainCamera, &mvCameraTransform, "Camera", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &mvCameraTransform, "Camera", TextBuffer);
 
 		//// Render camera frustum.
 		//mat4 projViewMat = Tool->camera.projMat * camViewMat;
@@ -1094,12 +1197,27 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = Tool->mainCamera.projViewMat;
+		constantBuffer->mvp = Camera->projViewMat;
 		constantBuffer->color = vec4(1, 1, 1, 1);
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 	}
 
 	renderDebugPrimitives(appContext, &appContext->defaultDebug);
+}
+
+void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
+	if (Width != Tool->mainViewWidth || Height != Tool->mainViewHeight) {
+		Tool->mainViewWidth = Width;
+		Tool->mainViewHeight = Height;
+		gfxCreateRenderView(Tool->appContext, &Tool->mainViewBuffers, Width, Height);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Update camera.
+	//----------------------------------------------------------------------------------------------------
+	updateCamera3dBasicFps(&Tool->mainCamera, (float)Tool->mainViewWidth, (float)Tool->mainViewHeight);
+
+	platformRender(Tool, &Tool->mainViewBuffers, Tool->mainViewWidth, Tool->mainViewHeight, &Tool->mainCamera, TextBuffer, true);
 }
 
 void platformShowUi(ldiPlatform* Tool) {
@@ -1133,6 +1251,7 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::SliderInt("TextPosX", &Tool->testPosX, -48000, 48000);
 	ImGui::SliderInt("TextPosY", &Tool->testPosY, -48000, 48000);
 	ImGui::SliderInt("TextPosZ", &Tool->testPosZ, -48000, 48000);
+	ImGui::DragFloat3("TestCubeOffset", (float*)&Tool->testCubeOffset, 0.01f, -0.4, 0.4);
 	ImGui::Separator();
 
 	ImGui::Text("Connection");

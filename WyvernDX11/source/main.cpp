@@ -40,6 +40,7 @@ struct ldiBasicConstantBuffer {
 	vec4 color;
 	mat4 view;
 	mat4 proj;
+	mat4 world;
 };
 
 struct ldiCamImagePixelConstants {
@@ -100,6 +101,10 @@ struct ldiApp {
 	ID3D11VertexShader*			meshVertexShader;
 	ID3D11PixelShader*			meshPixelShader;
 	ID3D11InputLayout*			meshInputLayout;
+
+	ID3D11VertexShader*			litMeshVertexShader;
+	ID3D11PixelShader*			litMeshPixelShader;
+	ID3D11InputLayout*			litMeshInputLayout;
 
 	ID3D11VertexShader*			pointCloudVertexShader;
 	ID3D11PixelShader*			pointCloudPixelShader;
@@ -484,6 +489,17 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	//----------------------------------------------------------------------------------------------------
+	// Lit mesh shader.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/litMesh.hlsl", "mainVs", &AppContext->litMeshVertexShader, meshLayout, 3, &AppContext->litMeshInputLayout)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/litMesh.hlsl", "mainPs", &AppContext->litMeshPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
 	// Pointcloud shader.
 	//----------------------------------------------------------------------------------------------------
 	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/pointcloud.hlsl", "mainVs", &AppContext->pointCloudVertexShader, pointcloudLayout, 3, &AppContext->pointCloudInputLayout)) {
@@ -856,7 +872,7 @@ int main() {
 	_initImgui(appContext);
 
 	// TODO: Move to callibration machine vision setup.
-	createCharucos(true);
+	createCharucos(false);
 	cameraCalibCreateTarget(9, 6, 1.0f, 64);
 
 	if (!_initResources(appContext)) {

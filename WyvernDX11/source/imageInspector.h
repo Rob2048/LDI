@@ -65,6 +65,7 @@ struct ldiImageInspector {
 	bool						cameraCalibShowUndistortedBundled = false;
 
 	bool						showCharucoResults = false;
+	float						sceneOpacity = 0.75f;
 
 	ldiRenderViewBuffers		hawkViewBuffer;
 	int							hawkViewWidth;
@@ -160,7 +161,8 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	return 0;
 }
 
-void _imageInspectorRenderHawk(ldiImageInspector* Tool) {
+// TODO: Remove this and combine with full platform render?
+void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool) {
 	ldiApp* appContext = Tool->appContext;
 
 	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
@@ -250,190 +252,211 @@ void _imageInspectorRenderHawk(ldiImageInspector* Tool) {
 }
 
 void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int Width, int Height, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
-	ldiApp* appContext = Tool->appContext;
-
 	if (Tool->hawkViewWidth != Width || Tool->hawkViewHeight != Height) {
 		Tool->hawkViewWidth = Width;
 		Tool->hawkViewHeight = Height;
-		gfxCreateRenderView(appContext, &Tool->hawkViewBuffer, Width, Height);
+		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer, Width, Height);
 	}
 
-	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
-
-	D3D11_VIEWPORT viewport;
-	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
-	/*viewport.TopLeftX = ViewPortTopLeft.x;
-	viewport.TopLeftY = ViewPortTopLeft.y;
-	viewport.Width = ViewPortSize.x;
-	viewport.Height = ViewPortSize.y;*/
-	viewport.TopLeftX = 0;
-	viewport.TopLeftY = 0;
-	viewport.Width = Width;
-	viewport.Height = Height;
-	viewport.MinDepth = 0.0f;
-	viewport.MaxDepth = 1.0f;
-
-	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-
-	vec4 bgCol(0, 0, 0, 0);
-	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer.mainViewRtView, (float*)&bgCol);
-	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-	beginDebugPrimitives(&appContext->defaultDebug);
-
-	vec3 gizmoPos(0, 0, 0);
-	pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 0, 1), vec3(0, 0, 1));
-
-	//----------------------------------------------------------------------------------------------------
-	// Calibration stuff.
-	//----------------------------------------------------------------------------------------------------
 	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
 	ldiCalibrationJob* job = &calibContext->calibJob;
 
-	if (job->samples.size() != 0) {
-		std::vector<vec3>* modelPoints = &job->massModelTriangulatedPointsBundleAdjust;
+	mat4 viewMat = job->camVolumeMat[Tool->calibCamSelectedId];
+	// NOTE: OpenCV cams look down +Z so we negate.
+	viewMat[2] = -viewMat[2];
+	viewMat = glm::inverse(viewMat);
 
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i];// * 10.0f;
+	mat4 projMat = mat4(1.0);
 
-			int id = calibContext->calibJob.massModelBundleAdjustPointIds[i];
-			int sampleId = id / (9 * 6);
-			int boardId = (id % (9 * 6)) / 9;
-			int pointId = id % (9);
-
-			vec3 col(0, 0.5, 0);
-			srand(sampleId);
-			rand();
-			col = getRandomColorHighSaturation();
-
-			pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-
-			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-		}
-
-		//vec3 offset = glm::f64vec3(job->samples[Tool->calibJobSelectedSampleId].X, job->samples[Tool->calibJobSelectedSampleId].Y, job->samples[Tool->calibJobSelectedSampleId].Z) * job->stepsToCm;
-		//offset -= glm::f64vec3(job->samples[0].X, job->samples[0].Y, job->samples[0].Z) * job->stepsToCm;
-
-		vec3 offset = glm::f64vec3(appContext->platform->testPosX + 16000.0, appContext->platform->testPosY + 16000.0, appContext->platform->testPosZ + 16000.0) * job->stepsToCm;
-
-		offset = offset.x * job->axisX.direction + offset.y * job->axisY.direction + offset.z * -job->axisZ.direction;
-
-		for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
-			//if (job->cubePointCounts[i] == 0) {
-				//continue;
-			//}
-
-			vec3 point = job->cubePointCentroids[i] + offset;
-			pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 32);
-		}
-
-		//{
-		//	for (int boardIter = 0; boardIter < 6; ++boardIter) {
-		//		int globalIdBase = boardIter * 9;
-
-		//		for (int i = 0; i < 3; ++i) {
-		//			// Rows
-		//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
-		//				int pId0 = globalIdBase + (i * 3) + pairIter + 0;
-		//				int pId1 = globalIdBase + (i * 3) + pairIter + 1;
-
-		//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
-		//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
-		//				}
-		//			}
-
-		//			// Columns
-		//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
-		//				int pId0 = globalIdBase + i + (pairIter * 3) + 0;
-		//				int pId1 = globalIdBase + i + (pairIter * 3) + 3;
-
-		//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
-		//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
-		//				}
-		//			}
-		//		}
-		//	}
-		//}
+	if (!job->camMatrix[Tool->calibCamSelectedId].empty()) {
+		projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->camMatrix[Tool->calibCamSelectedId], 0.01f, 100.0f);
 	}
 
-	{
-		std::vector<vec3>* modelPoints = &job->baIndvCubePoints;
+	projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
 
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i];
+	ldiCamera camera = {};
+	camera.viewMat = viewMat;
+	camera.projMat = projMat;
+	camera.invProjMat = inverse(projMat);
+	camera.projViewMat = projMat * viewMat;
+	camera.viewWidth = Width;
+	camera.viewHeight = Height;
 
-			pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-		}
-	}
+	std::vector<ldiTextInfo> textBuffer;
+	platformRender(Tool->appContext->platform, &Tool->hawkViewBuffer, Width, Height, &camera, &textBuffer, false);
 
-	{
-		std::vector<vec3>* modelPoints = &job->stCubePoints;
-		for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
-			srand(cubeIter);
-			rand();
-			vec3 col = getRandomColorHighSaturation();
+	//appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
 
-			for (size_t i = 0; i < modelPoints->size(); ++i) {
-				vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+	//D3D11_VIEWPORT viewport;
+	//ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	//viewport.TopLeftX = 0;
+	//viewport.TopLeftY = 0;
+	//viewport.Width = Width;
+	//viewport.Height = Height;
+	//viewport.MinDepth = 0.0f;
+	//viewport.MaxDepth = 1.0f;
 
-				pushDebugSphere(&appContext->defaultDebug, point, 0.005, col, 8);
-				//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-			}
-		}
-	}
+	//appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 
-	//----------------------------------------------------------------------------------------------------
-	// Render debug primitives.
-	//----------------------------------------------------------------------------------------------------
-	{
-		mat4 viewMat = job->camVolumeMat[Tool->calibCamSelectedId];
+	//vec4 bgCol(0, 0, 0, 0);
+	//appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer.mainViewRtView, (float*)&bgCol);
+	//appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-		// NOTE: OpenCV cams look down +Z so we negate.
-		//viewMat = job->baStereoCamWorld[Tool->calibCamSelectedId];
-		viewMat[2] = -viewMat[2];
-		viewMat = glm::inverse(viewMat);
+	//beginDebugPrimitives(&appContext->defaultDebug);
 
-		// Stereo test.
-		//viewMat = glm::identity<mat4>();
-		//viewMat[2] = vec4(0, 0, -1, 0.0f);
+	//vec3 gizmoPos(0, 0, 0);
+	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(1, 0, 0), vec3(1, 0, 0));
+	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 1, 0), vec3(0, 1, 0));
+	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 0, 1), vec3(0, 0, 1));
 
-		/*for (size_t i = 0; i < job->baStereoPairs.size(); ++i) {
-			if (job->baStereoPairs[i].sampleId == Tool->calibJobSelectedSampleId) {
-				std::cout << "Found sample match\n";
-				if (Tool->calibCamSelectedId == 0) {
-					viewMat = glm::inverse(job->baStereoPairs[i].cam0world);
-				} else {
-					viewMat = glm::inverse(job->baStereoPairs[i].cam1world);
-				}
+	////----------------------------------------------------------------------------------------------------
+	//// Calibration stuff.
+	////----------------------------------------------------------------------------------------------------
+	//ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
+	//ldiCalibrationJob* job = &calibContext->calibJob;
 
-				break;
-			}
-		}*/
+	//if (job->samples.size() != 0) {
+	//	std::vector<vec3>* modelPoints = &job->massModelTriangulatedPointsBundleAdjust;
 
-		mat4 projMat = mat4(1.0);
+	//	for (size_t i = 0; i < modelPoints->size(); ++i) {
+	//		vec3 point = (*modelPoints)[i];// * 10.0f;
 
-		if (!job->camMatrix[Tool->calibCamSelectedId].empty()) {
-			cv::Mat cameraMatrix = job->camMatrix[Tool->calibCamSelectedId];
+	//		int id = calibContext->calibJob.massModelBundleAdjustPointIds[i];
+	//		int sampleId = id / (9 * 6);
+	//		int boardId = (id % (9 * 6)) / 9;
+	//		int pointId = id % (9);
 
-			projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->camMatrix[Tool->calibCamSelectedId], 0.01f, 100.0f);
-			projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
-		}
+	//		vec3 col(0, 0.5, 0);
+	//		srand(sampleId);
+	//		rand();
+	//		col = getRandomColorHighSaturation();
 
-		mat4 invProjMat = inverse(projMat);
-		mat4 projViewMat = projMat * viewMat;
+	//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 
-		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewMat;
-		constantBuffer->color = vec4(1, 1, 1, 1);
-		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-	}
+	//		//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
+	//	}
 
-	renderDebugPrimitives(appContext, &appContext->defaultDebug);
+	//	//vec3 offset = glm::f64vec3(job->samples[Tool->calibJobSelectedSampleId].X, job->samples[Tool->calibJobSelectedSampleId].Y, job->samples[Tool->calibJobSelectedSampleId].Z) * job->stepsToCm;
+	//	//offset -= glm::f64vec3(job->samples[0].X, job->samples[0].Y, job->samples[0].Z) * job->stepsToCm;
+
+	//	vec3 offset = glm::f64vec3(appContext->platform->testPosX + 16000.0, appContext->platform->testPosY + 16000.0, appContext->platform->testPosZ + 16000.0) * job->stepsToCm;
+
+	//	offset = offset.x * job->axisX.direction + offset.y * job->axisY.direction + offset.z * -job->axisZ.direction;
+
+	//	for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
+	//		//if (job->cubePointCounts[i] == 0) {
+	//			//continue;
+	//		//}
+
+	//		vec3 point = job->cubePointCentroids[i] + offset;
+	//		pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 32);
+	//	}
+
+	//	//{
+	//	//	for (int boardIter = 0; boardIter < 6; ++boardIter) {
+	//	//		int globalIdBase = boardIter * 9;
+
+	//	//		for (int i = 0; i < 3; ++i) {
+	//	//			// Rows
+	//	//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
+	//	//				int pId0 = globalIdBase + (i * 3) + pairIter + 0;
+	//	//				int pId1 = globalIdBase + (i * 3) + pairIter + 1;
+
+	//	//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
+	//	//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
+	//	//				}
+	//	//			}
+
+	//	//			// Columns
+	//	//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
+	//	//				int pId0 = globalIdBase + i + (pairIter * 3) + 0;
+	//	//				int pId1 = globalIdBase + i + (pairIter * 3) + 3;
+
+	//	//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
+	//	//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
+	//	//				}
+	//	//			}
+	//	//		}
+	//	//	}
+	//	//}
+	//}
+
+	//{
+	//	std::vector<vec3>* modelPoints = &job->baIndvCubePoints;
+
+	//	for (size_t i = 0; i < modelPoints->size(); ++i) {
+	//		vec3 point = (*modelPoints)[i];
+
+	//		pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
+	//		//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
+	//	}
+	//}
+
+	//{
+	//	std::vector<vec3>* modelPoints = &job->stCubePoints;
+	//	for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
+	//		srand(cubeIter);
+	//		rand();
+	//		vec3 col = getRandomColorHighSaturation();
+
+	//		for (size_t i = 0; i < modelPoints->size(); ++i) {
+	//			vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+
+	//			pushDebugSphere(&appContext->defaultDebug, point, 0.005, col, 8);
+	//			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
+	//		}
+	//	}
+	//}
+
+	////----------------------------------------------------------------------------------------------------
+	//// Render debug primitives.
+	////----------------------------------------------------------------------------------------------------
+	//{
+	//	mat4 viewMat = job->camVolumeMat[Tool->calibCamSelectedId];
+
+	//	// NOTE: OpenCV cams look down +Z so we negate.
+	//	//viewMat = job->baStereoCamWorld[Tool->calibCamSelectedId];
+	//	viewMat[2] = -viewMat[2];
+	//	viewMat = glm::inverse(viewMat);
+
+	//	// Stereo test.
+	//	//viewMat = glm::identity<mat4>();
+	//	//viewMat[2] = vec4(0, 0, -1, 0.0f);
+
+	//	/*for (size_t i = 0; i < job->baStereoPairs.size(); ++i) {
+	//		if (job->baStereoPairs[i].sampleId == Tool->calibJobSelectedSampleId) {
+	//			std::cout << "Found sample match\n";
+	//			if (Tool->calibCamSelectedId == 0) {
+	//				viewMat = glm::inverse(job->baStereoPairs[i].cam0world);
+	//			} else {
+	//				viewMat = glm::inverse(job->baStereoPairs[i].cam1world);
+	//			}
+
+	//			break;
+	//		}
+	//	}*/
+
+	//	mat4 projMat = mat4(1.0);
+
+	//	if (!job->camMatrix[Tool->calibCamSelectedId].empty()) {
+	//		cv::Mat cameraMatrix = job->camMatrix[Tool->calibCamSelectedId];
+
+	//		projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->camMatrix[Tool->calibCamSelectedId], 0.01f, 100.0f);
+	//		projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
+	//	}
+
+	//	mat4 invProjMat = inverse(projMat);
+	//	mat4 projViewMat = projMat * viewMat;
+
+	//	D3D11_MAPPED_SUBRESOURCE ms;
+	//	appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	//	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	//	constantBuffer->mvp = projViewMat;
+	//	constantBuffer->color = vec4(1, 1, 1, 1);
+	//	appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	//}
+
+	//renderDebugPrimitives(appContext, &appContext->defaultDebug);
 }
 
 void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* FrameData) {
@@ -490,6 +513,10 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 		//cv::undistort(image, outputImage, Tool->appContext->platform->hawks[Tool->calibCamSelectedId].defaultCameraMat, Tool->appContext->platform->hawks[Tool->calibCamSelectedId].defaultDistMat);
 
 		_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, outputImage.data, calibImg->width, calibImg->height);
+
+		Tool->appContext->platform->testPosX = stereoSample->X;
+		Tool->appContext->platform->testPosY = stereoSample->Y;
+		Tool->appContext->platform->testPosZ = stereoSample->Z;
 
 		/*for (int iY = 0; iY < stereoSample->frames[i].height; ++iY) {
 			memcpy(Tool->hawkFrameBuffer[i] + iY * CAM_IMG_WIDTH, stereoSample->frames[i].data + iY * stereoSample->frames[i].width, stereoSample->frames[i].width);
@@ -601,6 +628,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
 		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
 		ImGui::Checkbox("Show charuco results", &Tool->showCharucoResults);
+		ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
 	}
 
 	if (ImGui::CollapsingHeader("Rotary measurement")) {
@@ -822,7 +850,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, calibImg->data, calibImg->width, calibImg->height);
 					}
 
-					_imageInspectorRenderHawk(Tool);
+					_imageInspectorRenderHawkCalibration(Tool);
 				}
 
 				if (isSelected) {
@@ -856,6 +884,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					_platformLoadStereoCalibSampleData(&sample);
 
 					for (int j = 0; j < 2; ++j) {
+						// TODO: Store more info about the results, rejects, etc.
 						findCharuco(sample.frames[j], Tool->appContext, &sample.cubes[j], &Tool->appContext->platform->hawks[j].defaultCameraMat, &Tool->appContext->platform->hawks[j].defaultDistMat);
 					}
 
@@ -1067,9 +1096,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		uv_min = ImVec2(0.0f, 0.0f);
 		uv_max = ImVec2(1.0f, 1.0f);
-		tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+		tint_col = ImVec4(1.0f, 1.0f, 1.0f, Tool->sceneOpacity);
 		//draw_list->AddCallback(_imageInspectorSetStateCallback2, Tool);
-
 		_imageInspectorRenderHawkVolume(Tool, viewSize.x, viewSize.y, vec2(imgOffset.x, imgOffset.y) * imgScale, vec2((float)CAM_IMG_WIDTH, (float)CAM_IMG_HEIGHT) * imgScale);
 		draw_list->AddImage(Tool->hawkViewBuffer.mainViewResourceView, screenStartPos, screenStartPos + viewSize, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		//draw_list->AddImage(Tool->hawkViewBuffer.mainViewResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
