@@ -182,6 +182,7 @@
     <ClInclude Include="source\rotaryMeasurement.h" />
     <ClInclude Include="source\spatialGrid.h" />
     <ClInclude Include="source\threadSafeQueue.h" />
+    <ClInclude Include="source\ui.h" />
     <ClInclude Include="source\utilities.h" />
     <ClInclude Include="source\visionSimulator.h" />
     <ClInclude Include="source\debugPrims.h" />

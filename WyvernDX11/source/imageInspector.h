@@ -30,6 +30,9 @@ struct ldiImageInspector {
 
 	ldiImageInspectorMode		imageMode = IIM_LIVE_CAMERA;
 
+	float						imgScale = 1.0f;
+	vec2						imgOffset = vec2(0.0f, 0.0f);
+
 	float						camImageFilterFactor = 0.0f;
 
 	ldiCharucoResults			camImageCharucoResults = {};
@@ -64,13 +67,15 @@ struct ldiImageInspector {
 	bool						cameraCalibShowUndistorted = false;
 	bool						cameraCalibShowUndistortedBundled = false;
 
-	bool						showCharucoResults = false;
+	bool						showCharucoResults = true;
+	bool						showCharucoRejectedMarkers = false;
 	float						sceneOpacity = 0.75f;
 
-	ldiRenderViewBuffers		hawkViewBuffer;
-	int							hawkViewWidth;
-	int							hawkViewHeight;
-	ldiCamera					hawkViewCamera;
+	ldiRenderViewBuffers		hawkViewBuffer[2];
+	int							hawkViewWidth[2];
+	int							hawkViewHeight[2];
+	float						hawkImageScale[2] = { 1, 1 };
+	vec2						hawkImageOffset[2] = { vec2(0.0f, 0.0f), vec2(0.0f, 0.0f) };
 	int							hawkLastFrameId[2] = { 0, 0 };
 	uint8_t						hawkFrameBuffer[2][CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 };
@@ -154,32 +159,35 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Machine vision.
 	//----------------------------------------------------------------------------------------------------
-	Tool->hawkViewWidth = 3280;
-	Tool->hawkViewHeight = 2464;
-	gfxCreateRenderView(AppContext, &Tool->hawkViewBuffer, Tool->hawkViewWidth, Tool->hawkViewHeight);
+	for (int i = 0; i < 2; ++i) {
+		Tool->hawkViewWidth[i] = 3280;
+		Tool->hawkViewHeight[i] = 2464;
+		Tool->hawkImageOffset[i] = vec2(0.0f, 0.0f);
+		Tool->hawkImageScale[i] = 1.0f;
+		gfxCreateRenderView(AppContext, &Tool->hawkViewBuffer[i], Tool->hawkViewWidth[i], Tool->hawkViewHeight[i]);
+	}
 
 	return 0;
 }
 
-// TODO: Remove this and combine with full platform render?
-void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool) {
+void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool, int HawkId) {
 	ldiApp* appContext = Tool->appContext;
 
-	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
+	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer[HawkId].mainViewRtView, Tool->hawkViewBuffer[HawkId].depthStencilView);
 
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
 	viewport.TopLeftY = 0;
-	viewport.Width = Tool->hawkViewWidth;
-	viewport.Height = Tool->hawkViewHeight;
+	viewport.Width = Tool->hawkViewWidth[HawkId];
+	viewport.Height = Tool->hawkViewHeight[HawkId];
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 
 	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 	vec4 bgCol(0, 0, 0, 0);
-	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer.mainViewRtView, (float*)&bgCol);
-	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer[HawkId].mainViewRtView, (float*)&bgCol);
+	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer[HawkId].depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	beginDebugPrimitives(&appContext->defaultDebug);
 
@@ -251,21 +259,17 @@ void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool) {
 	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 }
 
-void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int Width, int Height, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
-	if (Tool->hawkViewWidth != Width || Tool->hawkViewHeight != Height) {
-		Tool->hawkViewWidth = Width;
-		Tool->hawkViewHeight = Height;
-		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer, Width, Height);
+void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Width, int Height, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
+	if (Tool->hawkViewWidth[HawkId] != Width || Tool->hawkViewHeight[HawkId] != Height) {
+		Tool->hawkViewWidth[HawkId] = Width;
+		Tool->hawkViewHeight[HawkId] = Height;
+		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer[HawkId], Width, Height);
 	}
 
 	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
 	ldiCalibrationJob* job = &calibContext->calibJob;
 
-	mat4 viewMat = job->camVolumeMat[Tool->calibCamSelectedId];
-	// NOTE: OpenCV cams look down +Z so we negate.
-	viewMat[2] = -viewMat[2];
-	viewMat = glm::inverse(viewMat);
-
+	mat4 viewMat = cameraConvertOpenCvWorldToViewMat(job->camVolumeMat[Tool->calibCamSelectedId]);
 	mat4 projMat = mat4(1.0);
 
 	if (!job->camMatrix[Tool->calibCamSelectedId].empty()) {
@@ -283,206 +287,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int Width, int Hei
 	camera.viewHeight = Height;
 
 	std::vector<ldiTextInfo> textBuffer;
-	platformRender(Tool->appContext->platform, &Tool->hawkViewBuffer, Width, Height, &camera, &textBuffer, false);
-
-	//appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
-
-	//D3D11_VIEWPORT viewport;
-	//ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
-	//viewport.TopLeftX = 0;
-	//viewport.TopLeftY = 0;
-	//viewport.Width = Width;
-	//viewport.Height = Height;
-	//viewport.MinDepth = 0.0f;
-	//viewport.MaxDepth = 1.0f;
-
-	//appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
-
-	//vec4 bgCol(0, 0, 0, 0);
-	//appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer.mainViewRtView, (float*)&bgCol);
-	//appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-	//beginDebugPrimitives(&appContext->defaultDebug);
-
-	//vec3 gizmoPos(0, 0, 0);
-	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(1, 0, 0), vec3(1, 0, 0));
-	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 1, 0), vec3(0, 1, 0));
-	//pushDebugLine(&appContext->defaultDebug, gizmoPos, vec3(0, 0, 1), vec3(0, 0, 1));
-
-	////----------------------------------------------------------------------------------------------------
-	//// Calibration stuff.
-	////----------------------------------------------------------------------------------------------------
-	//ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
-	//ldiCalibrationJob* job = &calibContext->calibJob;
-
-	//if (job->samples.size() != 0) {
-	//	std::vector<vec3>* modelPoints = &job->massModelTriangulatedPointsBundleAdjust;
-
-	//	for (size_t i = 0; i < modelPoints->size(); ++i) {
-	//		vec3 point = (*modelPoints)[i];// * 10.0f;
-
-	//		int id = calibContext->calibJob.massModelBundleAdjustPointIds[i];
-	//		int sampleId = id / (9 * 6);
-	//		int boardId = (id % (9 * 6)) / 9;
-	//		int pointId = id % (9);
-
-	//		vec3 col(0, 0.5, 0);
-	//		srand(sampleId);
-	//		rand();
-	//		col = getRandomColorHighSaturation();
-
-	//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-
-	//		//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-	//	}
-
-	//	//vec3 offset = glm::f64vec3(job->samples[Tool->calibJobSelectedSampleId].X, job->samples[Tool->calibJobSelectedSampleId].Y, job->samples[Tool->calibJobSelectedSampleId].Z) * job->stepsToCm;
-	//	//offset -= glm::f64vec3(job->samples[0].X, job->samples[0].Y, job->samples[0].Z) * job->stepsToCm;
-
-	//	vec3 offset = glm::f64vec3(appContext->platform->testPosX + 16000.0, appContext->platform->testPosY + 16000.0, appContext->platform->testPosZ + 16000.0) * job->stepsToCm;
-
-	//	offset = offset.x * job->axisX.direction + offset.y * job->axisY.direction + offset.z * -job->axisZ.direction;
-
-	//	for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
-	//		//if (job->cubePointCounts[i] == 0) {
-	//			//continue;
-	//		//}
-
-	//		vec3 point = job->cubePointCentroids[i] + offset;
-	//		pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 32);
-	//	}
-
-	//	//{
-	//	//	for (int boardIter = 0; boardIter < 6; ++boardIter) {
-	//	//		int globalIdBase = boardIter * 9;
-
-	//	//		for (int i = 0; i < 3; ++i) {
-	//	//			// Rows
-	//	//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
-	//	//				int pId0 = globalIdBase + (i * 3) + pairIter + 0;
-	//	//				int pId1 = globalIdBase + (i * 3) + pairIter + 1;
-
-	//	//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
-	//	//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
-	//	//				}
-	//	//			}
-
-	//	//			// Columns
-	//	//			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
-	//	//				int pId0 = globalIdBase + i + (pairIter * 3) + 0;
-	//	//				int pId1 = globalIdBase + i + (pairIter * 3) + 3;
-
-	//	//				if (job->cubePointCounts[pId0] != 0 && job->cubePointCounts[pId1]) {
-	//	//					pushDebugLine(&appContext->defaultDebug, job->cubePointCentroids[pId0] + offset, job->cubePointCentroids[pId1] + offset, vec3(139 / 256.0, 57 / 256.0, 227 / 256.0));
-	//	//				}
-	//	//			}
-	//	//		}
-	//	//	}
-	//	//}
-	//}
-
-	//{
-	//	std::vector<vec3>* modelPoints = &job->baIndvCubePoints;
-
-	//	for (size_t i = 0; i < modelPoints->size(); ++i) {
-	//		vec3 point = (*modelPoints)[i];
-
-	//		pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-	//		//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-	//	}
-	//}
-
-	//{
-	//	std::vector<vec3>* modelPoints = &job->stCubePoints;
-	//	for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
-	//		srand(cubeIter);
-	//		rand();
-	//		vec3 col = getRandomColorHighSaturation();
-
-	//		for (size_t i = 0; i < modelPoints->size(); ++i) {
-	//			vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
-
-	//			pushDebugSphere(&appContext->defaultDebug, point, 0.005, col, 8);
-	//			//displayTextAtPoint(&Tool->mainCamera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-	//		}
-	//	}
-	//}
-
-	////----------------------------------------------------------------------------------------------------
-	//// Render debug primitives.
-	////----------------------------------------------------------------------------------------------------
-	//{
-	//	mat4 viewMat = job->camVolumeMat[Tool->calibCamSelectedId];
-
-	//	// NOTE: OpenCV cams look down +Z so we negate.
-	//	//viewMat = job->baStereoCamWorld[Tool->calibCamSelectedId];
-	//	viewMat[2] = -viewMat[2];
-	//	viewMat = glm::inverse(viewMat);
-
-	//	// Stereo test.
-	//	//viewMat = glm::identity<mat4>();
-	//	//viewMat[2] = vec4(0, 0, -1, 0.0f);
-
-	//	/*for (size_t i = 0; i < job->baStereoPairs.size(); ++i) {
-	//		if (job->baStereoPairs[i].sampleId == Tool->calibJobSelectedSampleId) {
-	//			std::cout << "Found sample match\n";
-	//			if (Tool->calibCamSelectedId == 0) {
-	//				viewMat = glm::inverse(job->baStereoPairs[i].cam0world);
-	//			} else {
-	//				viewMat = glm::inverse(job->baStereoPairs[i].cam1world);
-	//			}
-
-	//			break;
-	//		}
-	//	}*/
-
-	//	mat4 projMat = mat4(1.0);
-
-	//	if (!job->camMatrix[Tool->calibCamSelectedId].empty()) {
-	//		cv::Mat cameraMatrix = job->camMatrix[Tool->calibCamSelectedId];
-
-	//		projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->camMatrix[Tool->calibCamSelectedId], 0.01f, 100.0f);
-	//		projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
-	//	}
-
-	//	mat4 invProjMat = inverse(projMat);
-	//	mat4 projViewMat = projMat * viewMat;
-
-	//	D3D11_MAPPED_SUBRESOURCE ms;
-	//	appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-	//	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-	//	constantBuffer->mvp = projViewMat;
-	//	constantBuffer->color = vec4(1, 1, 1, 1);
-	//	appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-	//}
-
-	//renderDebugPrimitives(appContext, &appContext->defaultDebug);
-}
-
-void _imageInspectorCopyFrameDataToTexture(ldiImageInspector* Tool, uint8_t* FrameData) {
-	D3D11_MAPPED_SUBRESOURCE ms;
-	Tool->appContext->d3dDeviceContext->Map(Tool->camTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-	uint8_t* pixelData = (uint8_t*)ms.pData;
-
-	for (int i = 0; i < CAM_IMG_HEIGHT; ++i) {
-		memcpy(pixelData + i * ms.RowPitch, FrameData + i * CAM_IMG_WIDTH, CAM_IMG_WIDTH);
-	}
-
-	Tool->appContext->d3dDeviceContext->Unmap(Tool->camTex, 0);
-}
-
-void _imageInspectorCopyFrameDataToTextureEx(ldiApp* AppContext, ID3D11Texture2D* Tex, uint8_t* FrameData, int Width, int Height) {
-	// TODO: Make sure texture width/height is acceptable.
-
-	D3D11_MAPPED_SUBRESOURCE ms;
-	AppContext->d3dDeviceContext->Map(Tex, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-	uint8_t* pixelData = (uint8_t*)ms.pData;
-
-	for (int i = 0; i < Height; ++i) {
-		memcpy(pixelData + i * ms.RowPitch, FrameData + i * Width, Width);
-	}
-
-	AppContext->d3dDeviceContext->Unmap(Tex, 0);
+	platformRender(Tool->appContext->platform, &Tool->hawkViewBuffer[HawkId], Width, Height, &camera, &textBuffer, false);
 }
 
 void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
@@ -512,7 +317,7 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 		cv::undistort(image, outputImage, job->camMatrix[Tool->calibCamSelectedId], job->camDist[Tool->calibCamSelectedId]);
 		//cv::undistort(image, outputImage, Tool->appContext->platform->hawks[Tool->calibCamSelectedId].defaultCameraMat, Tool->appContext->platform->hawks[Tool->calibCamSelectedId].defaultDistMat);
 
-		_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, outputImage.data, calibImg->width, calibImg->height);
+		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { calibImg->width, calibImg->height, outputImage.data });
 
 		Tool->appContext->platform->testPosX = stereoSample->X;
 		Tool->appContext->platform->testPosY = stereoSample->Y;
@@ -564,7 +369,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (newFrame) {
-			_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, camImg.data, CAM_IMG_WIDTH, CAM_IMG_HEIGHT);
+			gfxCopyToTexture2D(Tool->appContext, Tool->camTex, camImg);
 
 			if (Tool->camCalibProcess) {
 				ldiCameraCalibSample calibSample;
@@ -612,405 +417,471 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults, &calibCameraMatrix, &calibCameraDist);
 			}
 		}
-	}
 
-	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
-		_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, Tool->rotaryResults.greyFrame, 640, 480);
-	}
-	
-	ImGui::Begin("Image inspector controls");
-
-	static float imgScale = 1.0f;
-	static vec2 imgOffset(0.0f, 0.0f);
-
-	if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("Scale", &imgScale, 0.1f, 10.0f);
-		ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
-		ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
-		ImGui::Checkbox("Show charuco results", &Tool->showCharucoResults);
-		ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
-	}
-
-	if (ImGui::CollapsingHeader("Rotary measurement")) {
-		ImGui::Checkbox("Show gizmos", &Tool->rotaryResults.showGizmos);
-
-		ImGui::PushFont(Tool->appContext->fontBig);
-		if (Tool->rotaryResults.stdDev > Tool->rotaryResults.stdDevStoppedLimit) {
-			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "Rotating");
-		} else {
-			ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Stopped");
+		ImGui::PushID(("hawkView_" + std::to_string(i)).c_str());
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+		if (ImGui::Begin(("Hawk View " + std::to_string(i)).c_str())) {
+			uiViewportSurface2D("__captureSurface", &Tool->hawkImageScale[i], &Tool->hawkImageOffset[i]);
 		}
-		ImGui::PopFont();
-
-		if (ImGui::Button("Zero")) {
-			for (int i = 0; i < 16; ++i) {
-				Tool->rotaryResults.accumPoints[i].zeroAngle = Tool->rotaryResults.accumPoints[i].info;
-			}
-		}
-
-		ImGui::Text("Angle: %.3f", Tool->rotaryResults.relativeAngleToZero);
-		ImGui::InputFloat("Stopped limit: ", &Tool->rotaryResults.stdDevStoppedLimit);
-		ImGui::Text("Std dev: %.3f", Tool->rotaryResults.stdDev);
-		ImGui::Text("Process time: %.3f ms", Tool->rotaryResults.processTime);
-	}
-
-	for (int i = 0; i < 2; ++i) {
-		ldiHawk* mvCam = &Tool->appContext->platform->hawks[i];
-
-		ImGui::PushID(i);
-
-		char tempBuffer[256];
-		sprintf_s(tempBuffer, "Camera %d", i);
-
-		if (ImGui::CollapsingHeader(tempBuffer)) {
-			if (ImGui::SliderInt("Shutter speed", &mvCam->uiShutterSpeed, 1, 66000)) {
-				hawkCommitValues(mvCam);
-			}
-
-			if (ImGui::SliderInt("Analog gain", &mvCam->uiAnalogGain, 0, 100)) {
-				hawkCommitValues(mvCam);
-			}
-
-			ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
-
-			if (ImGui::Button("Start continuous mode")) {
-				Tool->imageMode = IIM_LIVE_CAMERA;
-				hawkSetMode(mvCam, CCM_CONTINUOUS);
-			}
-
-			if (ImGui::Button("Stop continuous mode")) {
-				Tool->imageMode = IIM_LIVE_CAMERA;
-				hawkSetMode(mvCam, CCM_WAIT);
-			}
-
-			if (ImGui::Button("Get single image")) {
-				Tool->imageMode = IIM_LIVE_CAMERA;
-				hawkSetMode(mvCam, CCM_SINGLE);
-			}
-
-			if (ImGui::Button("Get average image")) {
-				Tool->imageMode = IIM_LIVE_CAMERA;
-				hawkSetMode(mvCam, CCM_AVERAGE);
-			}
-
-			if (Tool->camCalibProcess) {
-				if (ImGui::Button("Stop calibration")) {
-					Tool->camCalibProcess = false;
-				}
-			} else {
-				if (ImGui::Button("Start calibration")) {
-					Tool->camCalibProcess = true;
-					Tool->camImageProcess = false;
-					Tool->cameraCalibSamples.clear();
-				}
-			}
-			
-			if (ImGui::Button("Save calibration")) {
-				std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
-
-				FILE* file;
-				fopen_s(&file, dataPath.c_str(), "wb");
-
-				int sampleCount = Tool->cameraCalibSamples.size();
-				fwrite(&sampleCount, sizeof(int), 1, file);
-
-				for (int i = 0; i < sampleCount; ++i) {
-					ldiCameraCalibSample* sample = &Tool->cameraCalibSamples[i];
-					ldiImage* img = sample->image;
-
-					fwrite(&img->width, sizeof(int), 1, file);
-					fwrite(&img->height, sizeof(int), 1, file);
-					fwrite(img->data, 1, img->width * img->height, file);
-
-					int pointCount = sample->imagePoints.size();
-					fwrite(&pointCount, sizeof(int), 1, file);
-
-					for (int j = 0; j < pointCount; ++j) {
-						vec2 point = sample->imagePoints[j];
-						fwrite(&point, sizeof(vec2), 1, file);
-					}
-				}
-
-				fclose(file);
-			}
-
-			if (ImGui::Button("Load calibration")) {
-				// TODO: Clear memory allocated.
-				Tool->cameraCalibSamples.clear();
-
-				std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
-
-				FILE* file;
-				fopen_s(&file, dataPath.c_str(), "rb");
-
-				int sampleCount = 0;
-				fread(&sampleCount, sizeof(int), 1, file);
-
-				for (int i = 0; i < sampleCount; ++i) {
-					int width = 0;
-					int height = 0;
-
-					fread(&width, sizeof(int), 1, file);
-					fread(&height, sizeof(int), 1, file);
-
-					ldiImage* newFrameImg = new ldiImage;
-					newFrameImg->data = new uint8_t[width * height];
-					newFrameImg->width = width;
-					newFrameImg->height = height;
-
-					fread(newFrameImg->data, 1, width * height, file);
-
-					ldiCameraCalibSample calibSample = {};
-					calibSample.image = newFrameImg;
-
-					int pointCount = 0;
-					fread(&pointCount, sizeof(int), 1, file);
-
-					for (int j = 0; j < pointCount; ++j) {
-						vec2 point;
-						fread(&point, sizeof(vec2), 1, file);
-						calibSample.imagePoints.push_back(point);
-					}
-
-					Tool->cameraCalibSamples.push_back(calibSample);
-					Tool->cameraCalibImageWidth = width;
-					Tool->cameraCalibImageHeight = height;
-				}
-
-				fclose(file);
-			}
-
-			if (ImGui::Button("Calibrate")) {
-				Tool->camCalibProcess = false;
-				cameraCalibRunCalibrationCircles(Tool->appContext, Tool->cameraCalibSamples, Tool->cameraCalibImageWidth, Tool->cameraCalibImageHeight, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
-			}
-
-			if (ImGui::Button("Bundle adjust")) {
-				computerVisionBundleAdjust(Tool->cameraCalibSamples, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
-			}
-
-			if (ImGui::Button("Load bundle results")) {
-				computerVisionLoadBundleAdjust(Tool->cameraCalibSamples, &calibContext->bundleAdjustResult);
-			}
-
-			if (ImGui::Checkbox("Undistorted", &Tool->cameraCalibShowUndistorted)) {
-				std::cout << "Undistorted: " << Tool->cameraCalibShowUndistorted << "\n";
-			}
-
-			if (ImGui::Checkbox("Undistorted bundle", &Tool->cameraCalibShowUndistortedBundled)) {
-				std::cout << "Undistorted: " << Tool->cameraCalibShowUndistortedBundled << "\n";
-			}
-		}
-
+		ImGui::PopStyleVar();
+		ImGui::End();
 		ImGui::PopID();
 	}
 
-	if (ImGui::CollapsingHeader("Machine vision")) {
-		ImGui::Checkbox("Process", &Tool->camImageProcess);
+	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
+		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 640, 480, Tool->rotaryResults.greyFrame });
 	}
+	
+	if (ImGui::Begin("Calibration samples")) {
+		if (ImGui::BeginTable("table_custom_headers", 9, ImGuiTableFlags_Borders)) {
+			ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 20.0f);
+			ImGui::TableSetupColumn("Phase", ImGuiTableColumnFlags_WidthFixed, 20.0f);
+			ImGui::TableSetupColumn("X", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Y", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Z", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("A", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("C", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Boards 0", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Boards 1", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableHeadersRow();
 
-	if (ImGui::CollapsingHeader("Camera calibration")) {
-		ImGui::Text("Samples");
-		if (ImGui::BeginListBox("##listbox_camera_samples", ImVec2(-FLT_MIN, -FLT_MIN))) {
-			{
-				bool isSelected = (Tool->cameraCalibSelectedSample == -1);
+			ldiCalibrationJob* job = &calibContext->calibJob;
 
-				if (ImGui::Selectable("None", isSelected)) {
-					Tool->cameraCalibSelectedSample = -1;
-				}
+			for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
+				ldiCalibStereoSample* sample = &job->samples[sampleIter];
 
-				if (isSelected) {
-					ImGui::SetItemDefaultFocus();
-				}
-			}
-			
-			for (size_t n = 0; n < Tool->cameraCalibSamples.size(); ++n) {
-				bool isSelected = (Tool->cameraCalibSelectedSample == n);
+				ImGui::TableNextRow();
 
-				char itemLabel[256];
-				sprintf_s(itemLabel, "Sample %d", n);
+				ImGuiSelectableFlags selectable_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap;
 
-				if (ImGui::Selectable(itemLabel, isSelected)) {
-					Tool->cameraCalibSelectedSample = n;
-					ldiImage* calibImg = Tool->cameraCalibSamples[n].image;
-
-					if (Tool->cameraCalibShowUndistortedBundled) {
-						cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
-						cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
-						cv::undistort(image, outputImage, calibContext->bundleAdjustResult.cameraMatrix, calibContext->bundleAdjustResult.distCoeffs);
-
-						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, outputImage.data, calibImg->width, calibImg->height);
-					} else if (Tool->cameraCalibShowUndistorted) {
-						cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
-						cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
-						cv::undistort(image, outputImage, Tool->cameraCalibMatrix, Tool->cameraCalibDist);
-						
-						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, outputImage.data, calibImg->width, calibImg->height);
-					} else {
-						_imageInspectorCopyFrameDataToTextureEx(Tool->appContext, Tool->camTex, calibImg->data, calibImg->width, calibImg->height);
-					}
-
-					_imageInspectorRenderHawkCalibration(Tool);
-				}
-
-				if (isSelected) {
-					ImGui::SetItemDefaultFocus();
-				}
-			}
-			ImGui::EndListBox();
-		}
-	}
-
-	if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
-		if (ImGui::Button("Load job")) {
-			Tool->imageMode = IIM_CALIBRATION_JOB;
-
-			for (size_t i = 0; i < Tool->appContext->calibrationContext->calibJob.samples.size(); ++i) {
-				_platformFreeStereoCalibImages(&Tool->appContext->calibrationContext->calibJob.samples[i]);
-			}
-
-			Tool->appContext->calibrationContext->calibJob.samples.clear();
-			_imageInspectorSelectCalibJob(Tool, -1);
-
-			std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/volume_calib_space/");
-
-			for (int i = 0; i < filePaths.size(); ++i) {
-				std::cout << "file " << i << ": " << filePaths[i] << "\n";
-
-				if (endsWith(filePaths[i], ".dat")) {
-					ldiCalibStereoSample sample = {};
-					sample.path = filePaths[i];
-
-					_platformLoadStereoCalibSampleData(&sample);
-
-					for (int j = 0; j < 2; ++j) {
-						// TODO: Store more info about the results, rejects, etc.
-						findCharuco(sample.frames[j], Tool->appContext, &sample.cubes[j], &Tool->appContext->platform->hawks[j].defaultCameraMat, &Tool->appContext->platform->hawks[j].defaultDistMat);
-					}
-
-					_platformFreeStereoCalibImages(&sample);
-
-					Tool->appContext->calibrationContext->calibJob.samples.push_back(sample);
-				}
-			}
-
-			Tool->appContext->calibrationContext->calibJob.camMatrix[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.camDist[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
-
-			Tool->appContext->calibrationContext->calibJob.camMatrix[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.camDist[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
-		}
-
-		if (ImGui::Button("Process job")) {
-			_imageInspectorProcessCalibJob(Tool);
-		}
-
-		ImGui::Separator();
-
-		if (ImGui::Button("Bundle adjust##volcal")) {
-			Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
-
-			Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
-
-			computerVisionBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		if (ImGui::Button("Load bundle adjust##volcal")) {
-			computerVisionLoadBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		ImGui::Separator();
-
-		if (ImGui::Button("Bundle adjust individual")) {
-			Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
-
-			Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
-
-			computerVisionBundleAdjustStereoIndividual(&Tool->appContext->calibrationContext->calibJob);
-		}
-		
-		if (ImGui::Button("Bundle adjust individual load")) {
-			computerVisionBundleAdjustStereoIndividualLoad(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		ImGui::Separator();
-
-		if (ImGui::Button("Bundle adjust both")) {
-			Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
-
-			Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
-
-			computerVisionBundleAdjustStereoBoth(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		if (ImGui::Button("Bundle adjust both load")) {
-			computerVisionBundleAdjustStereoBothLoad(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		ImGui::Separator();
-
-		/*if (ImGui::Button("Bundle adjust py")) {
-			computerVisionBundleAdjustStereoBothPy(&Tool->appContext->calibrationContext->calibJob);
-		}*/
-
-		if (ImGui::Button("Stereo calibrate")) {
-			Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
-
-			Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
-			Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
-
-			computerVisionStereoCameraCalibrate(&Tool->appContext->calibrationContext->calibJob);
-		}
-
-		ImGui::Separator();
-
-
-		ImGui::InputInt("Cam ID", &Tool->calibCamSelectedId);
-		if (Tool->calibCamSelectedId < 0 || Tool->calibCamSelectedId > 1) {
-			Tool->calibCamSelectedId = 0;
-		}
-
-		ImGui::Text("Samples (%d)", Tool->appContext->calibrationContext->calibJob.samples.size());
-		//if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
-		if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, -FLT_MIN))) {
-			for (int n = 0; n < Tool->appContext->calibrationContext->calibJob.samples.size(); ++n) {
-				bool isSelected = (Tool->calibJobSelectedSampleId == n);
-
-				if (ImGui::Selectable(Tool->appContext->calibrationContext->calibJob.samples[n].path.c_str(), isSelected)) {
-					// NOTE: Always switch back to calibration job mode if clicking on a job sample.
+				ImGui::TableSetColumnIndex(0);
+				if (ImGui::Selectable(std::to_string(sampleIter).c_str(), sampleIter == Tool->calibJobSelectedSampleId, selectable_flags, ImVec2(0, 0))) {
 					Tool->imageMode = IIM_CALIBRATION_JOB;
-
-					_imageInspectorSelectCalibJob(Tool, n);
-
-					//if (Tool->camImageProcess) {
-					//	ldiImage camImg = {};
-					//	camImg.data = Tool->camPixelsFinal;
-					//	camImg.width = CAM_IMG_WIDTH;
-					//	camImg.height = CAM_IMG_HEIGHT;
-
-					//	//findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
-					//}
+					_imageInspectorSelectCalibJob(Tool, sampleIter);
 				}
 
-				if (isSelected) {
-					ImGui::SetItemDefaultFocus();
-				}
+				ImGui::TableSetColumnIndex(1);
+				ImGui::Text("%d", 0);
+
+				ImGui::TableSetColumnIndex(2);
+				ImGui::Text("%d", sample->X);
+
+				ImGui::TableSetColumnIndex(3);
+				ImGui::Text("%d", sample->Y);
+
+				ImGui::TableSetColumnIndex(4);
+				ImGui::Text("%d", sample->Z);
+
+				ImGui::TableSetColumnIndex(5);
+				ImGui::Text("%d", sample->A);
+
+				ImGui::TableSetColumnIndex(6);
+				ImGui::Text("%d", sample->C);
+
+				ImGui::TableSetColumnIndex(7);
+				ImGui::Text("%d - %d", sample->cubes[0].boards.size(), sample->cubes[0].rejectedBoards.size());
+
+				ImGui::TableSetColumnIndex(8);
+				ImGui::Text("%d - %d", sample->cubes[1].boards.size(), sample->cubes[1].rejectedBoards.size());
+				
 			}
-			ImGui::EndListBox();
+			ImGui::EndTable();
 		}
 	}
+	ImGui::End();
 
-	//ImGui::Checkbox("Grid", &camInspector->showGrid);
-	//if (ImGui::Button("Run sample test")) {
-		//camInspectorRunTest(camInspector);
-	//}
+	if (ImGui::Begin("Image inspector controls")) {
+		if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::SliderFloat("Scale", &Tool->imgScale, 0.1f, 10.0f);
+			ImGui::Text("Cursor position: %.2f, %.2f", Tool->camImageCursorPos.x, Tool->camImageCursorPos.y);
+			ImGui::Text("Cursor value: %d", Tool->camImagePixelValue);
+			ImGui::Separator();
+			ImGui::Checkbox("Show charuco results", &Tool->showCharucoResults);
+			ImGui::Checkbox("Show charuco rejected markers", &Tool->showCharucoRejectedMarkers);
+			ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
+		}
+
+		if (ImGui::CollapsingHeader("Rotary measurement")) {
+			ImGui::Checkbox("Show gizmos", &Tool->rotaryResults.showGizmos);
+
+			ImGui::PushFont(Tool->appContext->fontBig);
+			if (Tool->rotaryResults.stdDev > Tool->rotaryResults.stdDevStoppedLimit) {
+				ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "Rotating");
+			} else {
+				ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Stopped");
+			}
+			ImGui::PopFont();
+
+			if (ImGui::Button("Zero")) {
+				for (int i = 0; i < 16; ++i) {
+					Tool->rotaryResults.accumPoints[i].zeroAngle = Tool->rotaryResults.accumPoints[i].info;
+				}
+			}
+
+			ImGui::Text("Angle: %.3f", Tool->rotaryResults.relativeAngleToZero);
+			ImGui::InputFloat("Stopped limit: ", &Tool->rotaryResults.stdDevStoppedLimit);
+			ImGui::Text("Std dev: %.3f", Tool->rotaryResults.stdDev);
+			ImGui::Text("Process time: %.3f ms", Tool->rotaryResults.processTime);
+		}
+
+		for (int i = 0; i < 2; ++i) {
+			ldiHawk* mvCam = &Tool->appContext->platform->hawks[i];
+
+			ImGui::PushID(i);
+
+			char tempBuffer[256];
+			sprintf_s(tempBuffer, "Camera %d", i);
+
+			if (ImGui::CollapsingHeader(tempBuffer)) {
+				if (ImGui::SliderInt("Shutter speed", &mvCam->uiShutterSpeed, 1, 66000)) {
+					hawkCommitValues(mvCam);
+				}
+
+				if (ImGui::SliderInt("Analog gain", &mvCam->uiAnalogGain, 0, 100)) {
+					hawkCommitValues(mvCam);
+				}
+
+				ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
+
+				if (ImGui::Button("Start continuous mode")) {
+					Tool->imageMode = IIM_LIVE_CAMERA;
+					hawkSetMode(mvCam, CCM_CONTINUOUS);
+				}
+
+				if (ImGui::Button("Stop continuous mode")) {
+					Tool->imageMode = IIM_LIVE_CAMERA;
+					hawkSetMode(mvCam, CCM_WAIT);
+				}
+
+				if (ImGui::Button("Get single image")) {
+					Tool->imageMode = IIM_LIVE_CAMERA;
+					hawkSetMode(mvCam, CCM_SINGLE);
+				}
+
+				if (ImGui::Button("Get average image")) {
+					Tool->imageMode = IIM_LIVE_CAMERA;
+					hawkSetMode(mvCam, CCM_AVERAGE);
+				}
+
+				if (Tool->camCalibProcess) {
+					if (ImGui::Button("Stop calibration")) {
+						Tool->camCalibProcess = false;
+					}
+				} else {
+					if (ImGui::Button("Start calibration")) {
+						Tool->camCalibProcess = true;
+						Tool->camImageProcess = false;
+						Tool->cameraCalibSamples.clear();
+					}
+				}
+			
+				if (ImGui::Button("Save calibration")) {
+					std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
+
+					FILE* file;
+					fopen_s(&file, dataPath.c_str(), "wb");
+
+					int sampleCount = Tool->cameraCalibSamples.size();
+					fwrite(&sampleCount, sizeof(int), 1, file);
+
+					for (int i = 0; i < sampleCount; ++i) {
+						ldiCameraCalibSample* sample = &Tool->cameraCalibSamples[i];
+						ldiImage* img = sample->image;
+
+						fwrite(&img->width, sizeof(int), 1, file);
+						fwrite(&img->height, sizeof(int), 1, file);
+						fwrite(img->data, 1, img->width * img->height, file);
+
+						int pointCount = sample->imagePoints.size();
+						fwrite(&pointCount, sizeof(int), 1, file);
+
+						for (int j = 0; j < pointCount; ++j) {
+							vec2 point = sample->imagePoints[j];
+							fwrite(&point, sizeof(vec2), 1, file);
+						}
+					}
+
+					fclose(file);
+				}
+
+				if (ImGui::Button("Load calibration")) {
+					// TODO: Clear memory allocated.
+					Tool->cameraCalibSamples.clear();
+
+					std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
+
+					FILE* file;
+					fopen_s(&file, dataPath.c_str(), "rb");
+
+					int sampleCount = 0;
+					fread(&sampleCount, sizeof(int), 1, file);
+
+					for (int i = 0; i < sampleCount; ++i) {
+						int width = 0;
+						int height = 0;
+
+						fread(&width, sizeof(int), 1, file);
+						fread(&height, sizeof(int), 1, file);
+
+						ldiImage* newFrameImg = new ldiImage;
+						newFrameImg->data = new uint8_t[width * height];
+						newFrameImg->width = width;
+						newFrameImg->height = height;
+
+						fread(newFrameImg->data, 1, width * height, file);
+
+						ldiCameraCalibSample calibSample = {};
+						calibSample.image = newFrameImg;
+
+						int pointCount = 0;
+						fread(&pointCount, sizeof(int), 1, file);
+
+						for (int j = 0; j < pointCount; ++j) {
+							vec2 point;
+							fread(&point, sizeof(vec2), 1, file);
+							calibSample.imagePoints.push_back(point);
+						}
+
+						Tool->cameraCalibSamples.push_back(calibSample);
+						Tool->cameraCalibImageWidth = width;
+						Tool->cameraCalibImageHeight = height;
+					}
+
+					fclose(file);
+				}
+
+				if (ImGui::Button("Calibrate")) {
+					Tool->camCalibProcess = false;
+					cameraCalibRunCalibrationCircles(Tool->appContext, Tool->cameraCalibSamples, Tool->cameraCalibImageWidth, Tool->cameraCalibImageHeight, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
+				}
+
+				if (ImGui::Button("Bundle adjust")) {
+					computerVisionBundleAdjust(Tool->cameraCalibSamples, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
+				}
+
+				if (ImGui::Button("Load bundle results")) {
+					computerVisionLoadBundleAdjust(Tool->cameraCalibSamples, &calibContext->bundleAdjustResult);
+				}
+
+				if (ImGui::Checkbox("Undistorted", &Tool->cameraCalibShowUndistorted)) {
+					std::cout << "Undistorted: " << Tool->cameraCalibShowUndistorted << "\n";
+				}
+
+				if (ImGui::Checkbox("Undistorted bundle", &Tool->cameraCalibShowUndistortedBundled)) {
+					std::cout << "Undistorted: " << Tool->cameraCalibShowUndistortedBundled << "\n";
+				}
+			}
+
+			ImGui::PopID();
+		}
+
+		if (ImGui::CollapsingHeader("Machine vision")) {
+			ImGui::Checkbox("Process", &Tool->camImageProcess);
+		}
+
+		if (ImGui::CollapsingHeader("Camera calibration")) {
+			ImGui::Text("Samples");
+			if (ImGui::BeginListBox("##listbox_camera_samples", ImVec2(-FLT_MIN, -FLT_MIN))) {
+				{
+					bool isSelected = (Tool->cameraCalibSelectedSample == -1);
+
+					if (ImGui::Selectable("None", isSelected)) {
+						Tool->cameraCalibSelectedSample = -1;
+					}
+
+					if (isSelected) {
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+			
+				for (size_t n = 0; n < Tool->cameraCalibSamples.size(); ++n) {
+					bool isSelected = (Tool->cameraCalibSelectedSample == n);
+
+					char itemLabel[256];
+					sprintf_s(itemLabel, "Sample %d", n);
+
+					if (ImGui::Selectable(itemLabel, isSelected)) {
+						Tool->cameraCalibSelectedSample = n;
+						ldiImage* calibImg = Tool->cameraCalibSamples[n].image;
+
+						if (Tool->cameraCalibShowUndistortedBundled) {
+							cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
+							cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
+							cv::undistort(image, outputImage, calibContext->bundleAdjustResult.cameraMatrix, calibContext->bundleAdjustResult.distCoeffs);
+
+							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { calibImg->width, calibImg->height, outputImage.data });
+						} else if (Tool->cameraCalibShowUndistorted) {
+							cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
+							cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
+							cv::undistort(image, outputImage, Tool->cameraCalibMatrix, Tool->cameraCalibDist);
+						
+							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { calibImg->width, calibImg->height, outputImage.data });
+						} else {
+							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, *calibImg);
+						}
+
+						//_imageInspectorRenderHawkCalibration(Tool);
+					}
+
+					if (isSelected) {
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+				ImGui::EndListBox();
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::Button("Load job")) {
+				Tool->imageMode = IIM_CALIBRATION_JOB;
+
+				for (size_t i = 0; i < Tool->appContext->calibrationContext->calibJob.samples.size(); ++i) {
+					_platformFreeStereoCalibImages(&Tool->appContext->calibrationContext->calibJob.samples[i]);
+				}
+
+				Tool->appContext->calibrationContext->calibJob.samples.clear();
+				_imageInspectorSelectCalibJob(Tool, -1);
+
+				std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/volume_calib_space/");
+
+				for (int i = 0; i < filePaths.size(); ++i) {
+					std::cout << "file " << i << ": " << filePaths[i] << "\n";
+
+					if (endsWith(filePaths[i], ".dat")) {
+						ldiCalibStereoSample sample = {};
+						sample.path = filePaths[i];
+
+						_platformLoadStereoCalibSampleData(&sample);
+
+						for (int j = 0; j < 2; ++j) {
+							// TODO: Store more info about the results, rejects, etc.
+							findCharuco(sample.frames[j], Tool->appContext, &sample.cubes[j], &Tool->appContext->platform->hawks[j].defaultCameraMat, &Tool->appContext->platform->hawks[j].defaultDistMat);
+						}
+
+						_platformFreeStereoCalibImages(&sample);
+
+						Tool->appContext->calibrationContext->calibJob.samples.push_back(sample);
+					}
+				}
+
+				Tool->appContext->calibrationContext->calibJob.camMatrix[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.camDist[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
+
+				Tool->appContext->calibrationContext->calibJob.camMatrix[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.camDist[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
+			}
+
+			if (ImGui::Button("Process job")) {
+				_imageInspectorProcessCalibJob(Tool);
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::Button("Bundle adjust##volcal")) {
+				Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
+
+				Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
+
+				computerVisionBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			if (ImGui::Button("Load bundle adjust##volcal")) {
+				computerVisionLoadBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::Button("Bundle adjust individual")) {
+				Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
+
+				Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
+
+				computerVisionBundleAdjustStereoIndividual(&Tool->appContext->calibrationContext->calibJob);
+			}
+		
+			if (ImGui::Button("Bundle adjust individual load")) {
+				computerVisionBundleAdjustStereoIndividualLoad(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::Button("Bundle adjust both")) {
+				Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
+
+				Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
+
+				computerVisionBundleAdjustStereoBoth(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			if (ImGui::Button("Bundle adjust both load")) {
+				computerVisionBundleAdjustStereoBothLoad(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			ImGui::Separator();
+
+			/*if (ImGui::Button("Bundle adjust py")) {
+				computerVisionBundleAdjustStereoBothPy(&Tool->appContext->calibrationContext->calibJob);
+			}*/
+
+			if (ImGui::Button("Stereo calibrate")) {
+				Tool->appContext->calibrationContext->calibJob.startCamMat[0] = Tool->appContext->platform->hawks[0].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[0] = Tool->appContext->platform->hawks[0].defaultDistMat.clone();
+
+				Tool->appContext->calibrationContext->calibJob.startCamMat[1] = Tool->appContext->platform->hawks[1].defaultCameraMat.clone();
+				Tool->appContext->calibrationContext->calibJob.startDistMat[1] = Tool->appContext->platform->hawks[1].defaultDistMat.clone();
+
+				computerVisionStereoCameraCalibrate(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			ImGui::Separator();
+
+
+			ImGui::InputInt("Cam ID", &Tool->calibCamSelectedId);
+			if (Tool->calibCamSelectedId < 0 || Tool->calibCamSelectedId > 1) {
+				Tool->calibCamSelectedId = 0;
+			}
+
+			ImGui::Text("Samples (%d)", Tool->appContext->calibrationContext->calibJob.samples.size());
+			//if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
+			if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, -FLT_MIN))) {
+				for (int n = 0; n < Tool->appContext->calibrationContext->calibJob.samples.size(); ++n) {
+					bool isSelected = (Tool->calibJobSelectedSampleId == n);
+
+					if (ImGui::Selectable(Tool->appContext->calibrationContext->calibJob.samples[n].path.c_str(), isSelected)) {
+						// NOTE: Always switch back to calibration job mode if clicking on a job sample.
+						Tool->imageMode = IIM_CALIBRATION_JOB;
+
+						_imageInspectorSelectCalibJob(Tool, n);
+
+						//if (Tool->camImageProcess) {
+						//	ldiImage camImg = {};
+						//	camImg.data = Tool->camPixelsFinal;
+						//	camImg.width = CAM_IMG_WIDTH;
+						//	camImg.height = CAM_IMG_HEIGHT;
+
+						//	//findCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults);
+						//}
+					}
+
+					if (isSelected) {
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+				ImGui::EndListBox();
+			}
+		}
+
+		//ImGui::Checkbox("Grid", &camInspector->showGrid);
+		//if (ImGui::Button("Run sample test")) {
+			//camInspectorRunTest(camInspector);
+		//}
+	}
 	ImGui::End();
 
 	//ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_Once);
@@ -1022,73 +893,22 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImVec2 startPos = ImGui::GetCursorPos();
 		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
-		// This will catch our interactions.
-		ImGui::InvisibleButton("__imgInspecViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-		const bool isHovered = ImGui::IsItemHovered(); // Hovered
-		const bool isActive = ImGui::IsItemActive();   // Held
-		ImVec2 mousePos = ImGui::GetIO().MousePos;
-		const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+		auto surfaceResult = uiViewportSurface2D("__imgInspecViewButton", &Tool->imgScale, &Tool->imgOffset);
 
-		const bool isMouseRight = ImGui::GetIO().MouseDown[1];
-		const bool isMouseLeft = ImGui::GetIO().MouseDown[0];
-
-		// Convert canvas pos to world pos.
-		vec2 worldPos;
-		worldPos.x = mouseCanvasPos.x;
-		worldPos.y = mouseCanvasPos.y;
-		worldPos *= (1.0 / imgScale);
-		worldPos -= imgOffset;
-
-		if (isHovered) {
-			float wheel = ImGui::GetIO().MouseWheel;
-
-			if (wheel) {
-				imgScale += wheel * 0.2f * imgScale;
-
-				if (imgScale < 0.01) {
-					imgScale = 0.01;
-				}
-
-				vec2 newWorldPos;
-				newWorldPos.x = mouseCanvasPos.x;
-				newWorldPos.y = mouseCanvasPos.y;
-				newWorldPos *= (1.0 / imgScale);
-				newWorldPos -= imgOffset;
-
-				vec2 deltaWorldPos = newWorldPos - worldPos;
-
-				imgOffset.x += deltaWorldPos.x;
-				imgOffset.y += deltaWorldPos.y;
-			}
-		}
-
-		if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-			mouseDelta *= (1.0 / imgScale);
-
-			imgOffset += vec2(mouseDelta.x, mouseDelta.y);
-		}
-
-		//ImGui::BeginChild("ImageChild", ImVec2(530, 0));
-			//ImGui::Text("Image");
-			//ID3D11ShaderResourceView*
-			//ImTextureID my_tex_id = io.Fonts->TexID;
 		ImVec2 pos = ImGui::GetCursorScreenPos();
 		ImVec2 uv_min = ImVec2(0.0f, 0.0f);                 // Top-left
 		ImVec2 uv_max = ImVec2(1.0f, 1.0f);                 // Lower-right
 		ImVec4 tint_col = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);   // No tint
 		ImVec4 border_col = ImVec4(0.5f, 0.5f, 0.5f, 0.0f); // 50% opaque white
-
-		//ImGui::Image(shaderResourceViewTest, ImVec2(512, 512), uv_min, uv_max, tint_col, border_col);
 		ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
 		ImVec2 imgMin;
-		imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
-		imgMin.y = screenStartPos.y + imgOffset.y * imgScale;
+		imgMin.x = screenStartPos.x + Tool->imgOffset.x * Tool->imgScale;
+		imgMin.y = screenStartPos.y + Tool->imgOffset.y * Tool->imgScale;
 
 		ImVec2 imgMax;
-		imgMax.x = imgMin.x + CAM_IMG_WIDTH * imgScale;
-		imgMax.y = imgMin.y + CAM_IMG_HEIGHT * imgScale;
+		imgMax.x = imgMin.x + CAM_IMG_WIDTH * Tool->imgScale;
+		imgMax.y = imgMin.y + CAM_IMG_HEIGHT * Tool->imgScale;
 
 		draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
 		draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
@@ -1098,8 +918,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		uv_max = ImVec2(1.0f, 1.0f);
 		tint_col = ImVec4(1.0f, 1.0f, 1.0f, Tool->sceneOpacity);
 		//draw_list->AddCallback(_imageInspectorSetStateCallback2, Tool);
-		_imageInspectorRenderHawkVolume(Tool, viewSize.x, viewSize.y, vec2(imgOffset.x, imgOffset.y) * imgScale, vec2((float)CAM_IMG_WIDTH, (float)CAM_IMG_HEIGHT) * imgScale);
-		draw_list->AddImage(Tool->hawkViewBuffer.mainViewResourceView, screenStartPos, screenStartPos + viewSize, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+		
+		_imageInspectorRenderHawkVolume(Tool, 0, viewSize.x, viewSize.y, vec2(Tool->imgOffset.x, Tool->imgOffset.y) * Tool->imgScale, vec2((float)CAM_IMG_WIDTH, (float)CAM_IMG_HEIGHT) * Tool->imgScale);
+		draw_list->AddImage(Tool->hawkViewBuffer[0].mainViewResourceView, screenStartPos, screenStartPos + viewSize, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+
 		//draw_list->AddImage(Tool->hawkViewBuffer.mainViewResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		//draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
@@ -1113,26 +935,25 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			
 			{
 				ImVec2 offset = pos;
-				offset.x = screenStartPos.x + (imgOffset.x + 320) * imgScale;
-				offset.y = screenStartPos.y + (imgOffset.y + 240) * imgScale;
+				offset.x = screenStartPos.x + (Tool->imgOffset.x + 320) * Tool->imgScale;
+				offset.y = screenStartPos.y + (Tool->imgOffset.y + 240) * Tool->imgScale;
 
 				// Center tracking.
-				draw_list->AddCircle(offset, 40.0f * imgScale, ImColor(200, 0, 200));
+				draw_list->AddCircle(offset, 40.0f * Tool->imgScale, ImColor(200, 0, 200));
 
 				// Inner track.
-				//draw_list->AddCircle(offset, 180.0f * imgScale, ImColor(200, 0, 200));
+				//draw_list->AddCircle(offset, 180.0f * Tool->imgScale, ImColor(200, 0, 200));
 
 				// Outer track.
-				draw_list->AddCircle(offset, 260.0f * imgScale, ImColor(200, 0, 200));
+				draw_list->AddCircle(offset, 260.0f * Tool->imgScale, ImColor(200, 0, 200));
 			}
 
 			for (int i = 0; i < rotary->blobs.size(); ++i) {
 				vec2 k = rotary->blobs[i];
 
-				// NOTE: Half pixel offset required.
 				ImVec2 offset = pos;
-				offset.x = screenStartPos.x + (imgOffset.x + k.x) * imgScale;
-				offset.y = screenStartPos.y + (imgOffset.y + k.y) * imgScale;
+				offset.x = screenStartPos.x + (Tool->imgOffset.x + k.x) * Tool->imgScale;
+				offset.y = screenStartPos.y + (Tool->imgOffset.y + k.y) * Tool->imgScale;
 
 				draw_list->AddCircle(offset, 2.0f, ImColor(0, 0, 255));
 
@@ -1144,16 +965,16 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			if (rotary->foundCenter && rotary->foundLocator) {
 				{
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + rotary->centerPos.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + rotary->centerPos.y) * imgScale;
-					draw_list->AddCircle(offset, 4.0f * imgScale, ImColor(0, 255, 0));
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + rotary->centerPos.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + rotary->centerPos.y) * Tool->imgScale;
+					draw_list->AddCircle(offset, 4.0f * Tool->imgScale, ImColor(0, 255, 0));
 				}
 
 				{
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + rotary->locatorPos.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + rotary->locatorPos.y) * imgScale;
-					draw_list->AddCircle(offset, 4.0f * imgScale, ImColor(255, 255, 0));
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + rotary->locatorPos.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + rotary->locatorPos.y) * Tool->imgScale;
+					draw_list->AddCircle(offset, 4.0f * Tool->imgScale, ImColor(255, 255, 0));
 				}
 				
 				
@@ -1162,8 +983,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 				//	// NOTE: Half pixel offset required.
 				//	ImVec2 offset = pos;
-				//	offset.x = screenStartPos.x + (imgOffset.x + k->pos.x) * imgScale;
-				//	offset.y = screenStartPos.y + (imgOffset.y + k->pos.y) * imgScale;
+				//	offset.x = screenStartPos.x + (Tool->imgOffset.x + k->pos.x) * Tool->imgScale;
+				//	offset.y = screenStartPos.y + (Tool->imgOffset.y + k->pos.y) * Tool->imgScale;
 
 				//	draw_list->AddCircle(offset, 4.0f, ImColor(255, 0, 0));
 
@@ -1176,10 +997,9 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				for (int i = 0; i < 32; ++i) {
 					ldiRotaryPoint* k = &rotary->accumPoints[i];
 
-					// NOTE: Half pixel offset required.
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + k->pos.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + k->pos.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + k->pos.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + k->pos.y) * Tool->imgScale;
 
 					if (i < 16) {
 						draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
@@ -1201,14 +1021,13 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					ldiRotaryPoint* a = &rotary->accumPoints[i];
 					ldiRotaryPoint* b = &rotary->accumPoints[i + 16];
 
-					// NOTE: Half pixel offset required.
 					ImVec2 aPos;
-					aPos.x = screenStartPos.x + (imgOffset.x + a->pos.x) * imgScale;
-					aPos.y = screenStartPos.y + (imgOffset.y + a->pos.y) * imgScale;
+					aPos.x = screenStartPos.x + (Tool->imgOffset.x + a->pos.x) * Tool->imgScale;
+					aPos.y = screenStartPos.y + (Tool->imgOffset.y + a->pos.y) * Tool->imgScale;
 
 					ImVec2 bPos;
-					bPos.x = screenStartPos.x + (imgOffset.x + b->pos.x) * imgScale;
-					bPos.y = screenStartPos.y + (imgOffset.y + b->pos.y) * imgScale;
+					bPos.x = screenStartPos.x + (Tool->imgOffset.x + b->pos.x) * Tool->imgScale;
+					bPos.y = screenStartPos.y + (Tool->imgOffset.y + b->pos.y) * Tool->imgScale;
 
 					draw_list->AddLine(aPos, bPos, ImColor(0, 0, 0 + (255 / 16) * i));
 				}
@@ -1235,8 +1054,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					vec2 o = sample->imagePoints[iterPoints];
 
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 				
 					draw_list->AddCircle(offset, 4.0f, ImColor(rndCol.x, rndCol.y, rndCol.z));
 				}
@@ -1249,8 +1068,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					cv::Point2f o = sample->undistortedImagePoints[iterPoints];
 
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 					draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
 				}
@@ -1259,8 +1078,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					cv::Point2f o = sample->reprojectedImagePoints[iterPoints];
 
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 					draw_list->AddCircle(offset, 2.0f, ImColor(2, 117, 247));
 				}
@@ -1277,8 +1096,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					cv::Point2f o = sample->undistortedImagePoints[iterPoints];
 
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 					draw_list->AddCircle(offset, 2.0f, ImColor(100, 255, 0));
 				}
@@ -1287,8 +1106,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					cv::Point2f o = sample->reprojectedImagePoints[iterPoints];
 
 					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 					draw_list->AddCircle(offset, 3.0f, ImColor(0, 0, 255));
 				}
@@ -1304,10 +1123,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			for (size_t i = 0; i < calibJob->massModelImagePoints[0].size(); ++i) {
 				int selectedCam = Tool->calibCamSelectedId;
 
-				ImVec2 uiPos = screenStartPos + (toImVec2(imgOffset) + toImVec2(calibJob->massModelImagePoints[selectedCam][i])) * imgScale;
+				ImVec2 uiPos = screenStartPos + (toImVec2(Tool->imgOffset) + toImVec2(calibJob->massModelImagePoints[selectedCam][i])) * Tool->imgScale;
 				draw_list->AddCircle(uiPos, 2.0f, ImColor(224, 93, 11));
 
-				uiPos = screenStartPos + (toImVec2(imgOffset) + toImVec2(calibJob->massModelUndistortedPoints[selectedCam][i])) * imgScale;
+				uiPos = screenStartPos + (toImVec2(Tool->imgOffset) + toImVec2(calibJob->massModelUndistortedPoints[selectedCam][i])) * Tool->imgScale;
 				draw_list->AddCircle(uiPos, 2.0f, ImColor(65, 158, 14));
 			}
 		}
@@ -1323,69 +1142,120 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1) {
 				charucos = &Tool->appContext->calibrationContext->calibJob.samples[Tool->calibJobSelectedSampleId].cubes[Tool->calibCamSelectedId];
 			}
+			
+			{
+				for (size_t i = 0; i < charucos->markers.size(); ++i) {
+					ImVec2 points[5];
 
-			for (int i = 0; i < charucos->markers.size(); ++i) {
-				/*ImVec2 offset = pos;
-				offset.x = screenStartPos.x + (imgOffset.x + o.x + 0.5) * imgScale;
-				offset.y = screenStartPos.y + (imgOffset.y + o.y + 0.5) * imgScale;*/
+					vec2 markerCentroid(0.0f, 0.0f);
 
-				ImVec2 points[5];
+					for (int j = 0; j < 4; ++j) {
+						vec2 o = charucos->markers[i].corners[j];
 
-				vec2 markerCentroid(0.0f, 0.0f);
+						points[j] = pos;
+						points[j].x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+						points[j].y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
-				for (int j = 0; j < 4; ++j) {
-					vec2 o = charucos->markers[i].corners[j];
+						markerCentroid.x += points[j].x;
+						markerCentroid.y += points[j].y;
+					}
+					points[4] = points[0];
 
-					points[j] = pos;
-					points[j].x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					points[j].y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
+					markerCentroid /= 4.0f;
+					markerCentroids.push_back(markerCentroid);
 
-					markerCentroid.x += points[j].x;
-					markerCentroid.y += points[j].y;
+					draw_list->AddPolyline(points, 5, ImColor(0, 0, 255), 0, 1.0f);
 				}
-				points[4] = points[0];
 
-				markerCentroid /= 4.0f;
-				markerCentroids.push_back(markerCentroid);
-
-				draw_list->AddPolyline(points, 5, ImColor(0, 0, 255), 0, 1.0f);
-				//draw_list->AddCircle(offset, 4.0f, ImColor(0, 0, 255));
-			}
-
-			//std::cout << appContext->camImageMarkerIds.size() << "\n";
-
-			for (int i = 0; i < charucos->markers.size(); ++i) {
-				char strBuff[32];
-				sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markers[i].id);
-				draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
-			}
-
-			for (int b = 0; b < charucos->boards.size(); ++b) {
-				for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
-					vec2 o = charucos->boards[b].corners[i].position;
-
-					// NOTE: Half pixel offset required.
-					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale;
-
-					draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+				for (int i = 0; i < charucos->markers.size(); ++i) {
+					char strBuff[32];
+					sprintf_s(strBuff, sizeof(strBuff), "%d", charucos->markers[i].id);
+					draw_list->AddText(ImVec2(markerCentroids[i].x, markerCentroids[i].y), ImColor(52, 195, 235), strBuff);
 				}
 			}
 
-			for (int b = 0; b < charucos->boards.size(); ++b) {
-				for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
-					vec2 o = charucos->boards[b].corners[i].position;
-					int cornerId = charucos->boards[b].corners[i].globalId;
+			if (Tool->showCharucoRejectedMarkers) {
+				for (size_t i = 0; i < charucos->rejectedMarkers.size(); ++i) {
+					ImVec2 points[5];
 
-					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (imgOffset.x + o.x) * imgScale + 5;
-					offset.y = screenStartPos.y + (imgOffset.y + o.y) * imgScale - 15;
+					vec2 markerCentroid(0.0f, 0.0f);
 
-					char strBuf[256];
-					sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+					for (int j = 0; j < 4; ++j) {
+						vec2 o = charucos->rejectedMarkers[i].corners[j];
 
-					draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+						points[j] = pos;
+						points[j].x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+						points[j].y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
+
+						markerCentroid.x += points[j].x;
+						markerCentroid.y += points[j].y;
+					}
+					points[4] = points[0];
+
+					markerCentroid /= 4.0f;
+					markerCentroids.push_back(markerCentroid);
+
+					draw_list->AddPolyline(points, 5, ImColor(255, 0, 0), 0, 1.0f);
+				}
+			}
+
+			{
+				for (int b = 0; b < charucos->boards.size(); ++b) {
+					for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+						vec2 o = charucos->boards[b].corners[i].position;
+
+						ImVec2 offset = pos;
+						offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+						offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
+
+						draw_list->AddCircle(offset, 4.0f, ImColor(0, 255, 0));
+					}
+				}
+
+				for (int b = 0; b < charucos->boards.size(); ++b) {
+					for (int i = 0; i < charucos->boards[b].corners.size(); ++i) {
+						vec2 o = charucos->boards[b].corners[i].position;
+						int cornerId = charucos->boards[b].corners[i].globalId;
+
+						ImVec2 offset = pos;
+						offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale + 5;
+						offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale - 15;
+
+						char strBuf[256];
+						sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+
+						draw_list->AddText(offset, ImColor(0, 200, 0), strBuf);
+					}
+				}
+			}
+
+			{
+				for (int b = 0; b < charucos->rejectedBoards.size(); ++b) {
+					for (int i = 0; i < charucos->rejectedBoards[b].corners.size(); ++i) {
+						vec2 o = charucos->rejectedBoards[b].corners[i].position;
+
+						ImVec2 offset = pos;
+						offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+						offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
+
+						draw_list->AddCircle(offset, 4.0f, ImColor(255, 255, 0));
+					}
+				}
+
+				for (int b = 0; b < charucos->rejectedBoards.size(); ++b) {
+					for (int i = 0; i < charucos->rejectedBoards[b].corners.size(); ++i) {
+						vec2 o = charucos->rejectedBoards[b].corners[i].position;
+						int cornerId = charucos->rejectedBoards[b].corners[i].globalId;
+
+						ImVec2 offset = pos;
+						offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale + 5;
+						offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale - 15;
+
+						char strBuf[256];
+						sprintf_s(strBuf, 256, "%d %.2f, %.2f", cornerId, o.x, o.y);
+
+						draw_list->AddText(offset, ImColor(200, 200, 0), strBuf);
+					}
 				}
 			}
 		}
@@ -1393,12 +1263,12 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		//----------------------------------------------------------------------------------------------------
 		// Draw cursor.
 		//----------------------------------------------------------------------------------------------------
-		if (isHovered) {
+		if (surfaceResult.isHovered) {
 			vec2 pixelPos;
-			pixelPos.x = (int)worldPos.x;
-			pixelPos.y = (int)worldPos.y;
+			pixelPos.x = (int)surfaceResult.worldPos.x;
+			pixelPos.y = (int)surfaceResult.worldPos.y;
 
-			Tool->camImageCursorPos = worldPos;
+			Tool->camImageCursorPos = surfaceResult.worldPos;
 
 			if (pixelPos.x >= 0 && pixelPos.x < CAM_IMG_WIDTH) {
 				if (pixelPos.y >= 0 && pixelPos.y < CAM_IMG_HEIGHT) {
@@ -1407,12 +1277,12 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			ImVec2 rMin;
-			rMin.x = screenStartPos.x + (imgOffset.x + pixelPos.x) * imgScale;
-			rMin.y = screenStartPos.y + (imgOffset.y + pixelPos.y) * imgScale;
+			rMin.x = screenStartPos.x + (Tool->imgOffset.x + pixelPos.x) * Tool->imgScale;
+			rMin.y = screenStartPos.y + (Tool->imgOffset.y + pixelPos.y) * Tool->imgScale;
 
 			ImVec2 rMax = rMin;
-			rMax.x += imgScale;
-			rMax.y += imgScale;
+			rMax.x += Tool->imgScale;
+			rMax.y += Tool->imgScale;
 
 			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
 		}
@@ -1424,7 +1294,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 			//ImGui::Text("%.3f %.3f - %.3f", tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, tool->surfelViewScale);
-			ImGui::Text("%.3f %.3f", worldPos.x, worldPos.y);
+			ImGui::Text("%.3f %.3f", surfaceResult.worldPos.x, surfaceResult.worldPos.y);
 			//ImGui::Text("Surfels: %d", laserViewSurfelCount);
 
 			ImGui::EndChild();

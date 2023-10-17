@@ -24,6 +24,14 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
+#include <opencv2/core.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/aruco.hpp>
+#include <opencv2/aruco/charuco.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/videoio.hpp>
+
 #include "utilities.h"
 #include "model.h"
 #include "objLoader.h"
@@ -32,6 +40,7 @@
 #include "image.h"
 #include "threadSafeQueue.h"
 #include "camera.h"
+#include "ui.h"
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
@@ -233,7 +242,7 @@ void _initImgui(ldiApp* AppContext) {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	//io.IniFilename = NULL;
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
 	//io.ConfigViewportsNoAutoMerge = true;
@@ -277,7 +286,8 @@ void _initImgui(ldiApp* AppContext) {
 	colors[ImGuiCol_Button] = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
 	colors[ImGuiCol_ButtonHovered] = ImVec4(0.41f, 0.26f, 0.98f, 0.40f);
 	colors[ImGuiCol_ButtonActive] = ImVec4(0.47f, 0.26f, 0.98f, 0.67f);
-	colors[ImGuiCol_Header] = ImVec4(0.16f, 0.17f, 0.20f, 1.00f);
+	//colors[ImGuiCol_Header] = ImVec4(0.16f, 0.17f, 0.20f, 1.00f);
+	colors[ImGuiCol_Header] = ImVec4(0.30f, 0.29f, 0.42f, 1.00f);
 	colors[ImGuiCol_HeaderHovered] = ImVec4(0.29f, 0.28f, 0.32f, 0.80f);
 	colors[ImGuiCol_HeaderActive] = ImVec4(0.30f, 0.28f, 0.43f, 1.00f);
 	colors[ImGuiCol_Tab] = ImVec4(0.11f, 0.11f, 0.12f, 0.00f);

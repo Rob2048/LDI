@@ -1,13 +1,5 @@
 #pragma once
 
-#include <opencv2/core.hpp>
-#include <opencv2/calib3d.hpp>
-#include <opencv2/aruco.hpp>
-#include <opencv2/aruco/charuco.hpp>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/videoio.hpp>
-
 #include <fstream>
 
 // Things to investigate:
@@ -59,7 +51,9 @@ struct ldiCharucoBoard {
 
 struct ldiCharucoResults {
 	std::vector<ldiCharucoMarker> markers;
+	std::vector<ldiCharucoMarker> rejectedMarkers;
 	std::vector<ldiCharucoBoard> boards;
+	std::vector<ldiCharucoBoard> rejectedBoards;
 };
 
 struct ldiCalibCubePoint {
@@ -216,56 +210,6 @@ float _calibrationTargetFullHeightCm;
 std::vector<vec3> _calibrationTargetLocalPoints;
 
 void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
-
-mat4 cameraCreateProjectionFromOpenCvCamera(float Width, float Height, cv::Mat& CameraMatrix, float Near, float Far) {
-	mat4 result = glm::identity<mat4>();
-
-	float Fx = CameraMatrix.at<double>(0, 0);
-	float Fy = CameraMatrix.at<double>(1, 1);
-	float Cx = CameraMatrix.at<double>(0, 2);
-	float Cy = CameraMatrix.at<double>(1, 2);
-
-	result[0][0] = 2 * (Fx / Width);
-	result[0][1] = 0;
-	result[0][2] = 0;
-	result[0][3] = 0;
-
-	result[1][0] = 0;
-	result[1][1] = -2 * (Fy / Height);
-	result[1][2] = 0;
-	result[1][3] = 0;
-
-	result[2][0] = (Width - 2.0f * Cx) / Width;
-	result[2][1] = (Height - 2.0f * Cy) / -Height;
-	result[2][2] = Far / (Near - Far);
-	result[2][3] = -1;
-
-	result[3][0] = 0;
-	result[3][1] = 0;
-	result[3][2] = -(Far * Near) / (Far - Near);
-	result[3][3] = 0;
-
-	return result;
-}
-
-mat4 cameraProjectionToVirtualViewport(mat4 ProjMat, vec2 ViewPortTopLeft, vec2 ViewPortSize, vec2 WindowSize) {
-	float scaleX = ViewPortSize.x / WindowSize.x;
-	float scaleY = ViewPortSize.y / WindowSize.y;
-
-	// Scale existing FOV.
-	ProjMat[0][0] *= scaleX;
-	ProjMat[1][1] *= scaleY;
-
-	// Scale existing shift.
-	ProjMat[2][0] *= scaleX;
-	ProjMat[2][1] *= scaleY;
-
-	// Add new shift so that middle of virtual viewport is Top left: 1, -1, Bottom right: -1, 1
-	ProjMat[2][0] -= ((ViewPortTopLeft.x + ViewPortSize.x * 0.5f) / ViewPortSize.x) * 2 * scaleX - 1;
-	ProjMat[2][1] += ((ViewPortTopLeft.y + ViewPortSize.y * 0.5f) / ViewPortSize.y) * 2 * scaleY - 1;
-
-	return ProjMat;
-}
 
 void calibCubeInit(ldiCalibCube* Cube, float SquareSizeCm, int SquareCount, float TotalSideSizeCm) {
 	Cube->boardSquareSizeCm = SquareSizeCm;
@@ -810,7 +754,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 	try {
 		cv::Mat image(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
 		std::vector<int> markerIds;
-		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
+		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedMarkers;
 		auto parameters = cv::aruco::DetectorParameters();
 		parameters.minMarkerPerimeterRate = 0.015;
 		// TODO: Check if this is doing anything.
@@ -819,7 +763,7 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 		double t0 = _getTime(AppContext);
 		
 		cv::aruco::ArucoDetector arucoDetector(_dictionary, parameters);
-		arucoDetector.detectMarkers(image, markerCorners, markerIds, rejectedCandidates);
+		arucoDetector.detectMarkers(image, markerCorners, markerIds, rejectedMarkers);
 		// TODO: Use refine strategy to detect more markers.
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
@@ -829,8 +773,9 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 
 		Results->markers.clear();
 		Results->boards.clear();
+		Results->rejectedMarkers.clear();
 
-		for (int i = 0; i < markerCorners.size(); ++i) {
+		for (size_t i = 0; i < markerCorners.size(); ++i) {
 			ldiCharucoMarker marker;
 			marker.id = markerIds[i];
 
@@ -839,6 +784,17 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 			}
 
 			Results->markers.push_back(marker);
+		}
+
+		for (size_t i = 0; i < rejectedMarkers.size(); ++i) {
+			ldiCharucoMarker marker;
+			marker.id = -1;
+
+			for (int j = 0; j < 4; ++j) {
+				marker.corners[j] = vec2(rejectedMarkers[i][j].x, rejectedMarkers[i][j].y);
+			}
+
+			Results->rejectedMarkers.push_back(marker);
 		}
 
 		// Interpolate charuco corners for each possible board.
@@ -920,8 +876,6 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 
 						board.charucoEstimatedImageCenter = vec2(imagePoints[0].x, imagePoints[0].y);
 						board.charucoEstimatedImageNormal = vec2(imagePoints[1].x, imagePoints[1].y);
-					} else {
-						//std::cout << "Invalid\n";
 					}
 
 					for (int j = 0; j < charucoIds.size(); ++j) {
@@ -935,7 +889,8 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 					if (!board.rejected) {
 						Results->boards.push_back(board);
 					} else {
-						//std::cout << "Board rejected\n";
+						Results->rejectedBoards.push_back(board);
+						std::cout << "Board rejected\n";
 					}
 				}
 			}

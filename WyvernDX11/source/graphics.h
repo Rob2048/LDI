@@ -1593,3 +1593,23 @@ void gfxRunComputeShader(ldiApp* AppContext, ID3D11ComputeShader* Shader) {
 
 	// TODO: Consider unbinding all resources after dispatch.
 }
+
+void gfxCopyToTexture2D(ldiApp* AppContext, ID3D11Texture2D* Texture, ldiImage Source) {
+	D3D11_TEXTURE2D_DESC texDesc;
+	Texture->GetDesc(&texDesc);
+
+	if (Source.width < texDesc.Width || Source.height < texDesc.Height) {
+		std::cout << "Tried to copy " << Source.width << "x" << Source.height << " to texture of size " << texDesc.Width << "x" << texDesc.Height << "\n";
+		return;
+	}
+
+	D3D11_MAPPED_SUBRESOURCE ms;
+	AppContext->d3dDeviceContext->Map(Texture, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	uint8_t* pixelData = (uint8_t*)ms.pData;
+
+	for (int i = 0; i < Source.height; ++i) {
+		memcpy(pixelData + i * ms.RowPitch, Source.data + i * Source.width, Source.width);
+	}
+
+	AppContext->d3dDeviceContext->Unmap(Texture, 0);
+}
