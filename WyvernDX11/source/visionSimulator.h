@@ -799,7 +799,7 @@ void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	calibSample.a = Horse->a;
 	calibSample.b = Horse->b;
 	
-	findCharuco(img, Tool->appContext, &calibSample.charucos, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
+	computerVisionFindCharuco(img, Tool->appContext, &calibSample.charucos, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 	
 	Tool->calibSamples.push_back(calibSample);
 
@@ -1370,7 +1370,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			img.data = Tool->renderViewCopy;
 			img.width = Tool->imageWidth;
 			img.height = Tool->imageHeight;
-			findCharuco(img, Tool->appContext, &Tool->charucoResults, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
+			computerVisionFindCharuco(img, Tool->appContext, &Tool->charucoResults, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 
 			Tool->charucoTruth.boards.clear();
 			

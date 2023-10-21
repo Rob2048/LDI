@@ -32,7 +32,9 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
 
+#include "glm.h"
 #include "utilities.h"
+#include "circleFit.h"
 #include "model.h"
 #include "objLoader.h"
 #include "plyLoader.h"
@@ -189,6 +191,10 @@ double _getTime(ldiApp* AppContext) {
 #include "graphics.h"
 #include "debugPrims.h"
 #include "physics.h"
+#include "hawk.h"
+#include "horse.h"
+#include "panther.h"
+#include "calibration.h"
 #include "platform.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
@@ -884,6 +890,7 @@ int main() {
 	// TODO: Move to callibration machine vision setup.
 	createCharucos(false);
 	cameraCalibCreateTarget(9, 6, 1.0f, 64);
+	initCubePoints();
 
 	if (!_initResources(appContext)) {
 		return 1;

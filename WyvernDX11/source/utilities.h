@@ -4,9 +4,78 @@
 #include <shobjidl.h> 
 #include <sstream>
 #include <string>
+#include <algorithm>
+#include "glm.h"
 
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
+
+struct ldiLineFit {
+	vec3 origin;
+	vec3 direction;
+};
+
+struct ldiLineSegment {
+	vec3 a;
+	vec3 b;
+};
+
+struct ldiPlane {
+	vec3 point;
+	vec3 normal;
+};
+
+mat4 planeGetBasis(ldiPlane Plane) {
+	vec3 up = vec3Up;
+
+	if (up == Plane.normal) {
+		up = vec3Right;
+	}
+
+	vec3 side = glm::cross(Plane.normal, up);
+	side = glm::normalize(side);
+	up = glm::cross(Plane.normal, side);
+	up = glm::normalize(up);
+
+	mat4 result = glm::identity<mat4>();
+	result[0] = vec4(side, 0.0f);
+	result[1] = vec4(up, 0.0f);
+	result[2] = vec4(Plane.normal, 0.0f);
+	result[3] = vec4(Plane.point, 1.0f);
+
+	return result;
+}
+
+bool getPointAtIntersectionOfPlanes(ldiPlane A, ldiPlane B, ldiPlane C, vec3* OutPoint) {
+	vec3 m1 = vec3(A.normal.x, B.normal.x, C.normal.x);
+	vec3 m2 = vec3(A.normal.y, B.normal.y, C.normal.y);
+	vec3 m3 = vec3(A.normal.z, B.normal.z, C.normal.z);
+
+	float distA = glm::dot(A.normal, A.point);
+	float distB = glm::dot(B.normal, B.point);
+	float distC = glm::dot(C.normal, C.point);
+
+	vec3 d = vec3(distA, distB, distC);
+
+	vec3 u = glm::cross(m2, m3);
+	vec3 v = glm::cross(m1, d);
+
+	float denom = glm::dot(m1, u);
+
+	if (abs(denom) < std::numeric_limits<float>::epsilon()) {
+		return false;
+	}
+
+	*OutPoint = vec3(glm::dot(d, u) / denom, glm::dot(m3, v) / denom, -glm::dot(m2, v) / denom);
+
+	return true;
+}
+
+vec3 projectPointToPlane(vec3 Point, ldiPlane Plane) {
+	vec3 delta = Point - Plane.point;
+	float dist = glm::dot(delta, Plane.normal);
+	return Point - Plane.normal * dist;
+}
 
 static bool endsWith(std::string_view str, std::string_view suffix) {
 	return str.size() >= suffix.size() && 0 == str.compare(str.size() - suffix.size(), suffix.size(), suffix);
@@ -182,4 +251,16 @@ inline ImVec2 toImVec2(vec2 A) {
 
 inline vec2 toVec2(ImVec2 A) {
 	return vec2(A.x, A.y);
+}
+
+inline vec2 toVec2(cv::Point2f A) {
+	return vec2(A.x, A.y);
+}
+
+inline cv::Point3f toPoint3f(vec3 A) {
+	return cv::Point3f(A.x, A.y, A.z);
+}
+
+inline vec3 toVec3(cv::Point3f A) {
+	return vec3(A.x, A.y, A.z);
 }

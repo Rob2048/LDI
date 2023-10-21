@@ -150,6 +150,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="source\circleFit.cpp" />
     <ClCompile Include="source\image.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MaxSpeed</Optimization>
       <IntrinsicFunctions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</IntrinsicFunctions>
@@ -171,7 +172,9 @@
     <ClCompile Include="source\stlLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="source\calibration.h" />
     <ClInclude Include="source\camera.h" />
+    <ClInclude Include="source\circleFit.h" />
     <ClInclude Include="source\computerVision.h" />
     <ClInclude Include="source\elipseCollision.h" />
     <ClInclude Include="source\galvoInspector.h" />

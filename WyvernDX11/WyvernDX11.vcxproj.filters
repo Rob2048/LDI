@@ -57,6 +57,9 @@
     <ClCompile Include="source\network.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="source\circleFit.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\graphics.h">
@@ -153,6 +156,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="source\ui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\calibration.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\circleFit.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

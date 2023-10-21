@@ -1,14 +1,11 @@
 #pragma once
 
-#include "horse.h"
-#include "hawk.h"
-#include "panther.h"
-
 enum ldiPlatformJobType {
 	PJT_MOVE_AXIS,
 	PJT_DIAG,
 	PJT_HOME,
 	PJT_CAPTURE_CALIBRATION,
+	PJT_CAPTURE_SCANNER_CALIBRATION
 };
 
 struct ldiPlatformJobHeader {
@@ -65,10 +62,13 @@ struct ldiPlatform {
 	int							testPosX;
 	int							testPosY;
 	int							testPosZ;
-
-	vec3						testCubeOffset = vec3(0.0f, 0.0f, 0.0f);
+	int							testPosC;
+	int							testPosA;
 
 	ldiRenderModel				cubeModel;
+
+	bool						showCalibCubeVolume = false;
+	bool						showCalibVolumeBasis = false;
 };
 
 void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
@@ -248,65 +248,6 @@ void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Jo
 	}*/
 }
 
-void _platformSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A) {
-	std::string path = "../cache/volume_calib_space/"
-		+ std::to_string(X) + "_" + std::to_string(Y) + "_" + std::to_string(Z) + "_" + std::to_string(C) + "_" + std::to_string(A)
-		+ ".dat";
-	
-	FILE* file;
-	fopen_s(&file, path.c_str(), "wb");
-
-	fwrite(&X, sizeof(int), 1, file);
-	fwrite(&Y, sizeof(int), 1, file);
-	fwrite(&Z, sizeof(int), 1, file);
-	fwrite(&C, sizeof(int), 1, file);
-	fwrite(&A, sizeof(int), 1, file);
-
-	fwrite(&Image0->width, sizeof(int), 1, file);
-	fwrite(&Image0->height, sizeof(int), 1, file);
-	fwrite(Image0->data, 1, Image0->width * Image0->height, file);
-	fwrite(Image1->data, 1, Image0->width * Image0->height, file);
-
-	fclose(file);
-}
-
-void _platformLoadStereoCalibSampleData(ldiCalibStereoSample* Sample) {
-	FILE* file;
-	fopen_s(&file, Sample->path.c_str(), "rb");
-
-	fread(&Sample->X, sizeof(int), 1, file);
-	fread(&Sample->Y, sizeof(int), 1, file);
-	fread(&Sample->Z, sizeof(int), 1, file);
-	fread(&Sample->C, sizeof(int), 1, file);
-	fread(&Sample->A, sizeof(int), 1, file);
-
-	int width;
-	int height;
-	fread(&width, 4, 1, file);
-	fread(&height, 4, 1, file);
-
-	for (int i = 0; i < 2; ++i) {
-		Sample->frames[i].data = new uint8_t[width * height];
-		Sample->frames[i].width = width;
-		Sample->frames[i].height = height;
-	
-		fread(Sample->frames[i].data, width * height, 1, file);
-	}
-
-	Sample->imageLoaded = true;
-
-	fclose(file);
-}
-
-void _platformFreeStereoCalibImages(ldiCalibStereoSample* Sample) {
-	if (Sample->imageLoaded) {
-		delete[] Sample->frames[0].data;
-		delete[] Sample->frames[1].data;
-		Sample->imageLoaded = false;
-	}
-}
-
-
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
 	delete Platform->job;
 	Platform->jobState = 0;
@@ -320,18 +261,20 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	// TODO: Make sure directories exist for saving results.
 
 	// TODO: Set cam to mode 0. Prepare other hardware.
-	// TODO: Set starting point.
-
-	// Account for backlash, always approach +/CW.
+	
+	// NOTE: Account for backlash, always approach +/CW.
 
 	// 8000 steps per cm.
 
 	// C: start at 13000
 
-	// Extents.
-
+	// Extents:
 	// -6 to 6cm = -48000 to 48000
 	// 4 captures, each step is 32000
+	// 7 captures, each step is 16000
+	// -48000, -32000, -16000, 0, 16000, 32000, 48000
+	// 4x4x4 = 64
+	// 7x7x7 = 343
 
 	// Pre arm camera.
 	/*hawkClearWaitPacket(&Platform->hawks[0]);
@@ -342,6 +285,72 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	//hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
 	//std::cout << "Got frame " << _getTime(appContext) << "\n";
 
+	int imgId = 0;
+
+	int posX = 0;
+	int posY = 0;
+	int posZ = 0;
+	int posC = 13000;
+	int posA = 0;
+
+	int capPosX = 0;
+	int capPosY = 0;
+	int capPosZ = 0;
+	int capPosC = 0;
+	int capPosA = 0;
+
+	//----------------------------------------------------------------------------------------------------
+	// Phase 0.
+	//----------------------------------------------------------------------------------------------------
+	{
+		if (!pantherMoveAndWait(panther, PA_X, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_X, 0, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_Z, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_Z, -0, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
+
+		Sleep(300);
+
+		hawkClearWaitPacket(&Platform->hawks[0]);
+		hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
+
+		hawkClearWaitPacket(&Platform->hawks[1]);
+		hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
+
+		hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+		hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+
+		{
+			std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+			std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+
+			ldiImage frame0 = {};
+			frame0.data = Platform->hawks[0].frameBuffer;
+			frame0.width = Platform->hawks[0].imgWidth;
+			frame0.height = Platform->hawks[0].imgHeight;
+
+			ldiImage frame1 = {};
+			frame1.data = Platform->hawks[1].frameBuffer;
+			frame1.width = Platform->hawks[1].imgWidth;
+			frame1.height = Platform->hawks[1].imgHeight;
+		
+			calibSaveStereoCalibImage(&frame0, &frame1, 0, 0, 0, 13000, 0, 0, imgId);
+			++imgId;
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Phase 1.
+	//----------------------------------------------------------------------------------------------------
 	if (!pantherMoveAndWait(panther, PA_X, -49000, 0.0f)) { return false; }
 	if (!pantherMoveAndWait(panther, PA_X, -48000, 0.0f)) { return false; }
 
@@ -354,20 +363,17 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
 	if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
 
-	int posX = -48000;
-	int posY = -48000;
-	int posZ = -48000;
-	int posC = 13000;
-	int posA = 0;
+	if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
 
-	int capPosX = 0;
-	int capPosY = 0;
-	int capPosZ = 0;
-	int capPosC = 0;
-	int capPosA = 0;
-	
-	for (int iX = 0; iX < 4; ++iX) {
-		posX = -48000 + iX * 32000;
+	posX = -48000;
+	posY = -48000;
+	posZ = -48000;
+	posC = 13000;
+	posA = 0;
+
+	for (int iX = 0; iX < 7; ++iX) {
+		posX = -48000 + iX * 16000;
 		if (!pantherMoveAndWait(panther, PA_X, posX, 0.0f)) { return false; }
 
 		if (!pantherMoveAndWait(panther, PA_Y, -49000, 0.0f)) { return false; }
@@ -375,8 +381,8 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 
 		Sleep(300);
 
-		for (int iY = 0; iY < 4; ++iY) {
-			posY = -48000 + iY * 32000;
+		for (int iY = 0; iY < 7; ++iY) {
+			posY = -48000 + iY * 16000;
 			if (!pantherMoveAndWait(panther, PA_Y, posY, 0.0f)) { return false; }
 
 			if (!pantherMoveAndWait(panther, PA_Z, -49000, 0.0f)) { return false; }
@@ -384,9 +390,9 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 
 			Sleep(300);
 
-			for (int iZ = 0; iZ < 4 + 1; ++iZ) {
-				if (iZ < 4) {
-					posZ = -48000 + iZ * 32000;
+			for (int iZ = 0; iZ < 7 + 1; ++iZ) {
+				if (iZ < 7) {
+					posZ = -48000 + iZ * 16000;
 					if (!pantherMoveAndWait(panther, PA_Z, posZ, 0.0f)) { return false; }
 				}
 
@@ -415,11 +421,12 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 							return false;
 						}
 
-						_platformSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA);
+						calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 1, imgId);
+						++imgId;
 					}
 				}
 
-				if (iZ < 4) {
+				if (iZ < 7) {
 					hawkClearWaitPacket(&Platform->hawks[0]);
 					hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
 
@@ -445,74 +452,279 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		}
 	}
 
-	// Final frame.
-	/*hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-	std::cout << "Got frame " << _getTime(appContext) << "\n";
-	std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";*/
+	//----------------------------------------------------------------------------------------------------
+	// Phase 2.
+	//----------------------------------------------------------------------------------------------------
+	if (!pantherMoveAndWait(panther, PA_X, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_X, 0, 0.0f)) { return false; }
 
-	
+	if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
 
-	// Prepare the hawks.
-	// TODO: Set exposures?
-	//hawkSetMode(&Platform->hawks[0], CCM_WAIT);
-	//hawkSetMode(&Platform->hawks[1], CCM_WAIT);
+	if (!pantherMoveAndWait(panther, PA_Z, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Z, -0, 0.0f)) { return false; }
 
-	
+	if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
 
-	//for (int i = 0; i < 3; ++i) {
-	//	if (Platform->jobCancel) {
-	//		break;
-	//	}
+	if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
 
-	//	std::cout << "Start move " << i << "\n";
-	//	double t0 = _getTime(appContext);
-	//	pantherSendMoveRelativeCommand(panther, PA_X, 8000, 30.0f);
-	//	if (!pantherWaitForExecutionComplete(panther)) {
-	//		break;
-	//	}
+	posX = 0;
+	posY = 0;
+	posZ = 0;
+	posC = 13000;
+	posA = 0;
 
-	//	t0 = _getTime(appContext) - t0;
-	//	std::cout << "Move: " << (t0 * 1000.0) << " ms\n";
+	for (int iC = 0; iC < 60 + 1; ++iC) {
+		if (iC < 60) {
+			int stepInc = (32 * 200 * 30) / 60;
+			posC = 13000 + iC * stepInc;
+			if (!pantherMoveAndWait(panther, PA_C, posC, 0.0f)) { return false; }
+		}
 
-	//	t0 = _getTime(appContext);
-	//	Sleep(200);
-	//	t0 = _getTime(appContext) - t0;
-	//	std::cout << "Sleep: " << (t0 * 1000.0) << " ms\n";
+		if (iC != 0) {
+			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
 
-	//	// Trigger camera start.
-	//	t0 = _getTime(appContext);
+			std::cout << "Got frame " << _getTime(appContext) << "\n";
 
-	//	ldiProtocolMode setMode;
-	//	setMode.header.packetSize = sizeof(ldiProtocolMode) - 4;
-	//	setMode.header.opcode = 1;
-	//	setMode.mode = 2;
+			{
+				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+				std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
 
-	//	networkSend(&Platform->appContext->server, (uint8_t*)&setMode, sizeof(ldiProtocolMode));
+				ldiImage frame0 = {};
+				frame0.data = Platform->hawks[0].frameBuffer;
+				frame0.width = Platform->hawks[0].imgWidth;
+				frame0.height = Platform->hawks[0].imgHeight;
 
-	//	// Wait until next frame recvd.
-	//	//imageInspectorWaitForCameraFrame(Platform->appContext->imageInspector);
-	//	t0 = _getTime(appContext) - t0;
-	//	std::cout << "Frame: " << (t0 * 1000.0) << " ms\n";
+				ldiImage frame1 = {};
+				frame1.data = Platform->hawks[1].frameBuffer;
+				frame1.width = Platform->hawks[1].imgWidth;
+				frame1.height = Platform->hawks[1].imgHeight;
 
-	//	// NOTE: the frame data here is not yet thread protected. We just assume that because we are not callling for a new frame that it won't change.
-	//	t0 = _getTime(appContext);
+				if (frame0.width != frame1.width || frame0.height != frame1.height) {
+					std::cout << "Can't save calib image due to different sizes\n";
+					return false;
+				}
 
-	//	char fileName[256];
-	//	sprintf_s(fileName, sizeof(fileName), "../cache/calib/data_%d.dat", i);
+				calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 2, imgId);
+				++imgId;
+			}
+		}
 
-	//	/*int imageWidth = CAM_IMG_WIDTH;
-	//	int imageHeight = CAM_IMG_HEIGHT;
+		if (iC < 60) {
+			hawkClearWaitPacket(&Platform->hawks[0]);
+			hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
 
-	//	FILE* file;
-	//	fopen_s(&file, fileName, "wb");
-	//	fwrite(&imageWidth, 4, 1, file);
-	//	fwrite(&imageHeight, 4, 1, file);
-	//	fwrite(Platform->appContext->imageInspector->camPixelsFinal, CAM_IMG_WIDTH * CAM_IMG_HEIGHT, 1, file);
-	//	fclose(file);*/
+			hawkClearWaitPacket(&Platform->hawks[1]);
+			hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
 
-	//	t0 = _getTime(appContext) - t0;
-	//	std::cout << "Save: " << (t0 * 1000.0) << " ms\n";
-	//}
+			hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
+			hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+
+			std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
+
+			capPosX = posX;
+			capPosY = posY;
+			capPosZ = posZ;
+			capPosC = posC;
+			capPosA = posA;
+		}
+
+		if (Platform->jobCancel) {
+			return false;
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Phase 3.
+	//----------------------------------------------------------------------------------------------------
+	if (!pantherMoveAndWait(panther, PA_X, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_X, 0, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_Z, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Z, -0, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
+
+	posX = 0;
+	posY = 0;
+	posZ = 0;
+	posC = 13000;
+	posA = 0;
+
+	for (int iA = 0; iA < 61 + 1; ++iA) {
+		if (iA < 61) {
+			int stepInc = ((32 * 200 * 90) / 2) / 60;
+			posA = iA * stepInc;
+			if (!pantherMoveAndWait(panther, PA_A, posA, 0.0f)) { return false; }
+		}
+
+		if (iA != 0) {
+			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+
+			std::cout << "Got frame " << _getTime(appContext) << "\n";
+
+			{
+				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+				std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+
+				ldiImage frame0 = {};
+				frame0.data = Platform->hawks[0].frameBuffer;
+				frame0.width = Platform->hawks[0].imgWidth;
+				frame0.height = Platform->hawks[0].imgHeight;
+
+				ldiImage frame1 = {};
+				frame1.data = Platform->hawks[1].frameBuffer;
+				frame1.width = Platform->hawks[1].imgWidth;
+				frame1.height = Platform->hawks[1].imgHeight;
+
+				if (frame0.width != frame1.width || frame0.height != frame1.height) {
+					std::cout << "Can't save calib image due to different sizes\n";
+					return false;
+				}
+
+				calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 3, imgId);
+				++imgId;
+			}
+		}
+
+		if (iA < 61) {
+			hawkClearWaitPacket(&Platform->hawks[0]);
+			hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
+
+			hawkClearWaitPacket(&Platform->hawks[1]);
+			hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
+
+			hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
+			hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+
+			std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
+
+			capPosX = posX;
+			capPosY = posY;
+			capPosZ = posZ;
+			capPosC = posC;
+			capPosA = posA;
+		}
+
+		if (Platform->jobCancel) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
+	ldiApp* appContext = Platform->appContext;
+	ldiPanther* panther = &Platform->panther;
+
+	int imgId = 0;
+
+	int posX = 0;
+	int posY = 0;
+	int posZ = 0;
+	int posC = 13000;
+	int posA = 0;
+
+	int capPosX = 0;
+	int capPosY = 0;
+	int capPosZ = 0;
+	int capPosC = 0;
+	int capPosA = 0;
+
+	//----------------------------------------------------------------------------------------------------
+	// Phase 0.
+	//----------------------------------------------------------------------------------------------------
+	{
+		if (!pantherMoveAndWait(panther, PA_X, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_X, 0, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_Z, -49000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_Z, -48000, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
+
+		Sleep(300);
+
+		for (int iC = 0; iC < 60 + 1; ++iC) {
+			if (iC < 60) {
+				int stepInc = (32 * 200 * 30) / 60;
+				posC = 13000 + iC * stepInc;
+				if (!pantherMoveAndWait(panther, PA_C, posC, 0.0f)) { return false; }
+			}
+
+			if (iC != 0) {
+				hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+				hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+
+				std::cout << "Got frame " << _getTime(appContext) << "\n";
+
+				{
+					std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+					std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+
+					ldiImage frame0 = {};
+					frame0.data = Platform->hawks[0].frameBuffer;
+					frame0.width = Platform->hawks[0].imgWidth;
+					frame0.height = Platform->hawks[0].imgHeight;
+
+					ldiImage frame1 = {};
+					frame1.data = Platform->hawks[1].frameBuffer;
+					frame1.width = Platform->hawks[1].imgWidth;
+					frame1.height = Platform->hawks[1].imgHeight;
+
+					if (frame0.width != frame1.width || frame0.height != frame1.height) {
+						std::cout << "Can't save calib image due to different sizes\n";
+						return false;
+					}
+
+					calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 2, imgId);
+					++imgId;
+				}
+			}
+
+			if (iC < 60) {
+				hawkClearWaitPacket(&Platform->hawks[0]);
+				hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
+
+				hawkClearWaitPacket(&Platform->hawks[1]);
+				hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
+
+				hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
+				hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+
+				std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
+
+				capPosX = posX;
+				capPosY = posY;
+				capPosZ = posZ;
+				capPosC = posC;
+				capPosA = posA;
+			}
+
+			if (Platform->jobCancel) {
+				return false;
+			}
+		}
+	}
 
 	return true;
 }
@@ -559,6 +771,11 @@ void platformWorkerThread(ldiPlatform* Platform) {
 					_platformCaptureCalibration(Platform);
 					platformWorkerThreadJobComplete(Platform);
 				} break;
+
+				case PJT_CAPTURE_SCANNER_CALIBRATION: {
+					_platformCaptureScannerCalibration(Platform);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
 			};
 		}
 	}
@@ -581,8 +798,8 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	//Tool->camera.projMat = glm::perspectiveFovRH_ZO(glm::radians(42.0f), (float)Tool->imageWidth, (float)Tool->imageHeight, 0.01f, 50.0f);
 	//Tool->camera.fov = 42.0f;
 
-	Tool->mainCamera.position = vec3(-40, 60, 20);
-	Tool->mainCamera.rotation = vec3(55, 40, 0);
+	Tool->mainCamera.position = vec3(10, 10, 10);
+	Tool->mainCamera.rotation = vec3(-50, 30, 0);
 	Tool->mainCamera.fov = 60.0f;
 
 	horseInit(&Tool->horse);
@@ -716,31 +933,24 @@ bool platformQueueJobCaptureCalibration(ldiPlatform* Platform) {
 	return true;
 }
 
+bool platformQueueJobCaptureScannerCalibration(ldiPlatform* Platform) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobHeader* job = new ldiPlatformJobHeader();
+	job->type = PJT_CAPTURE_SCANNER_CALIBRATION;
+
+	platformQueueJob(Platform, job);
+
+	return true;
+}
+
 void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int Width, int Height, ldiCamera* Camera, std::vector<ldiTextInfo>* TextBuffer, bool Clear) {
 	ldiApp* appContext = Tool->appContext;
 
 	//----------------------------------------------------------------------------------------------------
-	// Initial debug primitives.
-	//----------------------------------------------------------------------------------------------------
-	beginDebugPrimitives(&appContext->defaultDebug);
-	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
-	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
-	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
-
-	//----------------------------------------------------------------------------------------------------
-	// Grid.
-	//----------------------------------------------------------------------------------------------------
-	int gridCount = 30;
-	float gridCellWidth = 1.0f;
-	vec3 gridColor = Tool->gridColor;
-	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
-	for (int i = 0; i < gridCount + 1; ++i) {
-		pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
-		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Rendering.
+	// Target setup.
 	//----------------------------------------------------------------------------------------------------
 	appContext->d3dDeviceContext->OMSetRenderTargets(1, &RenderBuffers->mainViewRtView, RenderBuffers->depthStencilView);
 
@@ -763,6 +973,36 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		
 	appContext->d3dDeviceContext->ClearRenderTargetView(RenderBuffers->mainViewRtView, (float*)&bgCol);
 	appContext->d3dDeviceContext->ClearDepthStencilView(RenderBuffers->depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	//----------------------------------------------------------------------------------------------------
+	// Initial debug primitives.
+	//----------------------------------------------------------------------------------------------------
+	beginDebugPrimitives(&appContext->defaultDebug);
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 0));
+	pushDebugLine(&appContext->defaultDebug, vec3(0, 0, 0), vec3(0, 0, 1), vec3(0, 0, 1));
+
+	//----------------------------------------------------------------------------------------------------
+	// Grid.
+	//----------------------------------------------------------------------------------------------------
+	int gridCount = 30;
+	float gridCellWidth = 1.0f;
+	vec3 gridColor = Tool->gridColor;
+	vec3 gridHalfOffset = vec3(gridCellWidth * gridCount, 0, gridCellWidth * gridCount) * 0.5f;
+	for (int i = 0; i < gridCount + 1; ++i) {
+		pushDebugLine(&appContext->defaultDebug, vec3(i * gridCellWidth, 0, 0) - gridHalfOffset, vec3(i * gridCellWidth, 0, gridCount * gridCellWidth) - gridHalfOffset, gridColor);
+		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Cube definition.
+	//----------------------------------------------------------------------------------------------------
+	if (false) {	
+		for (size_t i = 0; i < _cubeWorldPoints.size(); ++i) {
+			pushDebugSphere(&appContext->defaultDebug, _cubeWorldPoints[i].position, 0.02, vec3(1, 0, 0), 8);
+			displayTextAtPoint(Camera, _cubeWorldPoints[i].position, std::to_string(_cubeWorldPoints[i].globalId), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+		}
+	}
 
 	//----------------------------------------------------------------------------------------------------
 	// Calibration stuff.
@@ -831,6 +1071,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		ldiCalibrationContext* calibContext = appContext->calibrationContext;
 		ldiCalibrationJob* job = &calibContext->calibJob;
 
+
+		//----------------------------------------------------------------------------------------------------
+		// Other.
+		//----------------------------------------------------------------------------------------------------
 		std::vector<vec3>* modelPoints = &calibContext->calibJob.massModelTriangulatedPoints;
 
 		for (size_t i = 0; i < modelPoints->size(); ++i) {
@@ -872,69 +1116,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 			}
 		}*/
-
-		{
-			ldiLineFit line = calibContext->calibJob.axisX;
-			pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(1, 0, 0));
-		}
-
-		{
-			ldiLineFit line = calibContext->calibJob.axisY;
-			pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 1, 0));
-		}
-
-		{
-			ldiLineFit line = calibContext->calibJob.axisZ;
-			pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 0, 1));
-		}
-
-		{
-			vec3 line = calibContext->calibJob.basisX;
-			pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0.5, 0, 0));
-		}
-
-		{
-			vec3 line = calibContext->calibJob.basisY;
-			pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0.5, 0));
-		}
-
-		{
-			vec3 line = calibContext->calibJob.basisZ;
-			pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0, 0.5));
-		}
-
-		{
-			mat4 invSampleMat = calibContext->calibJob.camVolumeMat[0];
-			renderOrigin(appContext, Camera, invSampleMat, "Hawk W0", TextBuffer);
-			invSampleMat = calibContext->calibJob.camVolumeMat[1];
-			renderOrigin(appContext, Camera, invSampleMat, "Hawk W1", TextBuffer);
-		}
-
-		{
-			vec3 offset = glm::f64vec3(Tool->testPosX + 16000.0, Tool->testPosY + 16000.0, Tool->testPosZ + 16000.0) * job->stepsToCm;
-
-			for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
-				//if (job->cubePointCounts[i] == 0) {
-					//continue;
-				//}
-
-				vec3 point = job->cubePointCentroids[i];
-				point += offset.x * job->axisX.direction;
-				point += offset.y * job->axisY.direction;
-				point += offset.z * -job->axisZ.direction;
-
-				pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-
-				int id = i;
-				int sampleId = id / (9 * 6);
-				int globalId = id % (9 * 6);
-				int boardId = globalId / 9;
-				int pointId = globalId % 9;
-
-				displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
-			}
-		}
-
+		
 		{
 			std::vector<vec3>* modelPoints = &calibContext->calibJob.baIndvCubePoints;
 
@@ -943,6 +1125,12 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 				pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
 				displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+			}
+
+			for (size_t i = 0; i < job->baCubePlanes.size(); ++i) {
+				ldiPlane plane = job->baCubePlanes[i];
+
+				pushDebugLine(&appContext->defaultDebug, plane.point, plane.point + plane.normal, vec3(1, 0, 0));
 			}
 
 			//for (size_t i = 0; i < job->baViews.size(); ++i) {
@@ -986,100 +1174,265 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 			/*{
 				ldiTransform boardTransform = {};
-				boardTransform.world = job->baStereoCamWorld[0];
+				boardTransform.world = job->stStereoCamWorld[0];
 				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 0", TextBuffer);
 				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(1, 0, 1), 8);
 
-				boardTransform.world = job->baStereoCamWorld[1];
+				boardTransform.world = job->stStereoCamWorld[1];
 				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 1", TextBuffer);
 				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(0, 0, 1), 8);
 
 			}*/
 		}
 
-		{
-			std::vector<vec3>* modelPoints = &job->stCubePoints;
-			for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
-				srand(cubeIter);
-				rand();
-				vec3 col = getRandomColorHighSaturation();
+		if (job->metricsCalculated) {
+			//----------------------------------------------------------------------------------------------------
+			// Camera positions.
+			//----------------------------------------------------------------------------------------------------
+			{
+				for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
+					mat4 camWorldMat = calibContext->calibJob.camVolumeMat[hawkIter];
+					renderOrigin(appContext, Camera, camWorldMat, "Hawk W" + std::to_string(hawkIter), TextBuffer);
 
-				for (size_t i = 0; i < modelPoints->size(); ++i) {
-					vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+					vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+					float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
+					mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
-					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-					//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+					camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
+					camWorldMat = axisRot * camWorldMat;
+					camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
+
+					renderOrigin(appContext, Camera, camWorldMat, "Hawk T" + std::to_string(hawkIter), TextBuffer);
 				}
 			}
 
-			for (size_t i = 0; i < calibContext->calibJob.stBasisXPoints.size(); ++i) {
-				vec3 col(0, 0.5, 0);
-				srand(i);
-				rand();
-				col = getRandomColorHighSaturation();
+			//----------------------------------------------------------------------------------------------------
+			// Estimated cube position.
+			//----------------------------------------------------------------------------------------------------
+			{
+				vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
+				vec3 mechTrans = offset.x * job->axisX.direction + offset.y * job->axisY.direction + offset.z * -job->axisZ.direction;
 
-				vec3 point = calibContext->calibJob.stBasisXPoints[i];
-				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+				vec3 refToAxisC = job->axisC.origin - vec3(0.0f, 0.0f, 0.0f);
+				float axisCAngleDeg = (Tool->testPosC - 13000) * 0.001875;
+				mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), job->axisC.direction);
+
+				mat4 axisCMat = mat4(1.0f);
+				axisCMat = axisCMat * glm::translate(mat4(1.0), -refToAxisC);
+				axisCMat = axisCRot * axisCMat;
+				axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
+
+				for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
+					if (i >= 18 && i <= 26) {
+						continue;
+					}
+
+					vec3 point = job->cubePointCentroids[i];
+
+					point = axisCMat * vec4(point, 1.0f);
+
+					/*point += offset.x * job->axisX.direction;
+					point += offset.y * job->axisY.direction;
+					point += offset.z * -job->axisZ.direction;*/
+
+					point += mechTrans;
+
+					pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 1), 8);
+
+					int id = i;
+					int sampleId = id / (9 * 6);
+					int globalId = id % (9 * 6);
+					int boardId = globalId / 9;
+					int pointId = globalId % 9;
+
+					//displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
+				}
+
+				for (size_t i = 0; i < _refinedModelSides.size(); ++i) {
+					ldiPlane plane = _refinedModelSides[i].plane;
+
+					// Modify plane by pose 0.
+					vec3 point = job->stCubeWorlds[0] * vec4(plane.point, 1.0f);
+					vec3 normal = glm::normalize(job->stCubeWorlds[0] * vec4(plane.normal, 0.0f));
+
+					// Modify by Axis C.
+					point = axisCMat * vec4(point, 1.0f);
+					normal = glm::normalize(axisCMat * vec4(normal, 0.0f));
+
+					// Translate by machine position.
+					point += mechTrans;
+
+					//pushDebugPlane(&appContext->defaultDebug, point, normal, 3.5f, vec3(0, 1, 1));
+					//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+
+					vec3* corners = _refinedModelSides[i].corners;
+					vec3 transCorners[4];
+
+					for (int c = 0; c < 4; ++c) {
+						transCorners[c] = job->stCubeWorlds[0] * vec4(corners[c], 1.0f);
+						transCorners[c] = axisCMat * vec4(transCorners[c], 1.0f);
+						transCorners[c] += mechTrans;
+					}
+
+					const vec3 sideCol[6] = {
+						vec3(1, 0, 0),
+						vec3(0, 1, 0),
+						vec3(0, 0, 1),
+						vec3(1, 1, 0),
+						vec3(1, 0, 1),
+						vec3(0, 1, 1),
+					};
+
+					pushDebugTri(&appContext->defaultDebug, transCorners[0], transCorners[1], transCorners[2], sideCol[i] * 0.5f);
+					pushDebugTri(&appContext->defaultDebug, transCorners[2], transCorners[3], transCorners[0], sideCol[i] * 0.5f);
+				}
+
+				for (int i = 0; i < 8; ++i) {
+					vec3 point = job->stCubeWorlds[0] * vec4(_refinedModelCorners[i], 1.0f);
+
+					pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
+					displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+				}
 			}
 
-			for (size_t i = 0; i < calibContext->calibJob.stBasisYPoints.size(); ++i) {
-				vec3 col(0, 0.5, 0);
-				srand(i);
-				rand();
-				col = getRandomColorHighSaturation();
+			//----------------------------------------------------------------------------------------------------
+			// Calibration volume.
+			//----------------------------------------------------------------------------------------------------
+			if (Tool->showCalibCubeVolume) {
+				std::vector<vec3>* modelPoints = &job->stCubePoints;
+				for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
+					srand(cubeIter);
+					rand();
+					vec3 col = getRandomColorHighSaturation();
 
-				vec3 point = calibContext->calibJob.stBasisYPoints[i];
-				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+					for (size_t i = 0; i < modelPoints->size(); ++i) {
+						vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+
+						pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+						//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+					}
+				}
+
+				pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
 			}
 
-			for (size_t i = 0; i < calibContext->calibJob.stBasisZPoints.size(); ++i) {
-				vec3 col(0, 0.5, 0);
-				srand(i);
-				rand();
-				col = getRandomColorHighSaturation();
+			//----------------------------------------------------------------------------------------------------
+			// Calibration basis.
+			//----------------------------------------------------------------------------------------------------
+			if (Tool->showCalibVolumeBasis) {
+				for (size_t i = 0; i < calibContext->calibJob.stBasisXPoints.size(); ++i) {
+					vec3 col(0, 0.5, 0);
+					srand(i);
+					rand();
+					col = getRandomColorHighSaturation();
 
-				vec3 point = calibContext->calibJob.stBasisZPoints[i];
-				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+					vec3 point = calibContext->calibJob.stBasisXPoints[i];
+					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+				}
+
+				for (size_t i = 0; i < calibContext->calibJob.stBasisYPoints.size(); ++i) {
+					vec3 col(0, 0.5, 0);
+					srand(i);
+					rand();
+					col = getRandomColorHighSaturation();
+
+					vec3 point = calibContext->calibJob.stBasisYPoints[i];
+					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+				}
+
+				for (size_t i = 0; i < calibContext->calibJob.stBasisZPoints.size(); ++i) {
+					vec3 col(0, 0.5, 0);
+					srand(i);
+					rand();
+					col = getRandomColorHighSaturation();
+
+					vec3 point = calibContext->calibJob.stBasisZPoints[i];
+					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+				}
+
+				{
+					ldiLineFit line = calibContext->calibJob.axisX;
+					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(1, 0, 0));
+				}
+
+				{
+					ldiLineFit line = calibContext->calibJob.axisY;
+					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 1, 0));
+				}
+
+				{
+					ldiLineFit line = calibContext->calibJob.axisZ;
+					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 0, 1));
+				}
+
+				/*{
+					vec3 line = calibContext->calibJob.basisX;
+					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0.5, 0, 0));
+				}
+
+				{
+					vec3 line = calibContext->calibJob.basisY;
+					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0.5, 0));
+				}
+
+				{
+					vec3 line = calibContext->calibJob.basisZ;
+					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0, 0.5));
+				}*/
+
+				//----------------------------------------------------------------------------------------------------
+				// C Axis.
+				//----------------------------------------------------------------------------------------------------
+				{
+					for (size_t i = 0; i < job->axisCPoints.size(); ++i) {
+						vec3 point = job->axisCPoints[i];
+
+						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
+					}
+
+					for (size_t i = 0; i < job->axisCPointsPlaneProjected.size(); ++i) {
+						vec3 point = job->axisCPointsPlaneProjected[i];
+
+						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 0), 8);
+					}
+
+					//pushDebugPlane(&appContext->defaultDebug, job->axisCPlane.point, job->axisCPlane.normal, 10.0f, vec3(0, 0, 1));
+
+					mat4 circleBasis = planeGetBasis({ job->axisCCircle.origin, job->axisCCircle.normal });
+					pushDebugCirlcle(&appContext->defaultDebug, job->axisCCircle.origin, job->axisCCircle.radius, vec3(1, 0, 1), 64, circleBasis[0], circleBasis[1]);
+					pushDebugLine(&appContext->defaultDebug, job->axisCCircle.origin, job->axisCCircle.origin + job->axisCCircle.normal * 10.0f, vec3(1, 1, 0));
+				}
+
+				//----------------------------------------------------------------------------------------------------
+				// A Axis.
+				//----------------------------------------------------------------------------------------------------
+				{
+					for (size_t i = 0; i < job->axisAPoints.size(); ++i) {
+						vec3 point = job->axisAPoints[i];
+
+						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
+					}
+
+					for (size_t i = 0; i < job->axisAPointsPlaneProjected.size(); ++i) {
+						vec3 point = job->axisAPointsPlaneProjected[i];
+
+						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 0), 8);
+					}
+
+					//pushDebugPlane(&appContext->defaultDebug, job->axisAPlane.point, job->axisAPlane.normal, 10.0f, vec3(0, 0, 1));
+
+					mat4 circleBasis = planeGetBasis({ job->axisACircle.origin, job->axisACircle.normal });
+					pushDebugCirlcle(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.radius, vec3(1, 0, 1), 64, circleBasis[0], circleBasis[1]);
+					pushDebugLine(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.origin + job->axisACircle.normal * 10.0f, vec3(1, 0, 1));
+				}
 			}
-
-			pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
 		}
-	
+
+		//----------------------------------------------------------------------------------------------------
+		// Machine representation.
+		//----------------------------------------------------------------------------------------------------
 		{
-			// TODO: Rotate cube to match measured cube rotation.
-			// TODO: Cube not exact match.
 			vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
-			vec3 point(0.0f, 0.0f, 0.0f);
-			point += offset.x * job->axisX.direction;
-			point += offset.y * job->axisY.direction;
-			point += offset.z * -job->axisZ.direction;
-
-			mat4 worldMat = glm::identity<mat4>();
-			worldMat = glm::scale(worldMat, vec3(4.0f, 4.0f, 4.0f));
-			
-			mat4 cubesamp0Rot = glm::identity<mat4>();
-			if (job->stCubeWorlds.size() > 0) {
-				cubesamp0Rot = job->stCubeWorlds[0];
-			}
-
-			worldMat = worldMat * cubesamp0Rot;
-			//worldMat = glm::rotate(worldMat, glm::radians((float)_getTime(appContext) * 90.0f), vec3(0, 1.0f, 0));
-			worldMat[3] = vec4(point + Tool->testCubeOffset, 1.0f);
-
-			D3D11_MAPPED_SUBRESOURCE ms;
-			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-			constantBuffer->mvp = Camera->projViewMat * worldMat;
-			constantBuffer->world = worldMat;
-			constantBuffer->color = vec4(1.0f, 0.25f, 0.05f, 1.0f);
-			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-			//gfxRenderModel(appContext, &Tool->cubeModel, false);
-			gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
-		}
-
-		{
-			vec3 offset = glm::f64vec3(Tool->testPosX + 16000, Tool->testPosY + 16000, Tool->testPosZ + 16000) * job->stepsToCm;
 			vec3 point(0.0f, 0.0f, 0.0f);
 			point += offset.x * job->axisX.direction;
 			point += offset.y * job->axisY.direction;
@@ -1248,10 +1601,11 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
 
 	ImGui::Text("Test thing");
-	ImGui::SliderInt("TextPosX", &Tool->testPosX, -48000, 48000);
-	ImGui::SliderInt("TextPosY", &Tool->testPosY, -48000, 48000);
-	ImGui::SliderInt("TextPosZ", &Tool->testPosZ, -48000, 48000);
-	ImGui::DragFloat3("TestCubeOffset", (float*)&Tool->testCubeOffset, 0.01f, -0.4, 0.4);
+	ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
+	ImGui::SliderInt("PosY", &Tool->testPosY, -48000, 48000);
+	ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
+	ImGui::SliderInt("PosC", &Tool->testPosC, -192000 * 2, 192000 * 2);
+	ImGui::SliderInt("PosA", &Tool->testPosA, -15000, 300000);
 	ImGui::Separator();
 
 	ImGui::Text("Connection");
@@ -1483,6 +1837,10 @@ void platformShowUi(ldiPlatform* Tool) {
 		platformQueueJobCaptureCalibration(Tool);
 	}
 
+	if (ImGui::Button("Capture scanner calibration", ImVec2(-1, 0))) {
+		platformQueueJobCaptureScannerCalibration(Tool);
+	}
+
 	ImGui::EndDisabled();
 
 	ImGui::Button("Start laser preview", ImVec2(-1, 0));
@@ -1572,9 +1930,11 @@ void platformShowUi(ldiPlatform* Tool) {
 		// Viewport overlay widgets.
 		{
 			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 25), false, ImGuiWindowFlags_NoScrollbar);
+			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			ImGui::Text("%.3f %.3f %.3f", Tool->mainCamera.position.x, Tool->mainCamera.position.y, Tool->mainCamera.position.z);
+			ImGui::Text("%.3f %.3f %.3f", Tool->mainCamera.rotation.x, Tool->mainCamera.rotation.y, Tool->mainCamera.rotation.z);
 
 			ImGui::EndChild();
 		}

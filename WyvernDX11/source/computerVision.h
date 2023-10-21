@@ -11,21 +11,6 @@
 // http://people.csail.mit.edu/kaess/isam/
 // https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py
 
-struct ldiLineFit {
-	vec3 origin;
-	vec3 direction;
-};
-
-struct ldiLineSegment {
-	vec3 a;
-	vec3 b;
-};
-
-struct ldiPlane {
-	vec3 point;
-	vec3 normal;
-};
-
 struct ldiCharucoMarker {
 	int id;
 	vec2 corners[4];
@@ -47,6 +32,8 @@ struct ldiCharucoBoard {
 	vec2 charucoEstimatedImageCenter;
 	vec2 charucoEstimatedImageNormal;
 	float charucoEstimatedBoardAngle;
+	std::vector<vec2> reprojectdCorners;
+	std::vector<vec2> outline;
 };
 
 struct ldiCharucoResults {
@@ -102,6 +89,7 @@ struct ldiCameraCalibSample {
 
 struct ldiCalibStereoSample {
 	std::string path;
+	int phase;
 	int X;
 	int Y;
 	int Z;
@@ -122,8 +110,50 @@ struct ldiStereoPair {
 struct ldiCalibrationJob {
 	std::vector<ldiCalibStereoSample> samples;
 
-	cv::Mat startCamMat[2];
-	cv::Mat startDistMat[2];
+	// Default intrinsics.
+	cv::Mat defaultCamMat[2];
+	cv::Mat defaultCamDist[2];
+
+	// Most up to date camera instrinsics.
+	cv::Mat refinedCamMat[2];
+	cv::Mat refinedCamDist[2];
+
+	//----------------------------------------------------------------------------------------------------
+	// Stereo calibration.
+	//----------------------------------------------------------------------------------------------------
+	bool stereoCalibrated;
+	std::vector<int> stPoseToSampleIds;
+	std::vector<vec3> stCubePoints;
+	std::vector<mat4> stCubeWorlds;
+	mat4 stStereoCamWorld[2];
+
+	//----------------------------------------------------------------------------------------------------
+	// Calib volume metrics.
+	//----------------------------------------------------------------------------------------------------
+	bool metricsCalculated;
+	std::vector<ldiPlane> baCubePlanes;
+	std::vector<vec3> stBasisXPoints;
+	std::vector<vec3> stBasisYPoints;
+	std::vector<vec3> stBasisZPoints;
+
+	vec3 stVolumeCenter;
+
+	ldiLineFit axisX;
+	ldiLineFit axisY;
+	ldiLineFit axisZ;
+	ldiLineFit axisC;
+	ldiLineFit axisA;
+
+	vec3 basisX;
+	vec3 basisY;
+	vec3 basisZ;
+
+	glm::f64vec3 stepsToCm;
+
+	//----------------------------------------------------------------------------------------------------
+	// Other data (Caluclate stereo extrinsics, bundle adjust, etc). Not saved.
+	//----------------------------------------------------------------------------------------------------
+	cv::Mat rtMat[2];
 
 	std::vector<int> massModelPointIds;
 	std::vector<vec3> massModelTriangulatedPoints;
@@ -132,28 +162,12 @@ struct ldiCalibrationJob {
 	std::vector<vec2> massModelImagePoints[2];
 	std::vector<vec2> massModelUndistortedPoints[2];
 
-	cv::Mat rtMat[2];
-
-	std::vector<std::vector<vec3>> centeredPointGroups;
-	
-	ldiLineFit axisX;
-	ldiLineFit axisY;
-	ldiLineFit axisZ;
-
-	vec3 basisX;
-	vec3 basisY;
-	vec3 basisZ;
-
 	mat4 camVolumeMat[2];
 
-	cv::Mat camMatrix[2];
-	cv::Mat camDist[2];
+	std::vector<std::vector<vec3>> centeredPointGroups;
 
 	std::vector<vec3> cubePointCentroids;
 	std::vector<int> cubePointCounts;
-	vec3 cubePosSteps;
-
-	glm::f64vec3 stepsToCm;
 
 	std::vector<vec3> baIndvCubePoints;
 	std::vector<mat4> baViews;
@@ -161,14 +175,15 @@ struct ldiCalibrationJob {
 	std::vector<ldiStereoPair> baStereoPairs;
 	mat4 baStereoCamWorld[2];
 
-	// Stereo calibrate test.
-	std::vector<vec3> stCubePoints;
-	std::vector<mat4> stCubeWorlds;
-	mat4 stStereoCamWorld[2];
-	std::vector<vec3> stBasisXPoints;
-	std::vector<vec3> stBasisYPoints;
-	std::vector<vec3> stBasisZPoints;
-	vec3 stVolumeCenter;
+	std::vector<vec3> axisCPoints;
+	ldiPlane axisCPlane;
+	std::vector<vec3> axisCPointsPlaneProjected;
+	ldiCircle axisCCircle;
+
+	std::vector<vec3> axisAPoints;
+	ldiPlane axisAPlane;
+	std::vector<vec3> axisAPointsPlaneProjected;
+	ldiCircle axisACircle;
 };
 
 struct ldiCameraCalibrationContext {
@@ -201,6 +216,12 @@ struct ldiCalibrationContext {
 	ldiCalibrationJob calibJob;
 };
 
+struct ldiCalibCubeSide {
+	int id;
+	vec3 corners[4];
+	ldiPlane plane;
+};
+
 auto _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
 std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
 
@@ -209,7 +230,230 @@ float _calibrationTargetFullWidthCm;
 float _calibrationTargetFullHeightCm;
 std::vector<vec3> _calibrationTargetLocalPoints;
 
+std::vector<ldiCalibCubePoint> _cubeWorldPoints;
+std::vector<vec3> _cubeGlobalPoints;
+std::vector<cv::Point3f> _refinedModelPoints;
+vec3 _refinedModelCentroid;
+std::vector<ldiCalibCubeSide> _refinedModelSides;
+vec3 _refinedModelCorners[8];
+
 void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
+
+void initCubePoints() {
+	_cubeWorldPoints.clear();
+	_cubeGlobalPoints.clear();
+	_cubeGlobalPoints.resize(9*6, vec3(0.0f, 0.0f, 0.0f));
+
+	float ps = 0.9f;
+	// Board 0.
+	_cubeWorldPoints.push_back({ 0, 0, 0, { 0.0f, ps * 0, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 3, { 0.0f, ps * 0, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 6, { 0.0f, ps * 0, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0, 1, { 0.0f, ps * 1, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 4, { 0.0f, ps * 1, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 7, { 0.0f, ps * 1, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0, 2, { 0.0f, ps * 2, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 5, { 0.0f, ps * 2, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 8, { 0.0f, ps * 2, -ps * 2 } });
+
+	// Board 1.
+	_cubeWorldPoints.push_back({ 0, 0, 15, { -ps * 0 - 1.1f, 2.9f, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 16, { -ps * 0 - 1.1f, 2.9f, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 17, { -ps * 0 - 1.1f, 2.9f, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0, 12, { -ps * 1 - 1.1f, 2.9f, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 13, { -ps * 1 - 1.1f, 2.9f, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 14, { -ps * 1 - 1.1f, 2.9f, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0,  9, { -ps * 2 - 1.1f, 2.9f, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 10, { -ps * 2 - 1.1f, 2.9f, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 11, { -ps * 2 - 1.1f, 2.9f, -ps * 2 } });
+
+	// Board 3.
+	_cubeWorldPoints.push_back({ 0, 0, 27, { -ps * 0 - 1.1f, ps * 0, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 28, { -ps * 1 - 1.1f, ps * 0, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 29, { -ps * 2 - 1.1f, ps * 0, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 30, { -ps * 0 - 1.1f, ps * 1, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 31, { -ps * 1 - 1.1f, ps * 1, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 32, { -ps * 2 - 1.1f, ps * 1, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 33, { -ps * 0 - 1.1f, ps * 2, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 34, { -ps * 1 - 1.1f, ps * 2, -2.9f + 4.0f } });
+	_cubeWorldPoints.push_back({ 0, 0, 35, { -ps * 2 - 1.1f, ps * 2, -2.9f + 4.0f } });
+
+	// Board 4.
+	_cubeWorldPoints.push_back({ 0, 0, 44, { -4.0f, ps * 0, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 43, { -4.0f, ps * 0, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 42, { -4.0f, ps * 0, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0, 41, { -4.0f, ps * 1, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 40, { -4.0f, ps * 1, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 39, { -4.0f, ps * 1, -ps * 2 } });
+	_cubeWorldPoints.push_back({ 0, 0, 38, { -4.0f, ps * 2, -ps * 0 } });
+	_cubeWorldPoints.push_back({ 0, 0, 37, { -4.0f, ps * 2, -ps * 1 } });
+	_cubeWorldPoints.push_back({ 0, 0, 36, { -4.0f, ps * 2, -ps * 2 } });
+
+	// Board 5.
+	_cubeWorldPoints.push_back({ 0, 0, 45, { -ps * 0 - 1.1f, ps * 0, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 48, { -ps * 1 - 1.1f, ps * 0, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 51, { -ps * 2 - 1.1f, ps * 0, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 46, { -ps * 0 - 1.1f, ps * 1, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 49, { -ps * 1 - 1.1f, ps * 1, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 52, { -ps * 2 - 1.1f, ps * 1, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 47, { -ps * 0 - 1.1f, ps * 2, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 50, { -ps * 1 - 1.1f, ps * 2, -2.9f } });
+	_cubeWorldPoints.push_back({ 0, 0, 53, { -ps * 2 - 1.1f, ps * 2, -2.9f } });
+
+	for (size_t i = 0; i < _cubeWorldPoints.size(); ++i) {
+		_cubeGlobalPoints[_cubeWorldPoints[i].globalId] = _cubeWorldPoints[i].position;
+	}
+
+	_refinedModelPoints.resize(54, cv::Point3f(0, 0, 0));
+	_refinedModelPoints[0] = cv::Point3f(-1.98825, 1.29859, -0.939209);
+	_refinedModelPoints[1] = cv::Point3f(-1.98738, 2.1859, -0.945938);
+	_refinedModelPoints[2] = cv::Point3f(-1.98767, 3.07523, -0.955707);
+	_refinedModelPoints[3] = cv::Point3f(-1.98773, 1.29276, -1.834);
+	_refinedModelPoints[4] = cv::Point3f(-1.98753, 2.17956, -1.84425);
+	_refinedModelPoints[5] = cv::Point3f(-1.98762, 3.06817, -1.85376);
+	_refinedModelPoints[6] = cv::Point3f(-1.98763, 1.28601, -2.73269);
+	_refinedModelPoints[7] = cv::Point3f(-1.98734, 2.17282, -2.74178);
+	_refinedModelPoints[8] = cv::Point3f(-1.98832, 3.06141, -2.75162);
+	_refinedModelPoints[9] = cv::Point3f(-4.8767, 4.19408, -0.971789);
+	_refinedModelPoints[10] = cv::Point3f(-4.88696, 4.19076, -1.86617);
+	_refinedModelPoints[11] = cv::Point3f(-4.89669, 4.1887, -2.76067);
+	_refinedModelPoints[12] = cv::Point3f(-3.98516, 4.19448, -0.983547);
+	_refinedModelPoints[13] = cv::Point3f(-3.99326, 4.19135, -1.87982);
+	_refinedModelPoints[14] = cv::Point3f(-4.00884, 4.18812, -2.77485);
+	_refinedModelPoints[15] = cv::Point3f(-3.0932, 4.19549, -0.99768);
+	_refinedModelPoints[16] = cv::Point3f(-3.10409, 4.19249, -1.89118);
+	_refinedModelPoints[17] = cv::Point3f(-3.11445, 4.1881, -2.78841);
+
+	_refinedModelPoints[27] = cv::Point3f(-3.12042, 1.33457, 0.162105);
+	_refinedModelPoints[28] = cv::Point3f(-4.00706, 1.33349, 0.156452);
+	_refinedModelPoints[29] = cv::Point3f(-4.89682, 1.33046, 0.153138);
+	_refinedModelPoints[30] = cv::Point3f(-3.1226, 2.22426, 0.163952);
+	_refinedModelPoints[31] = cv::Point3f(-4.01133, 2.22106, 0.157525);
+	_refinedModelPoints[32] = cv::Point3f(-4.90042, 2.21698, 0.152692);
+	_refinedModelPoints[33] = cv::Point3f(-3.1283, 3.11603, 0.162232);
+	_refinedModelPoints[34] = cv::Point3f(-4.01666, 3.11253, 0.158036);
+	_refinedModelPoints[35] = cv::Point3f(-4.90552, 3.10918, 0.151275);
+	_refinedModelPoints[36] = cv::Point3f(-5.98213, 3.09321, -2.7856);
+	_refinedModelPoints[37] = cv::Point3f(-5.98253, 3.10323, -1.88828);
+	_refinedModelPoints[38] = cv::Point3f(-5.98069, 3.11076, -0.989514);
+	_refinedModelPoints[39] = cv::Point3f(-5.98624, 2.21062, -2.77497);
+	_refinedModelPoints[40] = cv::Point3f(-5.9829, 2.21998, -1.87861);
+	_refinedModelPoints[41] = cv::Point3f(-5.9854, 2.23115, -0.982124);
+	_refinedModelPoints[42] = cv::Point3f(-5.9854, 1.32872, -2.7628);
+	_refinedModelPoints[43] = cv::Point3f(-5.98286, 1.33622, -1.86702);
+	_refinedModelPoints[44] = cv::Point3f(-5.98201, 1.34486, -0.974018);
+	_refinedModelPoints[45] = cv::Point3f(-3.03964, 1.30058, -3.83264);
+	_refinedModelPoints[46] = cv::Point3f(-3.0557, 2.1838, -3.83887);
+	_refinedModelPoints[47] = cv::Point3f(-3.07218, 3.06857, -3.84363);
+	_refinedModelPoints[48] = cv::Point3f(-3.93381, 1.28422, -3.8304);
+	_refinedModelPoints[49] = cv::Point3f(-3.9503, 2.16706, -3.8348);
+	_refinedModelPoints[50] = cv::Point3f(-3.96661, 3.0545, -3.84084);
+	_refinedModelPoints[51] = cv::Point3f(-4.82765, 1.26639, -3.8256);
+	_refinedModelPoints[52] = cv::Point3f(-4.84587, 2.15218, -3.83292);
+	_refinedModelPoints[53] = cv::Point3f(-4.8611, 3.03663, -3.83663);
+
+	vec3 centroidAccum(0.0f, 0.0f, 0.0f);
+	int centroidCount = 0;
+
+	for (size_t i = 0; i < _refinedModelPoints.size(); ++i) {
+		if (i >= 18 && i <= 26) {
+			continue;
+		}
+
+		_refinedModelCentroid += toVec3(_refinedModelPoints[i]);
+		++centroidCount;
+	}
+	_refinedModelCentroid /= (float)centroidCount;
+
+	_refinedModelSides.resize(6);
+	for (int i = 0; i < 6; ++i) {
+		_refinedModelSides[i].id = i;
+
+		if (i == 2) {
+			continue;
+		}
+
+		std::vector<vec3> points;
+
+		for (int j = i * 9; j < (i + 1) * 9; ++j) {
+			points.push_back(toVec3(_refinedModelPoints[j]));
+		}
+
+		computerVisionFitPlane(points, &_refinedModelSides[i].plane);
+	}
+	ldiCalibCubeSide bottom = {};
+	bottom.id = 2;
+	bottom.plane = _refinedModelSides[1].plane;
+	bottom.plane.point += bottom.plane.normal * 4.0f;
+	_refinedModelSides[2] = bottom;
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[1].plane, _refinedModelSides[0].plane, _refinedModelSides[3].plane, &_refinedModelCorners[0])) {
+		 // Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[1].plane, _refinedModelSides[0].plane, _refinedModelSides[5].plane, &_refinedModelCorners[1])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[1].plane, _refinedModelSides[4].plane, _refinedModelSides[5].plane, &_refinedModelCorners[2])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[1].plane, _refinedModelSides[4].plane, _refinedModelSides[3].plane, &_refinedModelCorners[3])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[2].plane, _refinedModelSides[0].plane, _refinedModelSides[3].plane, &_refinedModelCorners[4])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[2].plane, _refinedModelSides[0].plane, _refinedModelSides[5].plane, &_refinedModelCorners[5])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[2].plane, _refinedModelSides[4].plane, _refinedModelSides[5].plane, &_refinedModelCorners[6])) {
+		// Cube failed.
+	}
+
+	if (getPointAtIntersectionOfPlanes(_refinedModelSides[2].plane, _refinedModelSides[4].plane, _refinedModelSides[3].plane, &_refinedModelCorners[7])) {
+		// Cube failed.
+	}
+
+	_refinedModelSides[0].corners[0] = _refinedModelCorners[0];
+	_refinedModelSides[0].corners[1] = _refinedModelCorners[1];
+	_refinedModelSides[0].corners[2] = _refinedModelCorners[5];
+	_refinedModelSides[0].corners[3] = _refinedModelCorners[4];
+
+	_refinedModelSides[1].corners[0] = _refinedModelCorners[0];
+	_refinedModelSides[1].corners[1] = _refinedModelCorners[3];
+	_refinedModelSides[1].corners[2] = _refinedModelCorners[2];
+	_refinedModelSides[1].corners[3] = _refinedModelCorners[1];
+
+	_refinedModelSides[2].corners[0] = _refinedModelCorners[4];
+	_refinedModelSides[2].corners[1] = _refinedModelCorners[5];
+	_refinedModelSides[2].corners[2] = _refinedModelCorners[6];
+	_refinedModelSides[2].corners[3] = _refinedModelCorners[7];
+
+	_refinedModelSides[3].corners[0] = _refinedModelCorners[3];
+	_refinedModelSides[3].corners[1] = _refinedModelCorners[0];
+	_refinedModelSides[3].corners[2] = _refinedModelCorners[4];
+	_refinedModelSides[3].corners[3] = _refinedModelCorners[7];
+
+	_refinedModelSides[4].corners[0] = _refinedModelCorners[2];
+	_refinedModelSides[4].corners[1] = _refinedModelCorners[3];
+	_refinedModelSides[4].corners[2] = _refinedModelCorners[7];
+	_refinedModelSides[4].corners[3] = _refinedModelCorners[6];
+
+	_refinedModelSides[5].corners[0] = _refinedModelCorners[1];
+	_refinedModelSides[5].corners[1] = _refinedModelCorners[2];
+	_refinedModelSides[5].corners[2] = _refinedModelCorners[6];
+	_refinedModelSides[5].corners[3] = _refinedModelCorners[5];
+
+	std::cout << glm::distance(_refinedModelCorners[0], _refinedModelCorners[3]) << "\n";
+	std::cout << glm::distance(_refinedModelCorners[3], _refinedModelCorners[2]) << "\n";
+	std::cout << glm::distance(_refinedModelCorners[2], _refinedModelCorners[1]) << "\n";
+	std::cout << glm::distance(_refinedModelCorners[1], _refinedModelCorners[0]) << "\n";
+}
 
 void calibCubeInit(ldiCalibCube* Cube, float SquareSizeCm, int SquareCount, float TotalSideSizeCm) {
 	Cube->boardSquareSizeCm = SquareSizeCm;
@@ -515,66 +759,13 @@ void cameraCalibRunCalibrationCircles(ldiApp* AppContext, std::vector<ldiCameraC
 		imagePoints.push_back(imagePointsTemp);
 	}
 
-	/*
-	Calibration error : 2.91036
-	Camera matrix : [2863.329432212108, 0, 1438.568488985049;
-					0, 2842.653495273561, 1269.90720871305;
-					0, 0, 1]
-	Dist coefs : [0.2058971840172417;
-				-0.3454802257828885;
-				0.0006148403759009931;
-				-0.02636839714078372;
-				0.2207806178260863]
-
-	Calibration error: 5.13806
-	Camera matrix: [3028.042700481885, 0, 1595.244363036006;
-					0, 3022.336716826929, 1110.067203702069;
-					0, 0, 1]
-	Dist coefs: [0.3706319835851833;
-				 -1.100170196545013;
-				 -0.01871208309159954;
-				 -0.007059212403853174;
-				 1.109365459830671]
-
-	Calibration error: 3.93091
-Camera matrix: [3114.35830267407, 0, 1247.315798137534;
- 0, 3070.139064342456, 1092.434452796077;
- 0, 0, 1]
-Dist coefs: [0.2314308745264201;
- -0.2385008053719591;
- -0.008067924218661829;
- -0.0578993718936298;
- 0.03453225870608038]
-
-	 Calibration error: 1.39292
-	Camera matrix: [2593.351333334043, 0, 1658.710562585348;
-	 0, 2590.751756763483, 1253.560922844007;
-	 0, 0, 1]
-	Dist coefs: [0.2259068314218333;
-	 -0.5624260956431792;
-	 -0.003177729613407228;
-	 -0.0005562032199261654;
-	 0.3713010480709695]
-
-	 Calibration error: 0.991625
-Camera matrix: [2581.728739379068, 0, 1687.942480875822;
- 0, 2598.671908051138, 1242.538168269621;
- 0, 0, 1]
-Dist coefs: [0.2349581871368413;
- -0.6549985792513259;
- -0.002393947805394209;
- 0.002195147154093995;
- 0.5387109848236522]
-	*/
-
-	// NOTE: 1600x1300 with 42deg vertical FOV.
 	cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
-	cameraMatrix.at<double>(0, 0) = 1693.30789;
+	cameraMatrix.at<double>(0, 0) = 2660;
 	cameraMatrix.at<double>(0, 1) = 0.0;
-	cameraMatrix.at<double>(0, 2) = 800;
+	cameraMatrix.at<double>(0, 2) = 3280.0 / 2.0;
 	cameraMatrix.at<double>(1, 0) = 0.0;
-	cameraMatrix.at<double>(1, 1) = 1693.30789;
-	cameraMatrix.at<double>(1, 2) = 650;
+	cameraMatrix.at<double>(1, 1) = 2464.0 / 2.0;
+	cameraMatrix.at<double>(1, 2) = 2660;
 	cameraMatrix.at<double>(2, 0) = 0.0;
 	cameraMatrix.at<double>(2, 1) = 0.0;
 	cameraMatrix.at<double>(2, 2) = 1.0;
@@ -592,7 +783,7 @@ Dist coefs: [0.2349581871368413;
 	cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 1000, DBL_EPSILON);
 	//double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, 0, criteria);
 	double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_FIX_K3, criteria);
-	//double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS);
+	//double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS, criteria);
 	t0 = _getTime(AppContext) - t0;
 	std::cout << t0 * 1000.0f << " ms\n";
 
@@ -748,7 +939,7 @@ void createCharucos(bool Output) {
 	}
 }
 
-void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
+void computerVisionFindCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
 	int offset = 1;
 
 	try {
@@ -805,11 +996,8 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 				std::vector<cv::Point2f> charucoCorners;
 				std::vector<int> charucoIds;
 
-				//cv::Ptr<cv::aruco::Board> ptrBoard;
 				cv::aruco::CharucoDetector charucoDetector(*(_charucoBoards[i]).get(), cv::aruco::CharucoParameters(), parameters);
-				//cv::aruco::interpolateCornersCharuco(markerCorners, markerIds, image, _charucoBoards[i], charucoCorners, charucoIds);
 				charucoDetector.detectBoard(image, charucoCorners, charucoIds, markerCorners, markerIds);
-
 				//std::cout << "    " << i << " Charucos: " << charucoIds.size() << "\n";
 
 				// Board is valid if it has at least one corner.
@@ -847,17 +1035,33 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 						mat4 transMat = glm::translate(mat4(1.0f), vec3(tvec.at<double>(0), -tvec.at<double>(1), -tvec.at<double>(2)));
 						board.camLocalCharucoEstimatedMat = transMat * rotMat;
 
-						cv::Mat rvecTemp = cv::Mat::zeros(3, 1, CV_64F);
-						cv::Mat tvecTemp = cv::Mat::zeros(3, 1, CV_64F);
+						//cv::Mat rvecTemp = cv::Mat::zeros(3, 1, CV_64F);
+						//cv::Mat tvecTemp = cv::Mat::zeros(3, 1, CV_64F);
 						std::vector<cv::Point3f> points;
 						std::vector<cv::Point2f> imagePoints;
-						float cubeHSize = 2.0f;
+												
+						const float cubeOffset = 0.0f;
+						const float cubeSize = 4.0f;
+						const float cubeHSize = 2.0f;
+
+						points.push_back(cv::Point3f(cubeOffset, cubeOffset, 0.0f));
+						points.push_back(cv::Point3f(cubeSize + cubeOffset, cubeOffset, 0.0f));
+						points.push_back(cv::Point3f(cubeSize + cubeOffset, cubeSize + cubeOffset, 0.0f));
+						points.push_back(cv::Point3f(cubeOffset, cubeSize + cubeOffset, 0.0f));
+
+						cv::projectPoints(points, rvec, tvec, *CameraMatrix, *CameraDist, imagePoints);
+						for (size_t pointIter = 0; pointIter < imagePoints.size(); ++pointIter) {
+							board.outline.push_back(toVec2(imagePoints[pointIter]));
+						}
+
+						points.clear();
+						imagePoints.clear();
 
 						vec3 centerPoint = board.camLocalCharucoEstimatedMat * vec4(cubeHSize, cubeHSize, 0.0f, 1.0f);
-						points.push_back(cv::Point3f(-centerPoint.x, centerPoint.y, centerPoint.z));
+						//points.push_back(cv::Point3f(-centerPoint.x, centerPoint.y, centerPoint.z));
 
 						vec3 centerNormalPoint = board.camLocalCharucoEstimatedMat * vec4(cubeHSize, cubeHSize, 1.0f, 1.0f);
-						points.push_back(cv::Point3f(-centerNormalPoint.x, centerNormalPoint.y, centerNormalPoint.z));
+						//points.push_back(cv::Point3f(-centerNormalPoint.x, centerNormalPoint.y, centerNormalPoint.z));
 
 						vec3 centerNormal = glm::normalize(centerNormalPoint - centerPoint);
 						vec3 camDir = glm::normalize(centerPoint);
@@ -865,17 +1069,30 @@ void findCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results,
 
 						//std::cout << "Dot: " << board.charucoEstimatedBoardAngle << "\n";
 
-						if (board.charucoEstimatedBoardAngle < 0.3f) {
+						if (board.charucoEstimatedBoardAngle < 0.38f) {
 							board.rejected = true;
 						}
 
-						cv::projectPoints(points, rvecTemp, tvecTemp, *CameraMatrix, *CameraDist, imagePoints);
+						auto worldCorners = _charucoBoards[i]->getChessboardCorners();
+
+						for (size_t cornerIter = 0; cornerIter < charucoIds.size(); ++cornerIter) {
+							int cornerId = charucoIds[cornerIter];
+							points.push_back(worldCorners[cornerId]);
+						}	
+
+						cv::projectPoints(points, rvec, tvec, *CameraMatrix, *CameraDist, imagePoints);
 						
 						//points.push_back(cv::Point3f(cubeHSize, cubeHSize, 0.0f));
 						//cv::projectPoints(points, rvec, tvec, *CameraMatrix, *CameraDist, imagePoints);
 
-						board.charucoEstimatedImageCenter = vec2(imagePoints[0].x, imagePoints[0].y);
-						board.charucoEstimatedImageNormal = vec2(imagePoints[1].x, imagePoints[1].y);
+						//board.charucoEstimatedImageCenter = vec2(imagePoints[0].x, imagePoints[0].y);
+						//board.charucoEstimatedImageNormal = vec2(imagePoints[1].x, imagePoints[1].y);
+
+						// Check for outliers.
+						// ...
+						for (size_t cornerIter = 0; cornerIter < imagePoints.size(); ++cornerIter) {
+							board.reprojectdCorners.push_back(toVec2(imagePoints[cornerIter]));
+						}
 					}
 
 					for (int j = 0; j < charucoIds.size(); ++j) {
@@ -1136,6 +1353,35 @@ bool computerVisionFindGeneralPoseRT(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs,
 
 	return false;
 }
+
+//bool computerVisionFindGeneralPoseOutliers(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, std::vector<cv::Point2f>* ImagePoints, std::vector<cv::Point3f>* WorldPoints) {
+//	std::vector<cv::Mat> rvecs;
+//	std::vector<cv::Mat> tvecs;
+//	std::vector<float> rms;
+//
+//	int solutionCount = cv::solvePnPGeneric(*WorldPoints, *ImagePoints, *CameraMatrix, *DistCoeffs, rvecs, tvecs, false, cv::SOLVEPNP_ITERATIVE, cv::noArray(), cv::noArray(), rms);
+//	//std::cout << "  Solutions: " << solutionCount << "\n";
+//	// TODO: Why do we set solutionCount to this?
+//	solutionCount = rvecs.size();
+//	//std::cout << "  Solutions: " << solutionCount << "\n";
+//
+//	for (int i = 0; i < solutionCount; ++i) {
+//		*RVec = rvecs[i];
+//		*TVec = tvecs[i];
+//
+//		std::cout << "  Found pose (" << i << "): " << rms[i] << "\n";
+//
+//		if (rms[i] > 3.0) {
+//			return false;
+//		}
+//	}
+//
+//	if (solutionCount > 0) {
+//		return true;
+//	}
+//
+//	return false;
+//}
 
 ldiLineFit computerVisionFitLine(std::vector<vec3>& Points) {
 	// TODO: Double check that the centroid is actually a valid point on the line.
@@ -1730,8 +1976,8 @@ void computerVisionBundleAdjustStereo(ldiCalibrationJob* Job) {
 
 	// Camera intrinsics.
 	for (int i = 0; i < 2; ++i) {
-		cv::Mat calibCameraMatrix = Job->startCamMat[i];
-		cv::Mat calibCameraDist = Job->startDistMat[i];
+		cv::Mat calibCameraMatrix = Job->defaultCamMat[i];
+		cv::Mat calibCameraDist = Job->defaultCamDist[i];
 		
 		fprintf(f, "%f %f %f %f %f %f %f %f %f\n",
 			calibCameraMatrix.at<double>(0), calibCameraMatrix.at<double>(1), calibCameraMatrix.at<double>(2), calibCameraMatrix.at<double>(4), calibCameraMatrix.at<double>(5),
@@ -1866,8 +2112,8 @@ void computerVisionLoadBundleAdjustStereo(ldiCalibrationJob* Job) {
 
 		std::cout << calibCameraDist << "\n";
 
-		Job->camMatrix[i] = calibCameraMatrix;
-		Job->camDist[i] = calibCameraDist;
+		Job->refinedCamMat[i] = calibCameraMatrix;
+		Job->refinedCamDist[i] = calibCameraDist;
 	}
 
 	Job->massModelTriangulatedPointsBundleAdjust.clear();
@@ -1886,7 +2132,7 @@ void computerVisionLoadBundleAdjustStereo(ldiCalibrationJob* Job) {
 	int lastSampleId = 0;
 	std::vector<vec3> matchSets[2];
 	std::vector<vec3> sampleMat;
-	sampleMat.resize(100);
+	sampleMat.resize(1000);
 
 	for (int i = 0; i < worldPointCount; ++i) {
 		int id = 0;
@@ -2007,6 +2253,8 @@ void computerVisionLoadBundleAdjustStereo(ldiCalibrationJob* Job) {
 	// Find transformation basis.
 	// Build lines for all X change points
 	// 16 columns
+
+	return;
 
 	struct ldiTbPoint {
 		vec3 pos;
@@ -2448,8 +2696,6 @@ void computerVisionLoadBundleAdjustStereo(ldiCalibrationJob* Job) {
 		Job->cubePointCentroids[i] /= Job->cubePointCounts[i];
 	}
 
-	Job->cubePosSteps = vec3(Job->samples[0].X, Job->samples[0].Y, Job->samples[0].Z);
-
 	// Calculate volume to world scale:
 	float scaleAccum = 0.0f;
 	int scaleAccumCount = 0;
@@ -2566,41 +2812,6 @@ mat4 computerVisionConvertOpenCvTransMattoGlmMat(cv::Mat& TransMat) {
 }
 
 void computerVisionBundleAdjustStereoIndividual(ldiCalibrationJob* Job) {
-	// Construct temp 3D cube representation.
-	std::vector<ldiCalibCubePoint> cubePoints;
-	std::vector<vec3> cubeGlobalPoints;
-	cubeGlobalPoints.resize(9 * 6, vec3(0.0f, 0.0f, 0.0f));
-
-	float ps = 0.9f;
-	cubePoints.push_back({ 0, 0, 0, { 0.0f, ps * 0, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 3, { 0.0f, ps * 0, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 6, { 0.0f, ps * 0, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 1, { 0.0f, ps * 1, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 4, { 0.0f, ps * 1, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 7, { 0.0f, ps * 1, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 2, { 0.0f, ps * 2, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 5, { 0.0f, ps * 2, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 8, { 0.0f, ps * 2, ps * 2 } });
-
-	// Top
-	cubePoints.push_back({ 0, 0, 11, { -ps * 0 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 10, { -ps * 0 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0,  9, { -ps * 0 - 1.1f, 2.9f, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 14, { -ps * 1 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 13, { -ps * 1 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 12, { -ps * 1 - 1.1f, 2.9f, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 17, { -ps * 2 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 16, { -ps * 2 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 15, { -ps * 2 - 1.1f, 2.9f, ps * 2 } });
-
-	for (size_t i = 0; i < cubePoints.size(); ++i) {
-		cubeGlobalPoints[cubePoints[i].globalId] = cubePoints[i].position;
-	}
-
 	std::vector<mat4> poses;
 	std::vector<int> viewImageIds;
 	std::vector<std::vector<cv::Point2f>> viewImagePoints;
@@ -2630,7 +2841,7 @@ void computerVisionBundleAdjustStereoIndividual(ldiCalibrationJob* Job) {
 
 				//int cornerGlobalId = (board->id * 25) + corner->id;
 				int cornerGlobalId = (board->id * 9) + corner->id;
-				vec3 targetPoint = cubeGlobalPoints[cornerGlobalId];
+				vec3 targetPoint = _cubeGlobalPoints[cornerGlobalId];
 
 				imagePoints.push_back(cv::Point2f(corner->position.x, corner->position.y));
 				worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
@@ -2644,7 +2855,7 @@ void computerVisionBundleAdjustStereoIndividual(ldiCalibrationJob* Job) {
 			mat4 pose;
 
 			std::cout << "Find pose - Sample: " << sampleIter << " :\n";
-			if (computerVisionFindGeneralPose(&Job->startCamMat[hawkId], &Job->startDistMat[hawkId], &imagePoints, &worldPoints, &pose)) {
+			if (computerVisionFindGeneralPose(&Job->defaultCamMat[hawkId], &Job->defaultCamDist[hawkId], &imagePoints, &worldPoints, &pose)) {
 				//std::cout << "Pose:\n" << GetMat4DebugString(&pose);
 				poses.push_back(pose);
 				viewImageIds.push_back(sampleIter);
@@ -2665,20 +2876,20 @@ void computerVisionBundleAdjustStereoIndividual(ldiCalibrationJob* Job) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d %d\n", cubePoints.size(), poses.size(), totalImagePointCount);
+	fprintf(f, "%d %d %d\n", _cubeWorldPoints.size(), poses.size(), totalImagePointCount);
 
 	// Camera intrinsics.
-	cv::Mat calibCameraMatrix = Job->startCamMat[hawkId];
-	cv::Mat calibCameraDist = Job->startDistMat[hawkId];
+	cv::Mat calibCameraMatrix = Job->defaultCamMat[hawkId];
+	cv::Mat calibCameraDist = Job->defaultCamDist[hawkId];
 
 	fprintf(f, "%f %f %f %f %f %f %f %f %f\n",
 		calibCameraMatrix.at<double>(0), calibCameraMatrix.at<double>(1), calibCameraMatrix.at<double>(2), calibCameraMatrix.at<double>(4), calibCameraMatrix.at<double>(5),
 		calibCameraDist.at<double>(0), calibCameraDist.at<double>(1), calibCameraDist.at<double>(2), calibCameraDist.at<double>(3));
 
 	// 3D points.
-	for (size_t pointIter = 0; pointIter < cubePoints.size(); ++pointIter) {
-		int pointId = cubePoints[pointIter].globalId;
-		vec3 point = cubePoints[pointIter].position;
+	for (size_t pointIter = 0; pointIter < _cubeWorldPoints.size(); ++pointIter) {
+		int pointId = _cubeWorldPoints[pointIter].globalId;
+		vec3 point = _cubeWorldPoints[pointIter].position;
 		fprintf(f, "%d %f %f %f\n", pointId, point.x, point.y, point.z);
 	}
 
@@ -2773,6 +2984,8 @@ bool computerVisionBundleAdjustStereoIndividualLoad(ldiCalibrationJob* Job) {
 
 	Job->baIndvCubePoints.clear();
 
+	vec3 cubePoints[9 * 6];
+
 	for (int i = 0; i < modelPointCount; ++i) {
 		vec3 position;
 		int pointId;
@@ -2780,7 +2993,9 @@ bool computerVisionBundleAdjustStereoIndividualLoad(ldiCalibrationJob* Job) {
 		fscanf_s(file, "%d %f %f %f\r\n", &pointId, &position[0], &position[1], &position[2]);
 		//std::cout << pointId << " " << position.x << ", " << position.y << ", " << position.z << "\n";
 
-		Job->baIndvCubePoints.push_back(position);
+		//Job->baIndvCubePoints.push_back(position);
+
+		cubePoints[pointId] = position;
 	}
 
 	Job->baViews.clear();
@@ -2800,45 +3015,139 @@ bool computerVisionBundleAdjustStereoIndividualLoad(ldiCalibrationJob* Job) {
 
 	fclose(file);
 
+	//----------------------------------------------------------------------------------------------------
+	// Get scale.
+	//----------------------------------------------------------------------------------------------------
+	float scaleAccum = 0.0f;
+	int scaleAccumCount = 0;
+
+	for (int boardIter = 0; boardIter < 6; ++boardIter) {
+		if (boardIter == 2) {
+			continue;
+		}
+
+		int globalIdBase = boardIter * 9;
+
+		// Match points: 0-1, 1-2, 3-4, 4-5, 6-7, 7-8,
+		// 0-3, 3-6, 1-4, 4-7, 2-5, 5-8
+
+		for (int i = 0; i < 3; ++i) {
+			// Rows
+			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
+				int pId0 = globalIdBase + (i * 3) + pairIter + 0;
+				int pId1 = globalIdBase + (i * 3) + pairIter + 1;
+
+				float dist = glm::distance(cubePoints[pId0], cubePoints[pId1]);
+				//std::cout << "Row (Board " << boardIter << ") " << pId0 << " - " << pId1 << ": " << dist << "\n";
+				scaleAccum += dist;
+				scaleAccumCount += 1;
+			}
+
+			// Columns
+			for (int pairIter = 0; pairIter < 3 - 1; ++pairIter) {
+				int pId0 = globalIdBase + i + (pairIter * 3) + 0;
+				int pId1 = globalIdBase + i + (pairIter * 3) + 3;
+
+				float dist = glm::distance(cubePoints[pId0], cubePoints[pId1]);
+				//std::cout << "Col (Board " << boardIter << ") " << pId0 << " - " << pId1 << ": " << dist << "\n";
+				scaleAccum += dist;
+				scaleAccumCount += 1;
+			}
+		}
+	}
+
+	float scaleAvg = scaleAccum / (float)scaleAccumCount;
+	float invScale = 0.9 / scaleAvg;
+	std::cout << "Scale avg: " << scaleAvg << "\n";
+
+	// NOTE
+	//for (int i = 0; i < 9 * 6; ++i) {
+		//cubePoints[i] *= invScale;
+	//}
+
+	//----------------------------------------------------------------------------------------------------
+	// Calculate cube metrics.
+	//----------------------------------------------------------------------------------------------------
+	Job->baCubePlanes.clear();
+
+	for (int boardIter = 0; boardIter < 6; ++boardIter) {
+		if (boardIter == 2) {
+			continue;
+		}
+
+		std::vector<vec3> points;
+		points.reserve(9);
+
+		for (int pointIter = boardIter * 9; pointIter < (boardIter + 1) * 9; ++pointIter) {
+			points.push_back(cubePoints[pointIter]);
+		}
+
+		ldiPlane plane;
+		computerVisionFitPlane(points, &plane);
+		Job->baCubePlanes.push_back(plane);
+
+		std::cout << "Board: " << boardIter << " " << plane.normal.x << ", " << plane.normal.y << ", " << plane.normal.z << "\n";
+	}
+
+	float dist03 = glm::distance(Job->baCubePlanes[0].point, Job->baCubePlanes[3].point);
+	float dist24 = glm::distance(Job->baCubePlanes[2].point, Job->baCubePlanes[4].point);
+	std::cout << "Side dists: " << dist03 << " " << dist24 << "\n";
+
+	//----------------------------------------------------------------------------------------------------
+	// Calc basis.
+	//----------------------------------------------------------------------------------------------------
+	vec3 axisX = Job->baCubePlanes[0].normal;
+	vec3 axisY = Job->baCubePlanes[1].normal;
+	vec3 axisZ = Job->baCubePlanes[2].normal;
+
+	vec3 basisX = axisX;
+	vec3 basisY = glm::normalize(-glm::cross(basisX, axisZ));
+	vec3 basisZ = glm::normalize(glm::cross(basisX, basisY));
+
+	mat4 worldToVolume = glm::identity<mat4>();
+
+	worldToVolume[0] = vec4(basisX, 0.0f);
+	worldToVolume[1] = vec4(basisY, 0.0f);
+	worldToVolume[2] = vec4(basisZ, 0.0f);
+
+	mat4 volumeToWorld = glm::inverse(worldToVolume);
+
+	for (int i = 0; i < 9 * 6; ++i) {
+		cubePoints[i] = volumeToWorld * vec4(cubePoints[i], 1.0);
+		Job->baIndvCubePoints.push_back(cubePoints[i]);
+	}
+
+	vec3 cubeCentroid(0, 0, 0.0f);
+	int centroidCount = 0;
+
+	for (int i = 0; i < 9 * 6; ++i) {
+		if (i >= 18 && i <=26) {
+			continue;
+		}
+
+		cubeCentroid += cubePoints[i];
+		++centroidCount;
+	}
+
+	cubeCentroid /= centroidCount;
+	std::cout << "Count: " << centroidCount << " Center: " << cubeCentroid.x << ", " << cubeCentroid.y << ", " << cubeCentroid.z << "\n";
+
+	for (int i = 0; i < 9 * 6; ++i) {
+		cubePoints[i] -= cubeCentroid;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Output refined cube.
+	//----------------------------------------------------------------------------------------------------
+	for (int i = 0; i < 9 * 6; ++i) {
+		vec3 point = cubePoints[i];
+		std::cout << "tempModelPoints[" << i << "] = cv::Point3f(" << point.x << ", " << point.y << ", " << point.z << ");\n";
+	}
+
 	return true;
 }
 
 void computerVisionBundleAdjustStereoBoth(ldiCalibrationJob* Job) {
-	// Construct temp 3D cube representation.
-	std::vector<ldiCalibCubePoint> cubePoints;
-	std::vector<vec3> cubeGlobalPoints;
-	cubeGlobalPoints.resize(9 * 6, vec3(0.0f, 0.0f, 0.0f));
-
-	float ps = 0.9f;
-	cubePoints.push_back({ 0, 0, 0, { 0.0f, ps * 0, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 3, { 0.0f, ps * 0, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 6, { 0.0f, ps * 0, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 1, { 0.0f, ps * 1, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 4, { 0.0f, ps * 1, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 7, { 0.0f, ps * 1, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 2, { 0.0f, ps * 2, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 5, { 0.0f, ps * 2, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 8, { 0.0f, ps * 2, ps * 2 } });
-
-	// Top
-	cubePoints.push_back({ 0, 0, 15, { -ps * 0 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 16, { -ps * 0 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 17, { -ps * 0 - 1.1f, 2.9f, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0, 12, { -ps * 1 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 13, { -ps * 1 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 14, { -ps * 1 - 1.1f, 2.9f, ps * 2 } });
-
-	cubePoints.push_back({ 0, 0,  9, { -ps * 2 - 1.1f, 2.9f, ps * 0 } });
-	cubePoints.push_back({ 0, 0, 10, { -ps * 2 - 1.1f, 2.9f, ps * 1 } });
-	cubePoints.push_back({ 0, 0, 11, { -ps * 2 - 1.1f, 2.9f, ps * 2 } });
-
-	for (size_t i = 0; i < cubePoints.size(); ++i) {
-		cubeGlobalPoints[cubePoints[i].globalId] = cubePoints[i].position;
-	}
-
 	std::vector<mat4> poses;
 	std::vector<int> viewImageIds;
 	std::vector<std::vector<cv::Point2f>> viewImagePoints;
@@ -2868,7 +3177,7 @@ void computerVisionBundleAdjustStereoBoth(ldiCalibrationJob* Job) {
 
 					//int cornerGlobalId = (board->id * 25) + corner->id;
 					int cornerGlobalId = (board->id * 9) + corner->id;
-					vec3 targetPoint = cubeGlobalPoints[cornerGlobalId];
+					vec3 targetPoint = _cubeGlobalPoints[cornerGlobalId];
 
 					// NOTE: Basic tests have shown that the SSBA utility considers 0,0 to be corner of a pixel.
 					imagePoints.push_back(cv::Point2f(corner->position.x, corner->position.y));
@@ -2883,7 +3192,7 @@ void computerVisionBundleAdjustStereoBoth(ldiCalibrationJob* Job) {
 				mat4 pose;
 
 				std::cout << "Find pose - Sample: " << sampleIter << " :\n";
-				if (computerVisionFindGeneralPose(&Job->startCamMat[hawkIter], &Job->startDistMat[hawkIter], &imagePoints, &worldPoints, &pose)) {
+				if (computerVisionFindGeneralPose(&Job->defaultCamMat[hawkIter], &Job->defaultCamDist[hawkIter], &imagePoints, &worldPoints, &pose)) {
 					//std::cout << "Pose:\n" << GetMat4DebugString(&pose);
 					poses.push_back(pose);
 					viewImageIds.push_back(sampleIter + hawkIter * 1000);
@@ -2906,13 +3215,13 @@ void computerVisionBundleAdjustStereoBoth(ldiCalibrationJob* Job) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d %d\n", cubePoints.size(), poses.size(), totalImagePointCount);
+	fprintf(f, "%d %d %d\n", _cubeWorldPoints.size(), poses.size(), totalImagePointCount);
 
 	// Camera intrinsics.
 	for (size_t i = 0; i < poseOwner.size(); ++i) {
 		int hawkId = poseOwner[i];
-		cv::Mat calibCameraMatrix = Job->startCamMat[hawkId];
-		cv::Mat calibCameraDist = Job->startDistMat[hawkId];
+		cv::Mat calibCameraMatrix = Job->defaultCamMat[hawkId];
+		cv::Mat calibCameraDist = Job->defaultCamDist[hawkId];
 
 		fprintf(f, "%f %f %f %f %f %f %f %f %f\n",
 			calibCameraMatrix.at<double>(0), calibCameraMatrix.at<double>(1), calibCameraMatrix.at<double>(2), calibCameraMatrix.at<double>(4), calibCameraMatrix.at<double>(5),
@@ -2920,9 +3229,9 @@ void computerVisionBundleAdjustStereoBoth(ldiCalibrationJob* Job) {
 	}
 
 	// 3D points.
-	for (size_t pointIter = 0; pointIter < cubePoints.size(); ++pointIter) {
-		int pointId = cubePoints[pointIter].globalId;
-		vec3 point = cubePoints[pointIter].position;
+	for (size_t pointIter = 0; pointIter < _cubeWorldPoints.size(); ++pointIter) {
+		int pointId = _cubeWorldPoints[pointIter].globalId;
+		vec3 point = _cubeWorldPoints[pointIter].position;
 		fprintf(f, "%d %f %f %f\n", pointId, point.x, point.y, point.z);
 	}
 
@@ -3151,550 +3460,4 @@ bool computerVisionBundleAdjustStereoBothLoad(ldiCalibrationJob* Job) {
 	Job->baStereoCamWorld[1][3] = vec4(centroid1Pos - deltaPos, 1.0f);
 
 	return true;
-}
-
-void computerVisionStereoCameraCalibrate(ldiCalibrationJob* Job) {
-	std::cout << "Starting stereo calibration.\n";
-
-	std::vector<cv::Point3f> tempModelPoints(18, cv::Point3f(0, 0, 0));
-	
-	// TODO: This is the size reference, make sure is correct dimensions.
-	// NOTE: Refined bundle adjust points. Why is Z backwards?
-	tempModelPoints[0] = cv::Point3f(0.00277832, -0.000379695, 0.00827281);
-	tempModelPoints[1] = cv::Point3f(0.00242818, 0.886975, -0.00139809);
-	tempModelPoints[2] = cv::Point3f(-0.00199425, 1.77352, -0.00676404);
-	tempModelPoints[3] = cv::Point3f(0.00680608, 0.0066398, 0.898923);
-	tempModelPoints[4] = cv::Point3f(0.0043463, 0.891605, 0.894385);
-	tempModelPoints[5] = cv::Point3f(0.00149548, 1.77892, 0.887999);
-	tempModelPoints[6] = cv::Point3f(0.00808172, 0.0108319, 1.79622);
-	tempModelPoints[7] = cv::Point3f(0.00671072, 0.896781, 1.7891);
-	tempModelPoints[8] = cv::Point3f(0.00236594, 1.78382, 1.78409);
-	tempModelPoints[9] = cv::Point3f(-2.88828, 2.89365, 0.00533009);
-	tempModelPoints[10] = cv::Point3f(-2.89563, 2.90259, 0.897714);
-	tempModelPoints[11] = cv::Point3f(-2.90182, 2.91324, 1.79047);
-	tempModelPoints[12] = cv::Point3f(-1.9996, 2.89199, 0.0115555);
-	tempModelPoints[13] = cv::Point3f(-2.00448, 2.90196, 0.906308);
-	tempModelPoints[14] = cv::Point3f(-2.01777, 2.91062, 1.79906);
-	tempModelPoints[15] = cv::Point3f(-1.11024, 2.89208, 0.0205293);
-	tempModelPoints[16] = cv::Point3f(-1.11899, 2.90095, 0.911953);
-	tempModelPoints[17] = cv::Point3f(-1.12496, 2.90969, 1.80808);
-
-	for (size_t i = 0; i < tempModelPoints.size(); ++i) {
-		tempModelPoints[i].z = -tempModelPoints[i].z;
-		//Job->baIndvCubePoints.push_back(vec3(tempModelPoints[i].x, tempModelPoints[i].y, tempModelPoints[i].z));
-	}
-
-	std::vector<std::vector<cv::Point3f>> objectPoints;
-	std::vector<std::vector<cv::Point2f>> imagePoints[2];
-	std::vector<int> stereoSampleId;
-
-	// Find matching points in both views.
-	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
-
-		std::vector<cv::Point2f> tempImagePoints[2];
-		std::vector<int> tempGlobalIds[2];
-
-		// Get image points from both views.
-		for (size_t hawkIter = 0; hawkIter < 2; ++hawkIter) {
-			std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkIter].boards;
-			
-			for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
-				ldiCharucoBoard* board = &(*boards)[boardIter];
-
-				for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
-					ldiCharucoCorner* corner = &board->corners[cornerIter];
-
-					int cornerGlobalId = (board->id * 9) + corner->id;
-					
-					tempImagePoints[hawkIter].push_back(cv::Point2f(corner->position.x, corner->position.y));
-					tempGlobalIds[hawkIter].push_back(cornerGlobalId);
-				}
-			}
-		}
-
-		std::vector<cv::Point3f> appendObjectPoints;
-		std::vector<cv::Point2f> appendImagePoints[2];
-
-		// Compare image points from boths views.
-		for (size_t pointIter0 = 0; pointIter0 < tempImagePoints[0].size(); ++pointIter0) {
-			int point0Id = tempGlobalIds[0][pointIter0];
-
-			for (size_t pointIter1 = 0; pointIter1 < tempImagePoints[1].size(); ++pointIter1) {
-				int point1Id = tempGlobalIds[1][pointIter1];
-
-				if (point0Id == point1Id) {
-					appendObjectPoints.push_back(tempModelPoints[point0Id]);
-					appendImagePoints[0].push_back(tempImagePoints[0][pointIter0]);
-					appendImagePoints[1].push_back(tempImagePoints[1][pointIter1]);
-
-					break;
-				}
-			}
-		}
-
-		if (appendObjectPoints.size() > 0) {
-			objectPoints.push_back(appendObjectPoints);
-			imagePoints[0].push_back(appendImagePoints[0]);
-			imagePoints[1].push_back(appendImagePoints[1]);
-			stereoSampleId.push_back(sampleIter);
-		}
-	}
-
-	cv::Mat camMat[2];
-	camMat[0] = Job->startCamMat[0].clone();
-	camMat[1] = Job->startCamMat[1].clone();
-
-	cv::Mat distMat[2];
-	distMat[0] = Job->startDistMat[0].clone();
-	distMat[1] = Job->startDistMat[1].clone();
-
-	int imgWidth = Job->samples[0].frames[0].width;
-	int imgHeight = Job->samples[0].frames[0].height;
-
-	cv::Mat r;
-	cv::Mat t;
-	cv::Mat e;
-	cv::Mat f;
-	std::vector<cv::Mat> rvecs;
-	std::vector<cv::Mat> tvecs;
-	cv::Mat perViewErrors;
-	cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, 1e-6); // 100
-	
-	//cv::CALIB_FIX_INTRINSIC
-	//cv::CALIB_USE_INTRINSIC_GUESS
-	double error = cv::stereoCalibrate(objectPoints, imagePoints[0], imagePoints[1], camMat[0], distMat[0], camMat[1], distMat[1], cv::Size(imgWidth, imgHeight), r, t, e, f, rvecs, tvecs, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS, criteria);
-
-	std::cout << "Error: " << error << "\n";
-	std::cout << "Per view errors: " << perViewErrors << "\n\n";
-
-	mat4 camRt(1.0f);
-	camRt[0][0] = r.at<double>(0, 0);
-	camRt[0][1] = r.at<double>(1, 0);
-	camRt[0][2] = r.at<double>(2, 0);
-	camRt[1][0] = r.at<double>(0, 1);
-	camRt[1][1] = r.at<double>(1, 1);
-	camRt[1][2] = r.at<double>(2, 1);
-	camRt[2][0] = r.at<double>(0, 2);
-	camRt[2][1] = r.at<double>(1, 2);
-	camRt[2][2] = r.at<double>(2, 2);
-	camRt[3] = vec4(t.at<double>(0), t.at<double>(1), t.at<double>(2), 1.0f);
-
-	Job->baStereoCamWorld[0] = glm::identity<mat4>();
-	Job->baStereoCamWorld[1] = glm::inverse(camRt);
-
-	float dist = glm::distance(vec3(0, 0, 0.0f), vec3(t.at<double>(0), t.at<double>(1), t.at<double>(2)));
-	std::cout << "Dist: " << dist << "\n";
-
-	std::cout << "New cam 0 mats: \n";
-	std::cout << camMat[0] << "\n";
-	std::cout << distMat[0] << "\n";
-	std::cout << "New cam 1 mats: \n";
-	std::cout << camMat[1] << "\n";
-	std::cout << distMat[1] << "\n";;
-
-	Job->camMatrix[0] = camMat[0].clone();
-	Job->camDist[0] = distMat[0].clone();
-	Job->camMatrix[1] = camMat[1].clone();
-	Job->camDist[1] = distMat[1].clone();
-
-	for (size_t i = 0; i < tempModelPoints.size(); ++i) {
-		Job->stCubePoints.push_back(vec3(tempModelPoints[i].x, tempModelPoints[i].y, tempModelPoints[i].z));
-	}
-
-	std::vector<mat4> poses;
-
-	for (size_t i = 0; i < rvecs.size(); ++i) {
-		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rvecs[i], cvRotMat);
-
-		mat4 pose(1.0f);
-		pose[0][0] = cvRotMat.at<double>(0, 0);
-		pose[0][1] = cvRotMat.at<double>(1, 0);
-		pose[0][2] = cvRotMat.at<double>(2, 0);
-		pose[1][0] = cvRotMat.at<double>(0, 1);
-		pose[1][1] = cvRotMat.at<double>(1, 1);
-		pose[1][2] = cvRotMat.at<double>(2, 1);
-		pose[2][0] = cvRotMat.at<double>(0, 2);
-		pose[2][1] = cvRotMat.at<double>(1, 2);
-		pose[2][2] = cvRotMat.at<double>(2, 2);
-		pose[3] = vec4(tvecs[i].at<double>(0), tvecs[i].at<double>(1), tvecs[i].at<double>(2), 1.0f);
-
-		Job->stCubeWorlds.push_back(pose);
-		poses.push_back(pose);
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Sort into columns.
-	//----------------------------------------------------------------------------------------------------
-	struct ldiTbPose {
-		int x;
-		int y;
-		int z;
-		mat4 pose;
-	};
-
-	struct ldiTbColumn {
-		int x;
-		int y;
-		int z;
-		std::vector<ldiTbPose> poses;
-	};
-
-	std::vector<ldiTbColumn> columnX;
-	std::vector<ldiTbColumn> columnY;
-	std::vector<ldiTbColumn> columnZ;
-
-	// TODO: Account for view error to decide if view should be included.
-	for (size_t sampleIter = 0; sampleIter < rvecs.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[stereoSampleId[sampleIter]];
-
-		if (sample->A != 0 || sample->C != 13000) {
-			continue;
-		}
-
-		int x = sample->X;
-		int y = sample->Y;
-		int z = sample->Z;
-
-		// X.
-		{
-			size_t columnId = -1;
-			for (size_t i = 0; i < columnX.size(); ++i) {
-				if (columnX[i].y == y && columnX[i].z == z) {
-					columnId = i;
-					break;
-				}
-			}
-
-			if (columnId == -1) {
-				columnId = columnX.size();
-
-				ldiTbColumn column;
-				column.x = 0;
-				column.y = y;
-				column.z = z;
-				columnX.push_back(column);
-			}
-
-			ldiTbPose pose;
-			pose.x = x;
-			pose.y = y;
-			pose.z = z;
-			pose.pose = poses[sampleIter];
-			columnX[columnId].poses.push_back(pose);
-
-			//std::cout << "(X) View: " << sampleIter << " Sample: " << stereoSampleId[sampleIter] <<  " Mech: " << x << "," << y << "," << z << "\n";
-		}
-
-		// Y.
-		{
-			size_t columnId = -1;
-			for (size_t i = 0; i < columnY.size(); ++i) {
-				if (columnY[i].x == x && columnY[i].z == z) {
-					columnId = i;
-					break;
-				}
-			}
-
-			if (columnId == -1) {
-				columnId = columnY.size();
-
-				ldiTbColumn column;
-				column.x = x;
-				column.y = 0;
-				column.z = z;
-				columnY.push_back(column);
-			}
-
-			ldiTbPose pose;
-			pose.x = x;
-			pose.y = y;
-			pose.z = z;
-			pose.pose = poses[sampleIter];
-			columnY[columnId].poses.push_back(pose);
-		}
-
-		// Z.
-		{
-			size_t columnId = -1;
-			for (size_t i = 0; i < columnZ.size(); ++i) {
-				if (columnZ[i].x == x && columnZ[i].y == y) {
-					columnId = i;
-					break;
-				}
-			}
-
-			if (columnId == -1) {
-				columnId = columnZ.size();
-
-				ldiTbColumn column;
-				column.x = x;
-				column.y = y;
-				column.z = 0;
-				columnZ.push_back(column);
-			}
-
-			ldiTbPose pose;
-			pose.x = x;
-			pose.y = y;
-			pose.z = z;
-			pose.pose = poses[sampleIter];
-			columnZ[columnId].poses.push_back(pose);
-		}
-	}
-
-	std::cout << "X columns: " << columnX.size() << "\n";
-	std::cout << "Y columns: " << columnY.size() << "\n";
-	std::cout << "Z columns: " << columnZ.size() << "\n";
-
-	//----------------------------------------------------------------------------------------------------
-	// Find real movement distances.
-	//----------------------------------------------------------------------------------------------------
-	double distAvgX = 0.0f;
-	double distAvgY = 0.0f;
-	double distAvgZ = 0.0f;
-
-	// X
-	{
-		double distAccum = 0.0;
-		int distAccumCount = 0;
-
-		std::vector<ldiTbColumn>* column = &columnX;
-		for (size_t colIter = 0; colIter < column->size(); ++colIter) {
-
-			// Pair all cubes in column.
-			for (size_t cubeIter0 = 0; cubeIter0 < (*column)[colIter].poses.size(); ++cubeIter0) {
-				ldiTbPose cube0 = (*column)[colIter].poses[cubeIter0];
-
-				for (size_t cubeIter1 = cubeIter0 + 1; cubeIter1 < (*column)[colIter].poses.size(); ++cubeIter1) {
-					ldiTbPose cube1 = (*column)[colIter].poses[cubeIter1];
-
-					double cubeMechDist = glm::distance(vec3(cube0.x, cube0.y, cube0.z), vec3(cube1.x, cube1.y, cube1.z));
-					double distVolSpace = glm::distance(vec3(cube0.pose[3]), vec3(cube1.pose[3]));
-					double distNorm = distVolSpace / cubeMechDist;
-
-					distAccum += distNorm;
-					distAccumCount += 1;
-
-					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
-				}
-			}
-		}
-
-		distAvgX = distAccum / (double)distAccumCount;
-	}
-
-	// Y
-	{
-		double distAccum = 0.0;
-		int distAccumCount = 0;
-
-		std::vector<ldiTbColumn>* column = &columnY;
-		for (size_t colIter = 0; colIter < column->size(); ++colIter) {
-
-			// Pair all cubes in column.
-			for (size_t cubeIter0 = 0; cubeIter0 < (*column)[colIter].poses.size(); ++cubeIter0) {
-				ldiTbPose cube0 = (*column)[colIter].poses[cubeIter0];
-
-				for (size_t cubeIter1 = cubeIter0 + 1; cubeIter1 < (*column)[colIter].poses.size(); ++cubeIter1) {
-					ldiTbPose cube1 = (*column)[colIter].poses[cubeIter1];
-
-					double cubeMechDist = glm::distance(vec3(cube0.x, cube0.y, cube0.z), vec3(cube1.x, cube1.y, cube1.z));
-					double distVolSpace = glm::distance(vec3(cube0.pose[3]), vec3(cube1.pose[3]));
-					double distNorm = distVolSpace / cubeMechDist;
-
-					distAccum += distNorm;
-					distAccumCount += 1;
-
-					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
-				}
-			}
-		}
-
-		distAvgY = distAccum / (double)distAccumCount;
-	}
-
-	// Z
-	{
-		double distAccum = 0.0;
-		int distAccumCount = 0;
-
-		std::vector<ldiTbColumn>* column = &columnZ;
-		for (size_t colIter = 0; colIter < column->size(); ++colIter) {
-
-			// Pair all cubes in column.
-			for (size_t cubeIter0 = 0; cubeIter0 < (*column)[colIter].poses.size(); ++cubeIter0) {
-				ldiTbPose cube0 = (*column)[colIter].poses[cubeIter0];
-
-				for (size_t cubeIter1 = cubeIter0 + 1; cubeIter1 < (*column)[colIter].poses.size(); ++cubeIter1) {
-					ldiTbPose cube1 = (*column)[colIter].poses[cubeIter1];
-
-					double cubeMechDist = glm::distance(vec3(cube0.x, cube0.y, cube0.z), vec3(cube1.x, cube1.y, cube1.z));
-					double distVolSpace = glm::distance(vec3(cube0.pose[3]), vec3(cube1.pose[3]));
-					double distNorm = distVolSpace / cubeMechDist;
-
-					distAccum += distNorm;
-					distAccumCount += 1;
-
-					//std::cout << "Cube point dist: " << distVolSpace << "/" << cubeMechDist << " = " << distNorm << "\n";
-				}
-			}
-		}
-
-		distAvgZ = distAccum / (double)distAccumCount;
-	}
-
-	Job->stepsToCm = vec3(distAvgX, distAvgY, distAvgZ);
-
-	std::cout << "Dist avg X: " << distAvgX << "\n";
-	std::cout << "Dist avg Y: " << distAvgY << "\n";
-	std::cout << "Dist avg Z: " << distAvgZ << "\n";
-
-	//----------------------------------------------------------------------------------------------------
-	// Find basis directions.
-	//----------------------------------------------------------------------------------------------------
-	Job->stBasisXPoints.clear();
-	Job->stBasisYPoints.clear();
-	Job->stBasisZPoints.clear();
-
-	// X.
-	{
-		for (size_t i = 0; i < columnX.size(); ++i) {
-			vec3 centroid(0, 0, 0);
-
-			for (size_t pointIter = 0; pointIter < columnX[i].poses.size(); ++pointIter) {
-				centroid += vec3(columnX[i].poses[pointIter].pose[3]);
-			}
-
-			centroid /= (float)columnX[i].poses.size();
-
-			for (size_t pointIter = 0; pointIter < columnX[i].poses.size(); ++pointIter) {
-				vec3 transPoint = vec3(columnX[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisXPoints.push_back(transPoint);
-			}
-		}
-	}
-
-	// Y.
-	{
-		for (size_t i = 0; i < columnY.size(); ++i) {
-			vec3 centroid(0, 0, 0);
-
-			for (size_t pointIter = 0; pointIter < columnY[i].poses.size(); ++pointIter) {
-				centroid += vec3(columnY[i].poses[pointIter].pose[3]);
-			}
-
-			centroid /= (float)columnY[i].poses.size();
-
-			for (size_t pointIter = 0; pointIter < columnY[i].poses.size(); ++pointIter) {
-				vec3 transPoint = vec3(columnY[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisYPoints.push_back(transPoint);
-			}
-		}
-	}
-
-	// Z.
-	{
-		for (size_t i = 0; i < columnZ.size(); ++i) {
-			vec3 centroid(0, 0, 0);
-
-			for (size_t pointIter = 0; pointIter < columnZ[i].poses.size(); ++pointIter) {
-				centroid += vec3(columnZ[i].poses[pointIter].pose[3]);
-			}
-
-			centroid /= (float)columnZ[i].poses.size();
-
-			for (size_t pointIter = 0; pointIter < columnZ[i].poses.size(); ++pointIter) {
-				vec3 transPoint = vec3(columnZ[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisZPoints.push_back(transPoint);
-			}
-		}
-	}
-
-	Job->axisX = computerVisionFitLine(Job->stBasisXPoints);
-	Job->axisY = computerVisionFitLine(Job->stBasisYPoints);
-	Job->axisZ = computerVisionFitLine(Job->stBasisZPoints);
-
-	Job->basisX = Job->axisX.direction;
-	Job->basisY = glm::normalize(glm::cross(Job->basisX, Job->axisZ.direction));
-	Job->basisZ = glm::normalize(glm::cross(Job->basisX, Job->basisY));
-
-	//----------------------------------------------------------------------------------------------------
-	// Calculate calib volume to world basis.
-	//----------------------------------------------------------------------------------------------------
-	mat4 worldToVolume = glm::identity<mat4>();
-
-	worldToVolume[0] = vec4(Job->basisX, 0.0f);
-	worldToVolume[1] = vec4(Job->basisY, 0.0f);
-	worldToVolume[2] = vec4(Job->basisZ, 0.0f);
-
-	mat4 volumeRealign = glm::rotate(mat4(1.0f), glm::radians(90.0f), Job->basisX);
-	worldToVolume = volumeRealign * worldToVolume;
-
-	// Volume center point is at 0,0,0.
-	// Use sample 0 as basis for location.
-	// TODO: Calculate better calib cube center.
-	glm::f64vec3 samp0(Job->samples[0].X, Job->samples[0].Y, Job->samples[0].Z);
-	samp0 *= Job->stepsToCm;
-	samp0 -= vec3(-2.0, 0.9, 0.9);
-	samp0 = (float)samp0.x * Job->axisX.direction + (float)samp0.y * Job->axisY.direction + -(float)samp0.z * Job->axisZ.direction;
-	vec3 volPos = poses[0][3];
-	volPos -= samp0;
-	//std::cout << "Offset from center: " << volPos.x << ", " << volPos.y << ", " << volPos.z << "\n";
-	
-	volumeRealign = glm::translate(mat4(1.0f), volPos);
-	worldToVolume = volumeRealign * worldToVolume;
-
-	mat4 volumeToWorld = glm::inverse(worldToVolume);
-
-	//----------------------------------------------------------------------------------------------------
-	// Move all volume elements into world space.
-	//----------------------------------------------------------------------------------------------------
-	{
-		// Move axis directions.
-		Job->axisX.direction = glm::normalize(volumeToWorld * vec4(Job->axisX.direction, 0.0f));
-		Job->axisY.direction = glm::normalize(volumeToWorld * vec4(Job->axisY.direction, 0.0f));
-		Job->axisZ.direction = glm::normalize(volumeToWorld * vec4(Job->axisZ.direction, 0.0f));
-
-		// Center point.
-		Job->stVolumeCenter = volumeToWorld * vec4(volPos, 1.0);
-
-		// Move mass model.
-		/*for (size_t i = 0; i < Job->massModelBundleAdjustPointIds.size(); ++i) {
-			vec3 point = Job->massModelTriangulatedPointsBundleAdjust[i];
-			point = volumeToWorld * vec4(point, 1.0f);
-			Job->massModelTriangulatedPointsBundleAdjust[i] = point;
-		}*/
-
-		// Move cameras to world space.
-		Job->camVolumeMat[0] = volumeToWorld * Job->baStereoCamWorld[0];
-		Job->camVolumeMat[1] = volumeToWorld * Job->baStereoCamWorld[1];
-
-		// Normalize scale.
-		Job->camVolumeMat[0][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][0])), 0.0f);
-		Job->camVolumeMat[0][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][1])), 0.0f);
-		Job->camVolumeMat[0][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][2])), 0.0f);
-
-		Job->camVolumeMat[1][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][0])), 0.0f);
-		Job->camVolumeMat[1][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][1])), 0.0f);
-		Job->camVolumeMat[1][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][2])), 0.0f);
-
-		// Move cube centroids.
-		for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
-			Job->stCubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
-
-			//Job->stCubeWorlds[i][3] = vec4(0,0,0,1.0f);
-		}
-
-		Job->cubePointCentroids.clear();
-		for (size_t i = 0; i < tempModelPoints.size(); ++i) {
-			vec3 point = vec3(tempModelPoints[i].x, tempModelPoints[i].y, tempModelPoints[i].z);
-			point = poses[0] * vec4(point.x, point.y, point.z, 1.0);
-
-			point = volumeToWorld * vec4(point.x, point.y, point.z, 1.0);
-
-			Job->cubePointCentroids.push_back(point);
-		}
-	}
 }
