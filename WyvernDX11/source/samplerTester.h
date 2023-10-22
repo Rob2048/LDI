@@ -158,20 +158,20 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	//---------------------------------------------------------------------------------------------------------------
 	// Load image.
 	//---------------------------------------------------------------------------------------------------------------
-	double t0 = _getTime(SamplerTester->appContext);
+	double t0 = getTime();
 
 	int sourceWidth, sourceHeight, sourceChannels;
 	//uint8_t* sourcePixels = imageLoadRgba("../../assets/images/imM.png", &sourceWidth, &sourceHeight, &sourceChannels);
 	uint8_t* sourcePixels = imageLoadRgba("../../assets/images/dergn2.png", &sourceWidth, &sourceHeight, &sourceChannels);
 
-	t0 = _getTime(SamplerTester->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Image loaded: " << (t0 * 1000.0) << " ms\n";
 	std::cout << "Image stats: " << sourceWidth << ", " << sourceHeight << " " << sourceChannels << "\n";
 
 	//---------------------------------------------------------------------------------------------------------------
 	// Convert image to greyscale
 	//---------------------------------------------------------------------------------------------------------------
-	t0 = _getTime(SamplerTester->appContext);
+	t0 = getTime();
 	
 	int sourceTotalPixels = sourceWidth * sourceHeight;
 	float* sourceIntensity = new float[sourceTotalPixels];
@@ -189,13 +189,13 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		sourceIntensity[i] = lum;
 	}
 
-	t0 = _getTime(SamplerTester->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Greyscale: " << (t0 * 1000.0) << " ms\n";
 
 	//---------------------------------------------------------------------------------------------------------------
 	// Poisson disk sampler - generate sample pool.
 	//---------------------------------------------------------------------------------------------------------------
-	t0 = _getTime(SamplerTester->appContext);
+	t0 = getTime();
 
 	float samplesPerPixel = 8.0f;
 	float sampleScale = ((sourceWidth / 10.0f) / sourceWidth) / samplesPerPixel;
@@ -245,14 +245,14 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		}
 	}
 
-	t0 = _getTime(SamplerTester->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Generate sample pool: " << (t0 * 1000.0) << " ms\n";
 	std::cout << "Sample count: " << candidateCount << "\n";
 
 	//---------------------------------------------------------------------------------------------------------------
 	// Create random order for sample selection.
 	//---------------------------------------------------------------------------------------------------------------
-	t0 = _getTime(SamplerTester->appContext);
+	t0 = getTime();
 
 	int* orderList = new int[candidateCount];
 	for (int i = 0; i < candidateCount; ++i) {
@@ -268,7 +268,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		orderList[j] = tmp;
 	}
 
-	t0 = _getTime(SamplerTester->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Generate random sample order: " << (t0 * 1000.0) << " ms\n";
 
 	//---------------------------------------------------------------------------------------------------------------
@@ -292,7 +292,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 	//---------------------------------------------------------------------------------------------------------------
 	// Add samples from pool.
 	//---------------------------------------------------------------------------------------------------------------
-	t0 = _getTime(SamplerTester->appContext);
+	t0 = getTime();
 
 	//int* pointList = new int[candidateCount];
 	//int pointCount = 0;
@@ -359,7 +359,7 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		}
 	}
 
-	t0 = _getTime(SamplerTester->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Generate poisson samples: " << (t0 * 1000.0) << " ms\n";
 	std::cout << "Poisson sample count: " << samplePoints.size() << "\n";
 

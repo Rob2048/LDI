@@ -108,9 +108,9 @@ int physicsCookMesh(ldiPhysics* Physics, ldiModel* Model, ldiPhysicsMesh* Result
 
 	PxTriangleMeshCookingResult::Enum result;
 	
-	double t0 = _getTime(Physics->appContext);
+	double t0 = getTime();
 	PxTriangleMesh* cookedMesh = Physics->cooking->createTriangleMesh(meshDesc, Physics->physics->getPhysicsInsertionCallback(), &result);
-	t0 = _getTime(Physics->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Mesh cooked " << result << " in " << t0 * 1000.0f << " ms\n";
 
 	if (result != PxTriangleMeshCookingResult::Enum::eSUCCESS) {

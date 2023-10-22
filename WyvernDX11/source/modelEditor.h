@@ -627,7 +627,7 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 			}
 		}
 
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		
 		/*AppContext->d3dDeviceContext->CSSetShader(Tool->sdfVolumeCompute, 0, 0);
 		AppContext->d3dDeviceContext->CSSetShaderResources(0, 1, &triListResourceView);
@@ -638,7 +638,7 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 		ID3D11UnorderedAccessView* ppUAViewnullptr[1] = { 0 };
 		AppContext->d3dDeviceContext->CSSetUnorderedAccessViews(0, 1, ppUAViewnullptr, 0);*/
 
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "SDF compute time: " << (t0 * 1000.0) << " ms\n";
 	}
 
@@ -737,7 +737,7 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 			return 1;
 		}
 
-		double t0 = _getTime(Tool->appContext);
+		double t0 = getTime();
 
 		ldiDispImage dispTex = {};
 		dispTex.width = 2048;
@@ -746,7 +746,7 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 		dispTex.normalData = new uint8_t[dispTex.width * dispTex.height * 4];
 		
 		geoBakeDisplacementTexture(Tool->appContext, &sphereTarget1Phys, &sphereTemplateModel, &sphereTarget1, &dispTex);
-		t0 = _getTime(Tool->appContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Bake time: " << (t0 * 1000.0) << " ms\n";
 
 		{
@@ -914,7 +914,7 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 
 		Tool->voxelGrid = voxelCreateGrid(32, 32, 32);
 
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 
 		float vgHsX = Tool->voxelGrid.cellSizeX * 0.5f;
 		float vgHsY = Tool->voxelGrid.cellSizeY * 0.5f;
@@ -970,19 +970,19 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 				}
 			}
 		}
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Voxel SDF time: " << (t0 * 1000.0) << " ms\n";
 
 		ldiModel voxelModel;
-		t0 = _getTime(AppContext);
+		t0 = getTime();
 		//voxelCreateModel(&Tool->voxelGrid, &voxelModel);
 		voxelMarch(&Tool->voxelGrid, &voxelModel);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Voxel build mesh time: " << (t0 * 1000.0) << " ms\n";
 
-		t0 = _getTime(AppContext);
+		t0 = getTime();
 		modelCreateFaceNormals(&voxelModel);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Voxel mesh calculate normals time: " << (t0 * 1000.0) << " ms\n";
 
 		Tool->voxelRenderModel = gfxCreateRenderModel(AppContext, &voxelModel);
@@ -1042,7 +1042,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 	mat4 decal0PVMat;
 
 	{
-		double time = _getTime(appContext);
+		double time = getTime();
 		//mat4 decalViewMat = glm::lookAtRH(vec3(sin(time), 1, cos(time)), vec3(0, 0, 0), vec3(0, 1, 0));
 		vec3 d0p = glm::normalize(Tool->decal0Pos);
 		mat4 decalViewMat = glm::lookAtRH(d0p * 1.5f, vec3(0, 0, 0), vec3(0, 1, 0));
@@ -1084,7 +1084,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->screenSize.x = _getTime(appContext);
+		constantBuffer->screenSize.x = getTime();
 		constantBuffer->screenSize.y = Tool->target1Blend;
 		constantBuffer->screenSize.z = Tool->target2Blend;
 		constantBuffer->proj = decal0PVMat;
@@ -1196,7 +1196,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 		constantBuffer->mvp = invProjViewMat;
 		constantBuffer->proj = projViewMat;
-		constantBuffer->color = vec4(0, 0, 0, _getTime(appContext));
+		constantBuffer->color = vec4(0, 0, 0, getTime());
 		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 		appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &Tool->sdfVolumeResourceView);
@@ -1343,7 +1343,7 @@ void modelEditorRender(ldiModelEditor* Tool, int Width, int Height, std::vector<
 	// Update displace plane.
 	{
 		//ldiDisplacementPlane* plane = &Tool->displacePlane;
-		//double time = _getTime(appContext);
+		//double time = getTime();
 
 		//for (int iY = 0; iY < plane->sizeY; ++iY) {
 		//	for (int iX = 0; iX < plane->sizeX; ++iX) {

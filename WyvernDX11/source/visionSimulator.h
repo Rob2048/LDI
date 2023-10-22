@@ -799,7 +799,7 @@ void visionSimulatorRenderAndSave(ldiVisionSimulator* Tool, ldiHorse* Horse) {
 	calibSample.a = Horse->a;
 	calibSample.b = Horse->b;
 	
-	computerVisionFindCharuco(img, Tool->appContext, &calibSample.charucos, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
+	computerVisionFindCharuco(img, &calibSample.charucos, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 	
 	Tool->calibSamples.push_back(calibSample);
 
@@ -892,7 +892,7 @@ void visionSimulatorCreateCameraCalibImageSet(ldiVisionSimulator* Tool) {
 void visionSimulatorCreateImageSet(ldiVisionSimulator* Tool) {
 	Tool->calibSamples.clear();
 
-	srand(_getTime(Tool->appContext));
+	srand(getTime());
 
 	for (int i = 0; i < 1000; ++i) {
 		Tool->horse.x = rand() % 16 - 8.0f;
@@ -1230,7 +1230,7 @@ void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {
 		return;
 	}
 
-	double t0 = _getTime(Tool->appContext);
+	double t0 = getTime();
 	
 	char filename[256];
 	sprintf_s(filename, sizeof(filename), "../cache/calib/%d.png", Tool->calibSampleLoadedImage);
@@ -1255,7 +1255,7 @@ void visionSimulatorLoadCalibImage(ldiVisionSimulator* Tool) {
 
 	imageFree(imgData);
 
-	t0 = _getTime(Tool->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Load image: " << filename << " in " << t0 * 1000.0f << " ms\n";
 }
 
@@ -1370,7 +1370,7 @@ void visionSimulatorShowUi(ldiVisionSimulator* Tool) {
 			img.data = Tool->renderViewCopy;
 			img.width = Tool->imageWidth;
 			img.height = Tool->imageHeight;
-			computerVisionFindCharuco(img, Tool->appContext, &Tool->charucoResults, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
+			computerVisionFindCharuco(img, &Tool->charucoResults, &Tool->calibCameraMatrix, &Tool->calibCameraDist);
 
 			Tool->charucoTruth.boards.clear();
 			

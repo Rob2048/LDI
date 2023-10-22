@@ -64,6 +64,8 @@
 #define PIN_DBG2				22
 #define PIN_DBG3				23
 
+#define PIN_SCAN_LASER_ENABLE	28
+
 #define PIN_LIMIT_C_INNER		21 // Analog 7
 #define PIN_LIMIT_C_OUTER		22 // Analog 8
 

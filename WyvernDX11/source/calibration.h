@@ -1,8 +1,8 @@
 #pragma once
 
-void calibSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A, int Phase, int ImgId) {
+void calibSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib_space") {
 	char path[1024];
-	sprintf_s(path, "../cache/volume_calib_space/%04d_%d.dat", ImgId, Phase);
+	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
 
 	FILE* file;
 	fopen_s(&file, path, "wb");
@@ -95,10 +95,17 @@ void calibClearJob(ldiCalibrationJob* Job) {
 	for (size_t i = 0; i < Job->samples.size(); ++i) {
 		calibFreeStereoCalibImages(&Job->samples[i]);
 	}
-
 	Job->samples.clear();
+
+	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
+		calibFreeStereoCalibImages(&Job->scanSamples[i]);
+	}
+	Job->scanSamples.clear();
+
 	Job->stereoCalibrated = false;
 	Job->metricsCalculated = false;
+	Job->scannerCalibrated = false;
+	Job->galvoCalibrated = false;
 }
 
 template<class T> void serializeVectorPrep(FILE* File, std::vector<T>& Vector) {
@@ -455,7 +462,7 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 }
 
 // Takes stereo image sample files and generates the initial calibration samples for a job.
-void calibFindInitialObservations(ldiApp* AppContext, ldiCalibrationJob* Job, ldiHawk* Hawks) {
+void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	calibClearJob(Job);
 
 	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/volume_calib_space/");
@@ -468,7 +475,7 @@ void calibFindInitialObservations(ldiApp* AppContext, ldiCalibrationJob* Job, ld
 			calibLoadStereoCalibSampleData(&sample);
 
 			for (int j = 0; j < 2; ++j) {
-				computerVisionFindCharuco(sample.frames[j], AppContext, &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
+				computerVisionFindCharuco(sample.frames[j], &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
 			}
 
 			calibFreeStereoCalibImages(&sample);
@@ -487,8 +494,8 @@ void calibFindInitialObservations(ldiApp* AppContext, ldiCalibrationJob* Job, ld
 }
 
 // Calculate stereo camera intrinsics, extrinsics, and cube transforms.
-void calibStereoCalibrate(ldiApp* AppContext, ldiCalibrationJob* Job) {
-	std::cout << "Starting stereo calibration: " << _getTime(AppContext) << "\n";
+void calibStereoCalibrate(ldiCalibrationJob* Job) {
+	std::cout << "Starting stereo calibration: " << getTime() << "\n";
 
 	Job->stereoCalibrated = false;
 	Job->stPoseToSampleIds.clear();
@@ -585,7 +592,7 @@ void calibStereoCalibrate(ldiApp* AppContext, ldiCalibrationJob* Job) {
 		return;
 	}
 
-	std::cout << "Done stereo calibration: " << _getTime(AppContext) << "\n";
+	std::cout << "Done stereo calibration: " << getTime() << "\n";
 
 	std::cout << "Error: " << error << "\n";
 	std::cout << "Per view errors: " << perViewErrors << "\n\n";
@@ -1168,4 +1175,34 @@ void calibBuildCalibVolumeMetrics(ldiApp* AppContext, ldiCalibrationJob* Job) {
 	}
 
 	Job->metricsCalculated = true;
+}
+
+// Takes stereo image sample files and generates scanner calibration.
+void calibCalibrateScanner(ldiApp* AppContext, ldiCalibrationJob* Job) {
+	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
+		calibFreeStereoCalibImages(&Job->scanSamples[i]);
+	}
+	Job->scanSamples.clear();
+
+	Job->scannerCalibrated = false;
+
+	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/scanner_calib/");
+
+	for (int i = 0; i < filePaths.size(); ++i) {
+		if (endsWith(filePaths[i], ".dat")) {
+			ldiCalibStereoSample sample = {};
+			sample.path = filePaths[i];
+
+			calibLoadStereoCalibSampleData(&sample);
+
+			// TOOD: Process here.
+			/*for (int j = 0; j < 2; ++j) {
+				computerVisionFindCharuco(sample.frames[j], AppContext, &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
+			}*/
+
+			calibFreeStereoCalibImages(&sample);
+
+			Job->samples.push_back(sample);
+		}
+	}
 }

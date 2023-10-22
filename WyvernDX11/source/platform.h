@@ -279,11 +279,11 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 	// Pre arm camera.
 	/*hawkClearWaitPacket(&Platform->hawks[0]);
 	hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
-	std::cout << "Wait for gather " << _getTime(appContext) << "\n";
+	std::cout << "Wait for gather " << getTime() << "\n";
 	hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
-	std::cout << "Got gather " << _getTime(appContext) << "\n";*/
+	std::cout << "Got gather " << getTime() << "\n";*/
 	//hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-	//std::cout << "Got frame " << _getTime(appContext) << "\n";
+	//std::cout << "Got frame " << getTime() << "\n";
 
 	int imgId = 0;
 
@@ -400,7 +400,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 					hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
 					hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
 
-					std::cout << "Got frame " << _getTime(appContext) << "\n";
+					std::cout << "Got frame " << getTime() << "\n";
 
 					{
 						std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
@@ -487,7 +487,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
 			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
 
-			std::cout << "Got frame " << _getTime(appContext) << "\n";
+			std::cout << "Got frame " << getTime() << "\n";
 
 			{
 				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
@@ -572,7 +572,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
 			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
 
-			std::cout << "Got frame " << _getTime(appContext) << "\n";
+			std::cout << "Got frame " << getTime() << "\n";
 
 			{
 				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
@@ -664,18 +664,24 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 
 		Sleep(300);
 
-		for (int iC = 0; iC < 60 + 1; ++iC) {
-			if (iC < 60) {
-				int stepInc = (32 * 200 * 30) / 60;
-				posC = 13000 + iC * stepInc;
-				if (!pantherMoveAndWait(panther, PA_C, posC, 0.0f)) { return false; }
+		// -48000
+		// 48000
+		// 96000
+
+		// X: -12700
+
+		for (int iZ = 0; iZ < 61 + 1; ++iZ) {
+			if (iZ < 61) {
+				int stepInc = (96000) / 60;
+				posZ = -48000 + iZ * stepInc;
+				if (!pantherMoveAndWait(panther, PA_Z, posZ, 0.0f)) { return false; }
 			}
 
-			if (iC != 0) {
+			if (iZ != 0) {
 				hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
 				hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
 
-				std::cout << "Got frame " << _getTime(appContext) << "\n";
+				std::cout << "Got frame " << getTime() << "\n";
 
 				{
 					std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
@@ -696,12 +702,12 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 						return false;
 					}
 
-					calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 2, imgId);
+					calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 0, imgId, "scanner_calib");
 					++imgId;
 				}
 			}
 
-			if (iC < 60) {
+			if (iZ < 61) {
 				hawkClearWaitPacket(&Platform->hawks[0]);
 				hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
 

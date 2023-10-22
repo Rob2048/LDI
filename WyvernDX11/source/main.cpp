@@ -87,9 +87,6 @@ struct ldiApp {
 	uint32_t					windowWidth;
 	uint32_t					windowHeight;
 
-	int64_t						timeFrequency;
-	int64_t						timeCounterStart;
-
 	std::string					currentWorkingDir;
 	
 	ID3D11Device*				d3dDevice;
@@ -177,15 +174,33 @@ struct ldiApp {
 	ldiCalibrationContext*		calibrationContext;
 };
 
-double _getTime(ldiApp* AppContext) {
+//----------------------------------------------------------------------------------------------------
+// Time.
+//----------------------------------------------------------------------------------------------------
+int64_t	_timeFrequency;
+int64_t _timeCounterStart;
+
+double getTime() {
 	LARGE_INTEGER counter;
 	QueryPerformanceCounter(&counter);
-	int64_t time = counter.QuadPart - AppContext->timeCounterStart;
-	double result = (double)time / ((double)AppContext->timeFrequency);
+	int64_t time = counter.QuadPart - _timeCounterStart;
+	double result = (double)time / ((double)_timeFrequency);
 
 	return result;
 }
 
+void _initTiming() {
+	LARGE_INTEGER freq;
+	LARGE_INTEGER counter;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&counter);
+	_timeCounterStart = counter.QuadPart;
+	_timeFrequency = freq.QuadPart;
+}
+
+//----------------------------------------------------------------------------------------------------
+// Primary systems.
+//----------------------------------------------------------------------------------------------------
 #include "computerVision.h"
 #include "serialPort.h"
 #include "graphics.h"
@@ -218,15 +233,6 @@ ldiCalibrationContext	_calibrationContext = {};
 //----------------------------------------------------------------------------------------------------
 // Windowing and GUI helpers.
 //----------------------------------------------------------------------------------------------------
-void _initTiming(ldiApp* AppContext) {
-	LARGE_INTEGER freq;
-	LARGE_INTEGER counter;
-	QueryPerformanceFrequency(&freq);
-	QueryPerformanceCounter(&counter);
-	AppContext->timeCounterStart = counter.QuadPart;
-	AppContext->timeFrequency = freq.QuadPart;
-}
-
 vec2 getMousePosition(ldiApp* AppContext) {
 	POINT p;
 	GetCursorPos(&p);
@@ -863,7 +869,7 @@ int main() {
 
 	std::cout << "Starting WyvernDX11\n";
 	ldiApp* appContext = &_appContext;
-	_initTiming(appContext);
+	_initTiming();
 
 	appContext->projectContext = &_projectContext;
 	appContext->calibrationContext = &_calibrationContext;
@@ -1101,7 +1107,7 @@ int main() {
 		_renderImgui(&_appContext);
 	}
 
-	// TODO: Release all the things.
+	// TODO: Release all the things. (Probably never going to happen).
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();

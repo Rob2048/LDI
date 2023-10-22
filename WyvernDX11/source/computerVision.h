@@ -151,6 +151,18 @@ struct ldiCalibrationJob {
 	glm::f64vec3 stepsToCm;
 
 	//----------------------------------------------------------------------------------------------------
+	// Scanner calibration.
+	//----------------------------------------------------------------------------------------------------
+	bool scannerCalibrated;
+	std::vector<ldiCalibStereoSample> scanSamples;
+	ldiPlane* scanPlane;
+
+	//----------------------------------------------------------------------------------------------------
+	// Galvo calibration.
+	//----------------------------------------------------------------------------------------------------
+	bool galvoCalibrated;
+
+	//----------------------------------------------------------------------------------------------------
 	// Other data (Caluclate stereo extrinsics, bundle adjust, etc). Not saved.
 	//----------------------------------------------------------------------------------------------------
 	cv::Mat rtMat[2];
@@ -582,9 +594,9 @@ bool cameraCalibFindChessboard(ldiApp* AppContext, ldiImage Image, ldiCameraCali
 		cv::Mat image(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
 		std::vector<cv::Point2f> corners;
 
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		bool foundCorners = cv::findChessboardCorners(image, cv::Size(9, 6), corners);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Detect chessboard: " << (t0 * 1000.0) << " ms\n";
 
 		if (!foundCorners) {
@@ -621,9 +633,9 @@ bool cameraCalibFindCirclesBoard(ldiApp* AppContext, ldiImage Image, ldiCameraCa
 
 		cv::Ptr<cv::SimpleBlobDetector> blobDetector = cv::SimpleBlobDetector::create(params);
 
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		bool foundCorners = cv::findCirclesGrid(image, cv::Size(4, 11), corners, cv::CALIB_CB_ASYMMETRIC_GRID, blobDetector);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Detect circles: " << (t0 * 1000.0) << " ms " << foundCorners << "\n";
 
 		if (!foundCorners) {
@@ -681,12 +693,12 @@ void cameraCalibRunCalibration(ldiApp* AppContext, std::vector<ldiCameraCalibSam
 	cv::Mat stdDevExtrinsics;
 	cv::Mat perViewErrors;
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	// cv::CALIB_USE_INTRINSIC_GUESS
 	cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, DBL_EPSILON);
 
 	double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, 0, criteria);
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << t0 * 1000.0f << " ms\n";
 
 	std::cout << stdDevIntrinsics.size << "\n";
@@ -777,14 +789,14 @@ void cameraCalibRunCalibrationCircles(ldiApp* AppContext, std::vector<ldiCameraC
 	cv::Mat stdDevExtrinsics;
 	cv::Mat perViewErrors;
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 
 	//cv::CALIB_USE_INTRINSIC_GUESS
 	cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 1000, DBL_EPSILON);
 	//double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, 0, criteria);
 	double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_FIX_K3, criteria);
 	//double rms = cv::calibrateCamera(objectPoints, imagePoints, cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS, criteria);
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << t0 * 1000.0f << " ms\n";
 
 	std::cout << stdDevIntrinsics.size << "\n";
@@ -939,7 +951,7 @@ void createCharucos(bool Output) {
 	}
 }
 
-void computerVisionFindCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
+void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
 	int offset = 1;
 
 	try {
@@ -951,7 +963,7 @@ void computerVisionFindCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoRes
 		// TODO: Check if this is doing anything.
 		parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
 
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		
 		cv::aruco::ArucoDetector arucoDetector(_dictionary, parameters);
 		arucoDetector.detectMarkers(image, markerCorners, markerIds, rejectedMarkers);
@@ -959,7 +971,7 @@ void computerVisionFindCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoRes
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 		
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
 
 		Results->markers.clear();
@@ -1125,7 +1137,7 @@ void computerVisionFindCharuco(ldiImage Image, ldiApp* AppContext, ldiCharucoRes
 		//	}
 		//}
 
-		/*t0 = _getTime(AppContext) - t0;
+		/*t0 = getTime() - t0;
 		std::cout << "Find charuco: " << (t0 * 1000.0) << " ms\n";*/
 
 	} catch (cv::Exception e) {
@@ -1196,11 +1208,11 @@ void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCal
 	cv::Mat stdDevExtrinsics;
 	cv::Mat perViewErrors;
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_FIX_K1 | cv::CALIB_FIX_K2 | cv::CALIB_FIX_K3 | cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5 | cv::CALIB_FIX_K6 | cv::CALIB_ZERO_TANGENT_DIST | cv::CALIB_FIX_FOCAL_LENGTH | cv::CALIB_USE_INTRINSIC_GUESS | cv::CALIB_FIX_PRINCIPAL_POINT);
 	//double rms = cv::aruco::calibrateCameraCharuco(charucoCorners, charucoIds, _charucoBoards[0], cv::Size(ImageWidth, ImageHeight), cameraMatrix, distCoeffs, rvecs, tvecs, stdDevIntrinsics, stdDevExtrinsics, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS,
 		//cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, DBL_EPSILON));
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << t0 * 1000.0f << " ms\n";
 
 	std::cout << stdDevIntrinsics.size << "\n";

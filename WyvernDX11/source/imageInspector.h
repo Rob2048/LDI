@@ -81,6 +81,14 @@ struct ldiImageInspector {
 	vec2						hawkImageOffset[2] = { vec2(0.0f, 0.0f), vec2(0.0f, 0.0f) };
 	int							hawkLastFrameId[2] = { 0, 0 };
 	uint8_t						hawkFrameBuffer[2][CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+	
+	bool						hawkScanProcessImage = true;
+	bool						hawkEnableGammaTest = false;
+	int							hawkScanMappingMin = 22;
+	int							hawkScanMappingMax = 75;
+
+	std::vector<vec4>			hawkScanSegs;
+	std::vector<vec2>			hawkScanPoints;
 };
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -375,15 +383,6 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId) {
 	Tool->appContext->platform->testPosA = stereoSample->A;
 }
 
-void _imageInspectorProcessCalibJob(ldiImageInspector* Tool) {
-	if (Tool->appContext->calibrationContext->calibJob.samples.size() == 0) {
-		std::cout << "No calibration job samples to process\n";
-		return;
-	}
-
-	platformCalculateStereoExtrinsics(Tool->appContext, &Tool->appContext->calibrationContext->calibJob);
-}
-
 struct ldiUiPositionInfo {
 	ImVec2 screenStartPos;
 	ImVec2 imgOffset;
@@ -565,13 +564,154 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (newFrame) {
+			Tool->hawkScanSegs.clear();
+			Tool->hawkScanPoints.clear();
+
+			// Apply scan image processing.
+			if (Tool->hawkScanProcessImage) {
+				float diff = 255.0f / (Tool->hawkScanMappingMax - Tool->hawkScanMappingMin);
+				for (int i = 0; i < camImg.width * camImg.height; ++i) {
+					int v = camImg.data[i];
+
+					/*if (Tool->hawkEnableGammaTest) {
+						v = (int)(GammaToLinear(v / 255.0) * 255.0);
+					}*/
+
+					v = (v - Tool->hawkScanMappingMin) * diff;
+
+					if (v < 0) {
+						v = 0;
+					} else if (v > 255) {
+						v = 255;
+					}
+
+					camImg.data[i] = v;
+				}
+
+				int sigPeakMin = 50;
+
+				struct ldiScanLineSignal {
+					int x;
+					int y0;
+					int y1;
+				};
+
+				std::vector<vec4> tempSegs;
+
+				// Process each column.
+				for (int iX = 0; iX < camImg.width; ++iX) {
+					// Find all signals in this column.
+					//std::vector<vec2> signals;
+
+					int sigState = 0;
+					int sigStart = -1;
+					
+					for (int iY = 0; iY < camImg.height; ++iY) {
+						int v = camImg.data[iY * camImg.width + iX];
+
+						if (sigState == 0) {
+							// Looking for start of signal.
+							if (v >= sigPeakMin) {
+								sigState = 1;
+								sigStart = iY;
+							}
+						} else if (sigState == 1) {
+							// Looking for end of signal.
+							if (v < sigPeakMin) {
+								sigState = 0;
+
+								tempSegs.push_back(vec4(iX, sigStart, iX, (iY - 1)));
+							}
+						}
+
+						/*if (v >= 100) { 
+							camImg.data[iY * camImg.width + iX] = 255;
+						} else {
+							camImg.data[iY * camImg.width + iX] = 0;
+						}*/
+					}
+				}
+
+				// Find extents of each signal.
+				for (size_t i = 0; i < tempSegs.size(); ++i) {
+					vec4 seg = tempSegs[i];
+					vec4 final = seg;
+
+					// Scan up to find break.
+					int minY = 0;
+
+					if (i != 0) {
+						vec4 segUp = tempSegs[i - 1];
+
+						if ((int)segUp.x == (int)seg.x) {
+							minY = segUp.w + (seg.y - segUp.w) / 2;
+						}
+					}
+
+					for (int iY = (int)seg.y; iY >= minY; --iY) {
+						int v = camImg.data[iY * camImg.width + (int)seg.x];
+						final.y = iY;
+
+						if (v == 0) {
+							break;
+						}
+					}
+
+					// Scan down to find break.
+					int maxY = camImg.height - 1;
+
+					if (i != tempSegs.size() - 1) {
+						vec4 segDown = tempSegs[i + 1];
+
+						if ((int)segDown.x == (int)seg.x) {
+							maxY = seg.w + (segDown.y - seg.w) / 2;
+						}
+					}
+
+					for (int iY = (int)seg.w; iY <= maxY; ++iY) {
+						int v = camImg.data[iY * camImg.width + (int)seg.x];
+						final.w = iY;
+
+						if (v == 0) {
+							break;
+						}
+					}
+
+					Tool->hawkScanSegs.push_back(final);
+				}
+
+				// Find center point of each signal.
+				for (size_t i = 0; i < Tool->hawkScanSegs.size(); ++i) {
+					vec4 seg = Tool->hawkScanSegs[i];
+
+					int x = (int)seg.x;
+					int y0 = (int)seg.y;
+					int y1 = (int)seg.w;
+
+					float totalGravity = 0.0f;
+					float finalY = 0.0f;
+
+					for (int iY = y0; iY <= y1; ++iY) {
+						float v = camImg.data[iY * camImg.width + x];
+						totalGravity += v;
+					}
+
+					for (int iY = y0; iY <= y1; ++iY) {
+						float v = camImg.data[iY * camImg.width + x];
+						finalY += (iY + 0.5f) * (v / totalGravity);
+					}
+
+					Tool->hawkScanPoints.push_back(vec2(x + 0.5f, finalY));
+				}
+			}
+
 			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], camImg);
 
 			if (Tool->camCalibProcess) {
 				ldiCameraCalibSample calibSample;
 
 				if (cameraCalibFindCirclesBoard(Tool->appContext, camImg, &calibSample)) {
-					double currentTime = _getTime(Tool->appContext);
+					double currentTime = getTime();
 					if (currentTime - Tool->calibDetectTimeout >= 0.0) {
 						std::cout << "Capture\n";
 						Tool->calibDetectTimeout = currentTime + 1.0;
@@ -610,7 +750,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				calibCameraDist.at<double>(2) = 0.002319999970495701;
 				calibCameraDist.at<double>(3) = 0.00217368989251554;
 
-				computerVisionFindCharuco(camImg, Tool->appContext, &Tool->camImageCharucoResults, &calibCameraMatrix, &calibCameraDist);
+				computerVisionFindCharuco(camImg, &Tool->camImageCharucoResults, &calibCameraMatrix, &calibCameraDist);
 			}
 		}
 
@@ -685,6 +825,29 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			//----------------------------------------------------------------------------------------------------
+			// Draw scanner debug info.
+			//----------------------------------------------------------------------------------------------------
+			if (Tool->hawkScanProcessImage) {
+				for (size_t i = 0; i < Tool->hawkScanSegs.size(); ++i) {
+					//draw_list->AddCircle(offset, 40.0f * Tool->imgScale, ImColor(200, 0, 200));
+					vec4 point = Tool->hawkScanSegs[i];
+
+					ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x + 0.5f, point.y + 0.5f)) * imgScale;
+					draw_list->AddCircle(uiPos, 0.4f * imgScale, ImColor(255, 0, 0));
+
+					uiPos = screenStartPos + (imgOffset + ImVec2(point.z + 0.5f, point.w + 0.5f)) * imgScale;
+					draw_list->AddCircle(uiPos, 0.2f * imgScale, ImColor(0, 0, 255));
+				}
+
+				for (size_t i = 0; i < Tool->hawkScanPoints.size(); ++i) {
+					vec2 point = Tool->hawkScanPoints[i];
+
+					ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x, point.y)) * imgScale;
+					draw_list->AddCircle(uiPos, 0.4f * imgScale, ImColor(0, 255, 0));
+				}
+			}
+
+			//----------------------------------------------------------------------------------------------------
 			// Draw cursor.
 			//----------------------------------------------------------------------------------------------------
 			if (surfaceResult.isHovered) {
@@ -725,6 +888,9 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 640, 480, Tool->rotaryResults.greyFrame });
 	}
 	
+	//----------------------------------------------------------------------------------------------------
+	// Volume calibration.
+	//----------------------------------------------------------------------------------------------------
 	if (ImGui::Begin("Calibration")) {
 		ldiCalibrationJob* job = &calibContext->calibJob;
 
@@ -745,85 +911,100 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			_imageInspectorSelectCalibJob(Tool, -1);
 
-			calibFindInitialObservations(Tool->appContext, job, Tool->appContext->platform->hawks);
+			calibFindInitialObservations(job, Tool->appContext->platform->hawks);
 		}
 
-		if (ImGui::Button("Stereo calibrate")) {
-			calibStereoCalibrate(Tool->appContext, job);
+		if (ImGui::Button("Calibrate stereo")) {
+			calibStereoCalibrate(job);
 		}
 
-		if (ImGui::Button("Build volume metrics")) {
+		if (ImGui::Button("Calibrate metrics")) {
 			calibBuildCalibVolumeMetrics(Tool->appContext, job);
 		}
 
-		/*if (ImGui::Button("Process job")) {
-			_imageInspectorProcessCalibJob(Tool);
-		}*/
+		if (ImGui::Button("Calibrate scanner")) {
+			//calibBuildCalibVolumeMetrics(Tool->appContext, job);
+		}
+
+		if (ImGui::Button("Calibrate galvo")) {
+		}
 
 		ImGui::Separator();
 
 		ImGui::Text("Stereo calibrated: %s", job->stereoCalibrated ? "Yes" : "No");
 		ImGui::Text("Metrics calibrated: %s", job->metricsCalculated ? "Yes" : "No");
+		ImGui::Text("Scanner calibrated: %s", job->scannerCalibrated ? "Yes" : "No");
+		ImGui::Text("Galvo calibrated: %s", job->galvoCalibrated ? "Yes" : "No");
 		ImGui::Text("Volume calibration samples: %d", job->samples.size());
 
-		ImGui::Separator();
-		ImGui::Text("Volume calibration samples");
+		if (ImGui::CollapsingHeader("Volume calibration samples")) {
+			if (ImGui::BeginTable("table_custom_headers", 9, ImGuiTableFlags_Borders)) {
+				ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 20.0f);
+				ImGui::TableSetupColumn("Phase", ImGuiTableColumnFlags_WidthFixed, 20.0f);
+				ImGui::TableSetupColumn("X", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("Y", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("Z", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("A", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("C", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("Boards 0", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("Boards 1", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableHeadersRow();
 
-		if (ImGui::BeginTable("table_custom_headers", 9, ImGuiTableFlags_Borders)) {
-			ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 20.0f);
-			ImGui::TableSetupColumn("Phase", ImGuiTableColumnFlags_WidthFixed, 20.0f);
-			ImGui::TableSetupColumn("X", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("Y", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("Z", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("A", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("C", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("Boards 0", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableSetupColumn("Boards 1", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-			ImGui::TableHeadersRow();
+				for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
+					ldiCalibStereoSample* sample = &job->samples[sampleIter];
 
-			for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
-				ldiCalibStereoSample* sample = &job->samples[sampleIter];
+					ImGui::TableNextRow();
 
-				ImGui::TableNextRow();
+					ImGuiSelectableFlags selectable_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap;
 
-				ImGuiSelectableFlags selectable_flags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap;
+					ImGui::TableSetColumnIndex(0);
+					if (ImGui::Selectable(std::to_string(sampleIter).c_str(), sampleIter == Tool->calibJobSelectedSampleId, selectable_flags, ImVec2(0, 0))) {
+						Tool->imageMode = IIM_CALIBRATION_JOB;
+						_imageInspectorSelectCalibJob(Tool, sampleIter);
+					}
 
-				ImGui::TableSetColumnIndex(0);
-				if (ImGui::Selectable(std::to_string(sampleIter).c_str(), sampleIter == Tool->calibJobSelectedSampleId, selectable_flags, ImVec2(0, 0))) {
-					Tool->imageMode = IIM_CALIBRATION_JOB;
-					_imageInspectorSelectCalibJob(Tool, sampleIter);
-				}
+					ImGui::TableSetColumnIndex(1);
+					ImGui::Text("%d", sample->phase);
 
-				ImGui::TableSetColumnIndex(1);
-				ImGui::Text("%d", sample->phase);
+					ImGui::TableSetColumnIndex(2);
+					ImGui::Text("%d", sample->X);
 
-				ImGui::TableSetColumnIndex(2);
-				ImGui::Text("%d", sample->X);
+					ImGui::TableSetColumnIndex(3);
+					ImGui::Text("%d", sample->Y);
 
-				ImGui::TableSetColumnIndex(3);
-				ImGui::Text("%d", sample->Y);
+					ImGui::TableSetColumnIndex(4);
+					ImGui::Text("%d", sample->Z);
 
-				ImGui::TableSetColumnIndex(4);
-				ImGui::Text("%d", sample->Z);
+					ImGui::TableSetColumnIndex(5);
+					ImGui::Text("%d", sample->A);
 
-				ImGui::TableSetColumnIndex(5);
-				ImGui::Text("%d", sample->A);
+					ImGui::TableSetColumnIndex(6);
+					ImGui::Text("%d", sample->C);
 
-				ImGui::TableSetColumnIndex(6);
-				ImGui::Text("%d", sample->C);
+					ImGui::TableSetColumnIndex(7);
+					ImGui::Text("%d - %d", sample->cubes[0].boards.size(), sample->cubes[0].rejectedBoards.size());
 
-				ImGui::TableSetColumnIndex(7);
-				ImGui::Text("%d - %d", sample->cubes[0].boards.size(), sample->cubes[0].rejectedBoards.size());
-
-				ImGui::TableSetColumnIndex(8);
-				ImGui::Text("%d - %d", sample->cubes[1].boards.size(), sample->cubes[1].rejectedBoards.size());
+					ImGui::TableSetColumnIndex(8);
+					ImGui::Text("%d - %d", sample->cubes[1].boards.size(), sample->cubes[1].rejectedBoards.size());
 				
+				}
+				ImGui::EndTable();
 			}
-			ImGui::EndTable();
+		}
+
+		if (ImGui::CollapsingHeader("Scanner calibration samples")) {
+
+		}
+
+		if (ImGui::CollapsingHeader("Galvo calibration samples")) {
+
 		}
 	}
 	ImGui::End();
 
+	//----------------------------------------------------------------------------------------------------
+	// Image inspector.
+	//----------------------------------------------------------------------------------------------------
 	if (ImGui::Begin("Image inspector controls")) {
 		if (ImGui::CollapsingHeader("Image", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::SliderFloat("Scale", &Tool->imgScale, 0.1f, 10.0f);
@@ -1018,6 +1199,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		if (ImGui::CollapsingHeader("Machine vision")) {
 			ImGui::Checkbox("Process", &Tool->camImageProcess);
+			ImGui::Checkbox("Process scan mapping", &Tool->hawkScanProcessImage);
+			ImGui::Checkbox("Scan gamma test", &Tool->hawkEnableGammaTest);
+			ImGui::DragInt("Scan mapping min", &Tool->hawkScanMappingMin, 0.4f, 0, 255);
+			ImGui::DragInt("Scan mapping max", &Tool->hawkScanMappingMax, 0.4f, 0, 255);
+
+			if (Tool->hawkScanMappingMax < Tool->hawkScanMappingMin) {
+				Tool->hawkScanMappingMax = Tool->hawkScanMappingMin;
+			}
+
 		}
 
 		if (ImGui::CollapsingHeader("Camera calibration")) {
@@ -1179,7 +1369,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		uv_max = ImVec2(1.0f, 1.0f);
 		tint_col = ImVec4(1.0f, 1.0f, 1.0f, Tool->sceneOpacity);
 		//draw_list->AddCallback(_imageInspectorSetStateCallback2, Tool);
-		
+
 		//----------------------------------------------------------------------------------------------------
 		// Draw webcam results.
 		//----------------------------------------------------------------------------------------------------

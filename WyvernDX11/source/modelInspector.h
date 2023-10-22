@@ -439,7 +439,7 @@ void _geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, 
 }
 
 void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	
 	const int threadCount = 20;
 	int batchSize = Surfels->size() / threadCount;
@@ -467,7 +467,7 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 		workerThread[t].join();
 	}
 
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
 }
 
@@ -512,11 +512,11 @@ void geoPrintQuadModelInfo(ldiQuadModel* Model) {
 }
 
 bool modelInspectorCreateVoxelMesh(ldiApp* AppContext, ldiModel* Model) {
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	if (!stlSaveModel("../cache/source.stl", Model)) {
 		return false;
 	}
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Save STL: " << t0 * 1000.0f << " ms\n";
 
 	STARTUPINFOA si;
@@ -905,7 +905,7 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 }
 
 bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project) {
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 
 	D3D11_QUERY_DESC queryDesc = {};
 	queryDesc.Query = D3D11_QUERY_EVENT;
@@ -933,7 +933,7 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 		return false;
 	}
 
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Coverage: " << t0 * 1000.0f << " ms\n";
 
 	AppContext->d3dDeviceContext->CopyResource(ModelInspector->coverageAreaStagingBuffer, ModelInspector->coverageAreaBuffer);
@@ -970,7 +970,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 	// Distribute poisson samples.
 	//----------------------------------------------------------------------------------------------------
 	{
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		
 		// Create sample candidates.
 		int candidatesPerSide = 8;
@@ -1068,7 +1068,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 			candidateShuffles[swapIdx] = temp;
 		}
 
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Poisson create candidates: " << t0 * 1000.0f << " ms\n";
 
 		vec3 viewRndCol;
@@ -1079,7 +1079,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 		//----------------------------------------------------------------------------------------------------
 		// Turn candidates into samples.
 		//----------------------------------------------------------------------------------------------------
-		t0 = _getTime(AppContext);
+		t0 = getTime();
 		
 		for (size_t iterCandidate = 0; iterCandidate < candidateShuffles.size(); ++iterCandidate) {
 			ldiSurfel* cand = &poissonCandidates[candidateShuffles[iterCandidate]];
@@ -1175,7 +1175,7 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 			}
 		}
 
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms\n";
 
 		poissonSpatialGridDestroy(&sampleGrid);
@@ -1296,9 +1296,9 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		//----------------------------------------------------------------------------------------------------
 		// Generate view sites.
 		//----------------------------------------------------------------------------------------------------
-		double t0 = _getTime(AppContext);
+		double t0 = getTime();
 		surfelsCreateDistribution(&Project->surfelLowSpatialGrid, &Project->surfelsLow, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 
 		// Upload mask to GPU.
@@ -1307,7 +1307,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		//----------------------------------------------------------------------------------------------------
 		// Get 'best' view site.
 		//----------------------------------------------------------------------------------------------------
-		t0 = _getTime(AppContext);
+		t0 = getTime();
 
 		// TODO: Move query outside loop.
 		D3D11_QUERY_DESC queryDesc = {};
@@ -1335,7 +1335,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 			return false;
 		}
 
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Coverage: " << t0 * 1000.0f << " ms\n";
 
 		AppContext->d3dDeviceContext->CopyResource(ModelInspector->coverageAreaStagingBuffer, ModelInspector->coverageAreaBuffer);
@@ -1421,7 +1421,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		if (false) {
 			ldiMachineTransform machineTransform = modelInspectorGetLaserViewModelToView(prep.projMat, pathPos.surfacePos, pathPos.surfaceNormal);
 
-			t0 = _getTime(AppContext);
+			t0 = getTime();
 
 			for (size_t i = 0; i < pathPos.surfelIds.size(); ++i) {
 				// NOTE: Each low rank surfel has 4 high rankers.
@@ -1449,7 +1449,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				}
 			}
 
-			t0 = _getTime(AppContext) - t0;
+			t0 = getTime() - t0;
 			std::cout << "Transform surfels: " << t0 * 1000.0f << " ms\n";
 
 			ModelInspector->laserViewPathPositions.push_back(pathPos);
@@ -1463,7 +1463,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 		{
 			ldiMachineTransform machineTransform = modelInspectorGetLaserViewModelToView(prep.projMat, pathPos.surfacePos, pathPos.surfaceNormal);
 			
-			t0 = _getTime(AppContext);
+			t0 = getTime();
 
 			// Create sample candidates.
 			int candidatesPerSide = 8;
@@ -1694,7 +1694,7 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 
 			ModelInspector->laserViewPathPositions.push_back(pathPos);
 
-			t0 = _getTime(AppContext) - t0;
+			t0 = getTime() - t0;
 			std::cout << "Poisson sampling: " << t0 * 1000.0f << " ms Count: " << pathPos.surfels.size() << "\n";
 		}
 	}
@@ -1706,9 +1706,9 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 	//----------------------------------------------------------------------------------------------------
 	// AFTER ALL PASSES ONLY.
 	//----------------------------------------------------------------------------------------------------
-	/*double t0 = _getTime(AppContext);
+	/*double t0 = getTime();
 	surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";*/
 
 	AppContext->d3dDeviceContext->UpdateSubresource(ModelInspector->surfelMaskBuffer, 0, NULL, ModelInspector->surfelMask, 0, 0);
@@ -1764,7 +1764,7 @@ float modelInspectorGetLaserViewPath(std::vector<int>* ViewPath, std::vector<ldi
 }
 
 void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
-	double t0 = _getTime(ModelInspector->appContext);
+	double t0 = getTime();
 
 	ModelInspector->laserViewPath.clear();
 	
@@ -1795,7 +1795,7 @@ void modelInspectorCalcLaserPath(ldiModelInspector* ModelInspector) {
 
 	delete[] nodeMask;
 
-	t0 = _getTime(ModelInspector->appContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Calc path: " << t0 * 1000.0f << " ms\n";
 }
 
@@ -1860,7 +1860,7 @@ bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const 
 	// TODO: Destroy other texture resources.
 	std::cout << "Project source texture path: " << Path << "\n";
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 
 	if (!copyFile(Path, Project->dir + "source_texture.png")) {
 		std::cout << "Project import model could not copy source texture file\n";
@@ -1874,7 +1874,7 @@ bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const 
 	Project->sourceTextureRaw.height = y;
 	Project->sourceTextureRaw.data = imageRawPixels;
 
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
 
 	Project->sourceTextureLoaded = true;
@@ -2013,7 +2013,7 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
 	//----------------------------------------------------------------------------------------------------
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	vec3 surfelsMin(10000, 10000, 10000);
 	vec3 surfelsMax(-10000, -10000, -10000);
 
@@ -2046,13 +2046,13 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	Project->surfelsBoundsMin = surfelsMin;
 	Project->surfelsBoundsMax = surfelsMax;
 
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
 
 	//----------------------------------------------------------------------------------------------------
 	// Smooth normals.
 	//----------------------------------------------------------------------------------------------------
-	t0 = _getTime(AppContext);
+	t0 = getTime();
 	{
 		const int threadCount = 20;
 		int batchSize = Project->surfelsLow.size() / threadCount;
@@ -2085,7 +2085,7 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 		}
 	}
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
 
 	Project->surfelLowRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsLow);
@@ -2104,12 +2104,12 @@ bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project,
 
 	Project->poissonSamplesLoaded = false;
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 0, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
 	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 1, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
 	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 2, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
 	modelInspectorCalcFullPoisson(AppContext, Project, &Tool->dotDesc, 3, Project->surfelsBoundsMin, Project->surfelsBoundsMax, 0.05f);
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
 
 	Project->poissonSamplesLoaded = true;
@@ -2317,7 +2317,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	//geoCreateSurfelsHigh(&ModelInspector->quadModel, &ModelInspector->surfelsHigh);
 	//std::cout << "High surfel count: " << ModelInspector->surfelsHigh.size() << "\n";
 
-	//double t0 = _getTime(AppContext);
+	//double t0 = getTime();
 	//int x, y, n;
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/tarykTexture.png", &x, &y, &n);
 	//uint8_t* imageRawPixels = imageLoadRgba("../../assets/models/dergnTexture.png", &x, &y, &n);
@@ -2391,7 +2391,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	ModelInspector->baseTexture.height = y;
 	ModelInspector->baseTexture.data = imageRawPixels;*/
 	
-	//t0 = _getTime(AppContext) - t0;
+	//t0 = getTime() - t0;
 	/*std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";*/
 
 	//physicsCookMesh(AppContext->physics, &ModelInspector->dergnModel, &ModelInspector->cookedDergn);
@@ -2401,7 +2401,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
 	//----------------------------------------------------------------------------------------------------
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	vec3 surfelsMin(10000, 10000, 10000);
 	vec3 surfelsMax(-10000, -10000, -10000);
 
@@ -2432,13 +2432,13 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	ModelInspector->spatialGrid = spatialGrid;
 
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
 
 	//----------------------------------------------------------------------------------------------------
 	// Smooth normals.
 	//----------------------------------------------------------------------------------------------------
-	t0 = _getTime(AppContext);
+	t0 = getTime();
 	{
 		const int threadCount = 20;
 		int batchSize = ModelInspector->surfels.size() / threadCount;
@@ -2471,7 +2471,7 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 			}
 		}
 	}
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
 
 	ModelInspector->surfelRenderModel = gfxCreateSurfelRenderModel(AppContext, &ModelInspector->surfels);
@@ -2636,29 +2636,29 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	}*/
 
 	/*{
-		t0 = _getTime(AppContext);
+		t0 = getTime();
 		surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib);
-		t0 = _getTime(AppContext) - t0;
+		t0 = getTime() - t0;
 		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 	}*/
 
-	double t0 = _getTime(AppContext);
+	double t0 = getTime();
 	/*if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
 		return 1;
 	}*/
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "View path: " << t0 * 1000.0f << " ms\n";
 
 	// TODO: Final point distrib from modelInspectorCalculateLaserViewPath.
 	//ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
 	//modelInspectorCalcLaserPath(ModelInspector);
 
-	t0 = _getTime(AppContext);
+	t0 = getTime();
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 1, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 2, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
-	t0 = _getTime(AppContext) - t0;
+	t0 = getTime() - t0;
 	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
 
 	/*getColorFromCosAngle(0.0f);
@@ -3052,7 +3052,7 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 	if (tool->laserViewPathPositions.size() > 0 && tool->selectedLaserView >= 0 && tool->selectedLaserView < tool->laserViewPathPositions.size()) {
 
 		if (tool->surfelViewCurrentId != tool->selectedLaserView) {
-			double t0 = _getTime(appContext);
+			double t0 = getTime();
 
 			tool->surfelViewCurrentId = tool->selectedLaserView;
 
@@ -3161,7 +3161,7 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 			gfxReleaseRenderModel(&tool->surfelViewPointsModel);
 			tool->surfelViewPointsModel = gfxCreateSurfelRenderModel(appContext, &renderPoints, 0.0f);
 
-			t0 = _getTime(appContext) - t0;
+			t0 = getTime() - t0;
 			std::cout << "Generate view: " << tool->surfelViewCurrentId << " in " << t0 * 1000.0f << " ms\n";
 		}
 
