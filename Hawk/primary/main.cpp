@@ -61,6 +61,7 @@ enum ldiCameraCaptureMode {
 	CCM_CONTINUOUS = 1,
 	CCM_AVERAGE = 2,
 	CCM_SINGLE = 3,
+	CCM_AVERAGE_NO_FLASH = 4,
 };
 
 enum ldiHawkOpcode {
@@ -157,6 +158,16 @@ void setCameraMode(ldiCameraCaptureMode Mode) {
 		averageModeCaptureTarget = 5;
 
 		startFlash();
+	}
+
+	if (_mode == CCM_AVERAGE_NO_FLASH) {
+		_mode = CCM_AVERAGE;
+
+		cameraSetFps(camContext, 15);
+		
+		averageModeStartTimeMs = platformGetMicrosecond() / 1000;
+		averageModeCapturedFrames = 0;
+		averageModeCaptureTarget = 5;
 	}
 }
 

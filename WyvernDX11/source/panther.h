@@ -22,6 +22,8 @@ enum ldiPantherOpcode {
 	PO_GALVO_MOVE = 31,
 	PO_GALVO_BURN = 32,
 
+	PO_SCAN_LASER_STATE = 60,
+
 	PO_CMD_RESPONSE = 100,
 	PO_POSITION = 101,
 	PO_MESSAGE = 102,
@@ -320,6 +322,20 @@ void pantherSendHomingCommand(ldiPanther* Panther) {
 	cmd[4] = PANTHER_PACKET_END;
 
 	pantherIssueCommand(Panther, cmd, 5);
+}
+
+void pantherSendScanLaserStateCommand(ldiPanther* Panther, bool Enabled) {
+	uint8_t cmd[64];
+
+	int state = Enabled ? 1 : 0;
+
+	cmd[0] = PANTHER_PACKET_START;
+	*(uint16_t*)(cmd + 1) = 5;
+	cmd[3] = PO_SCAN_LASER_STATE;
+	memcpy(cmd + 4, &state, 4);
+	cmd[8] = PANTHER_PACKET_END;
+
+	pantherIssueCommand(Panther, cmd, 9);
 }
 
 bool pantherMoveAndWait(ldiPanther* Panther, ldiPantherAxis AxisId, int32_t Step, float MaxVelocity) {

@@ -5,7 +5,8 @@ enum ldiPlatformJobType {
 	PJT_DIAG,
 	PJT_HOME,
 	PJT_CAPTURE_CALIBRATION,
-	PJT_CAPTURE_SCANNER_CALIBRATION
+	PJT_CAPTURE_SCANNER_CALIBRATION,
+	PJT_SET_SCAN_LASER_STATE
 };
 
 struct ldiPlatformJobHeader {
@@ -18,6 +19,11 @@ struct ldiPlatformJobMoveAxis {
 	int steps;
 	float velocity;
 	bool relative;
+};
+
+struct ldiPlatformJobSetScanLaserState {
+	ldiPlatformJobHeader header;
+	bool Enabled;
 };
 
 struct ldiPlatform {
@@ -629,26 +635,15 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 	ldiApp* appContext = Platform->appContext;
 	ldiPanther* panther = &Platform->panther;
 
-	int imgId = 0;
-
-	int posX = 0;
-	int posY = 0;
-	int posZ = 0;
-	int posC = 13000;
-	int posA = 0;
-
-	int capPosX = 0;
-	int capPosY = 0;
-	int capPosZ = 0;
-	int capPosC = 0;
-	int capPosA = 0;
-
 	//----------------------------------------------------------------------------------------------------
 	// Phase 0.
 	//----------------------------------------------------------------------------------------------------
 	{
-		if (!pantherMoveAndWait(panther, PA_X, -1000, 0.0f)) { return false; }
-		if (!pantherMoveAndWait(panther, PA_X, 0, 0.0f)) { return false; }
+		pantherSendScanLaserStateCommand(panther, true);
+		if (!pantherWaitForExecutionComplete(panther)) { return false; }
+
+		if (!pantherMoveAndWait(panther, PA_X, -13700, 0.0f)) { return false; }
+		if (!pantherMoveAndWait(panther, PA_X, -12700, 0.0f)) { return false; }
 
 		if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
 		if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
@@ -664,11 +659,23 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 
 		Sleep(300);
 
+		int imgId = 0;
+
+		int posX = -12700;
+		int posY = 0;
+		int posZ = 0;
+		int posC = 13000;
+		int posA = 0;
+
+		int capPosX = 0;
+		int capPosY = 0;
+		int capPosZ = 0;
+		int capPosC = 0;
+		int capPosA = 0;
+
 		// -48000
 		// 48000
 		// 96000
-
-		// X: -12700
 
 		for (int iZ = 0; iZ < 61 + 1; ++iZ) {
 			if (iZ < 61) {
@@ -709,10 +716,10 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 
 			if (iZ < 61) {
 				hawkClearWaitPacket(&Platform->hawks[0]);
-				hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
+				hawkSetMode(&Platform->hawks[0], CCM_AVERAGE_NO_FLASH);
 
 				hawkClearWaitPacket(&Platform->hawks[1]);
-				hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
+				hawkSetMode(&Platform->hawks[1], CCM_AVERAGE_NO_FLASH);
 
 				hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
 				hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
@@ -730,6 +737,9 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 				return false;
 			}
 		}
+
+		pantherSendScanLaserStateCommand(panther, false);
+		if (!pantherWaitForExecutionComplete(panther)) { return false; }
 	}
 
 	return true;
@@ -780,6 +790,13 @@ void platformWorkerThread(ldiPlatform* Platform) {
 
 				case PJT_CAPTURE_SCANNER_CALIBRATION: {
 					_platformCaptureScannerCalibration(Platform);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
+
+				case PJT_SET_SCAN_LASER_STATE: {
+					ldiPlatformJobSetScanLaserState* job = (ldiPlatformJobSetScanLaserState*)Platform->job;
+					pantherSendScanLaserStateCommand(panther, job->Enabled);
+					pantherWaitForExecutionComplete(panther);
 					platformWorkerThreadJobComplete(Platform);
 				} break;
 			};
@@ -948,6 +965,20 @@ bool platformQueueJobCaptureScannerCalibration(ldiPlatform* Platform) {
 	job->type = PJT_CAPTURE_SCANNER_CALIBRATION;
 
 	platformQueueJob(Platform, job);
+
+	return true;
+}
+
+bool platformQueueJobSetScanLaserState(ldiPlatform* Platform, bool Enabled) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobSetScanLaserState* job = new ldiPlatformJobSetScanLaserState();
+	job->header.type = PJT_SET_SCAN_LASER_STATE;
+	job->Enabled = Enabled;
+
+	platformQueueJob(Platform, &job->header);
 
 	return true;
 }
@@ -1834,6 +1865,18 @@ void platformShowUi(ldiPlatform* Tool) {
 	if (ImGui::Button("Find home", ImVec2(-1, 0))) {
 		platformQueueJobHome(Tool);
 	}
+
+	ImGui::Separator();
+
+	if (ImGui::Button("Enable scan laser", ImVec2(-1, 0))) {
+		platformQueueJobSetScanLaserState(Tool, true);
+	}
+
+	if (ImGui::Button("Disable scan laser", ImVec2(-1, 0))) {
+		platformQueueJobSetScanLaserState(Tool, false);
+	}
+
+	ImGui::Separator();
 
 	ImGui::BeginDisabled(!Tool->homed);
 

@@ -107,6 +107,8 @@ enum ldiPantherOpcode {
 	PO_GALVO_MOVE = 31,
 	PO_GALVO_BURN = 32,
 
+	PO_SCAN_LASER_STATE = 60,
+
 	PO_CMD_RESPONSE = 100,
 	PO_POSITION = 101,
 	PO_MESSAGE = 102,
@@ -456,6 +458,18 @@ void processCmd(uint8_t* Buffer, int Len) {
 
 		// digitalWrite(PIN_DBG1, LOW);
 		sendCmdSuccess(PS_OK);
+	} else if (cmdId == PO_SCAN_LASER_STATE) {
+		int state = 0;
+		memcpy(&state, Buffer + 1, 4);
+
+		if (state == 0) {
+			digitalWrite(PIN_SCAN_LASER_ENABLE, LOW);
+		} else {
+			digitalWrite(PIN_SCAN_LASER_ENABLE, HIGH);
+		}
+		
+		sendCmdSuccess(PS_OK);
+
 	} else {
 		sprintf(buff, "Unknown cmd %d %d", cmdId, Len);
 		sendMessage(buff);
@@ -528,6 +542,10 @@ void setup() {
 	// Enable laser.
 	pinMode(PIN_LASER_PWM, OUTPUT);
 	digitalWrite(PIN_LASER_PWM, LOW);
+
+	// Enable scan laser.
+	pinMode(PIN_SCAN_LASER_ENABLE, OUTPUT);
+	digitalWrite(PIN_SCAN_LASER_ENABLE, LOW);
 
 	// Enable galvo.
 	galvoInit();

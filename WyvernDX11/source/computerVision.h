@@ -196,6 +196,8 @@ struct ldiCalibrationJob {
 	ldiPlane axisAPlane;
 	std::vector<vec3> axisAPointsPlaneProjected;
 	ldiCircle axisACircle;
+
+	std::vector<std::vector<vec2>> scanPoints[2];
 };
 
 struct ldiCameraCalibrationContext {
@@ -3472,4 +3474,139 @@ bool computerVisionBundleAdjustStereoBothLoad(ldiCalibrationJob* Job) {
 	Job->baStereoCamWorld[1][3] = vec4(centroid1Pos - deltaPos, 1.0f);
 
 	return true;
+}
+
+std::vector<vec2> computerVisionFindScanLine(ldiImage Image) {
+	std::vector<vec2> result;
+
+	int mappingMin = 22;
+	int mappingMax = 75;
+
+	float diff = 255.0f / (mappingMax - mappingMin);
+	for (int i = 0; i < Image.width * Image.height; ++i) {
+		int v = Image.data[i];
+		//v = (int)(GammaToLinear(v / 255.0) * 255.0);
+
+		v = (v - mappingMin) * diff;
+
+		if (v < 0) {
+			v = 0;
+		} else if (v > 255) {
+			v = 255;
+		}
+
+		Image.data[i] = v;
+	}
+
+	int sigPeakMin = 50;
+
+	struct ldiScanLineSignal {
+		int x;
+		int y0;
+		int y1;
+	};
+
+	std::vector<vec4> tempSegs;
+
+	// Process each column.
+	for (int iX = 0; iX < Image.width; ++iX) {
+		// Find all signals in this column.
+		int sigState = 0;
+		int sigStart = -1;
+
+		for (int iY = 0; iY < Image.height; ++iY) {
+			int v = Image.data[iY * Image.width + iX];
+
+			if (sigState == 0) {
+				// Looking for start of signal.
+				if (v >= sigPeakMin) {
+					sigState = 1;
+					sigStart = iY;
+				}
+			} else if (sigState == 1) {
+				// Looking for end of signal.
+				if (v < sigPeakMin) {
+					sigState = 0;
+
+					tempSegs.push_back(vec4(iX, sigStart, iX, (iY - 1)));
+				}
+			}
+		}
+	}
+
+	std::vector<vec4> segs;
+
+	// Find extents of each signal.
+	for (size_t i = 0; i < tempSegs.size(); ++i) {
+		vec4 seg = tempSegs[i];
+		vec4 final = seg;
+
+		// Scan up to find break.
+		int minY = 0;
+
+		if (i != 0) {
+			vec4 segUp = tempSegs[i - 1];
+
+			if ((int)segUp.x == (int)seg.x) {
+				minY = segUp.w + (seg.y - segUp.w) / 2;
+			}
+		}
+
+		for (int iY = (int)seg.y; iY >= minY; --iY) {
+			int v = Image.data[iY * Image.width + (int)seg.x];
+			final.y = iY;
+
+			if (v == 0) {
+				break;
+			}
+		}
+
+		// Scan down to find break.
+		int maxY = Image.height - 1;
+
+		if (i != tempSegs.size() - 1) {
+			vec4 segDown = tempSegs[i + 1];
+
+			if ((int)segDown.x == (int)seg.x) {
+				maxY = seg.w + (segDown.y - seg.w) / 2;
+			}
+		}
+
+		for (int iY = (int)seg.w; iY <= maxY; ++iY) {
+			int v = Image.data[iY * Image.width + (int)seg.x];
+			final.w = iY;
+
+			if (v == 0) {
+				break;
+			}
+		}
+
+		segs.push_back(final);
+	}
+
+	// Find center point of each signal.
+	for (size_t i = 0; i < segs.size(); ++i) {
+		vec4 seg = segs[i];
+
+		int x = (int)seg.x;
+		int y0 = (int)seg.y;
+		int y1 = (int)seg.w;
+
+		float totalGravity = 0.0f;
+		float finalY = 0.0f;
+
+		for (int iY = y0; iY <= y1; ++iY) {
+			float v = Image.data[iY * Image.width + x];
+			totalGravity += v;
+		}
+
+		for (int iY = y0; iY <= y1; ++iY) {
+			float v = Image.data[iY * Image.width + x];
+			finalY += (iY + 0.5f) * (v / totalGravity);
+		}
+
+		result.push_back(vec2(x + 0.5f, finalY));
+	}
+
+	return result;
 }

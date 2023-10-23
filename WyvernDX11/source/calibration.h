@@ -654,7 +654,7 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 }
 
 // Determine metrics for the calibration volume.
-void calibBuildCalibVolumeMetrics(ldiApp* AppContext, ldiCalibrationJob* Job) {
+void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->metricsCalculated = false;
 
 	if (!Job->stereoCalibrated) {
@@ -1178,13 +1178,15 @@ void calibBuildCalibVolumeMetrics(ldiApp* AppContext, ldiCalibrationJob* Job) {
 }
 
 // Takes stereo image sample files and generates scanner calibration.
-void calibCalibrateScanner(ldiApp* AppContext, ldiCalibrationJob* Job) {
+void calibCalibrateScanner(ldiCalibrationJob* Job) {
 	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
 		calibFreeStereoCalibImages(&Job->scanSamples[i]);
 	}
 	Job->scanSamples.clear();
-
+	
 	Job->scannerCalibrated = false;
+	Job->scanPoints[0].clear();
+	Job->scanPoints[1].clear();
 
 	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/scanner_calib/");
 
@@ -1195,14 +1197,37 @@ void calibCalibrateScanner(ldiApp* AppContext, ldiCalibrationJob* Job) {
 
 			calibLoadStereoCalibSampleData(&sample);
 
-			// TOOD: Process here.
-			/*for (int j = 0; j < 2; ++j) {
-				computerVisionFindCharuco(sample.frames[j], AppContext, &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
-			}*/
+			// Find machine basis for this sample position.
+			// ...
+
+			for (int j = 0; j < 2; ++j) {
+				//computerVisionFindCharuco(sample.frames[j], AppContext, &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
+				std::vector<vec2> points = computerVisionFindScanLine(sample.frames[j]);
+
+				std::vector<cv::Point2f> distortedPoints;
+				std::vector<cv::Point2f> undistortedPoints;
+
+				for (size_t pIter = 0; pIter < points.size(); ++pIter) {
+					distortedPoints.push_back(toPoint2f(points[pIter]));
+				}
+
+				cv::undistortPoints(distortedPoints, undistortedPoints, Job->refinedCamMat[j], Job->refinedCamDist[j], cv::noArray(), Job->refinedCamMat[j]);
+
+				// Project points against current machine basis.
+				// ...
+
+				for (size_t pIter = 0; pIter < points.size(); ++pIter) {
+					points[pIter] = toVec2(undistortedPoints[pIter]);
+				}
+
+				Job->scanPoints[j].push_back(points);
+
+				std::cout << "Cam " << j << " found " << points.size() << "\n";
+			}
 
 			calibFreeStereoCalibImages(&sample);
 
-			Job->samples.push_back(sample);
+			Job->scanSamples.push_back(sample);
 		}
 	}
 }

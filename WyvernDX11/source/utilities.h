@@ -257,6 +257,10 @@ inline vec2 toVec2(cv::Point2f A) {
 	return vec2(A.x, A.y);
 }
 
+inline cv::Point2f toPoint2f(vec2 A) {
+	return cv::Point2f(A.x, A.y);
+}
+
 inline cv::Point3f toPoint3f(vec3 A) {
 	return cv::Point3f(A.x, A.y, A.z);
 }

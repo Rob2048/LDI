@@ -8,6 +8,7 @@ enum ldiCameraCaptureMode {
 	CCM_CONTINUOUS = 1,
 	CCM_AVERAGE = 2,
 	CCM_SINGLE = 3,
+	CCM_AVERAGE_NO_FLASH = 4,
 };
 
 enum ldiHawkOpcode {
