@@ -1247,34 +1247,25 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Estimated cube position.
 			//----------------------------------------------------------------------------------------------------
 			{
-				vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
-				vec3 mechTrans = offset.x * job->axisX.direction + offset.y * job->axisY.direction + offset.z * -job->axisZ.direction;
+				ldiHorsePosition horsePos = {};
+				horsePos.x = Tool->testPosX;
+				horsePos.y = Tool->testPosY;
+				horsePos.z = Tool->testPosZ;
+				horsePos.c = Tool->testPosC;
+				horsePos.a = Tool->testPosA;
 
-				vec3 refToAxisC = job->axisC.origin - vec3(0.0f, 0.0f, 0.0f);
-				float axisCAngleDeg = (Tool->testPosC - 13000) * 0.001875;
-				mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), job->axisC.direction);
+				std::vector<vec3> cubePoints;
+				std::vector<ldiCalibCubeSide> cubeSides;
+				std::vector<vec3> cubeCorners;
 
-				mat4 axisCMat = mat4(1.0f);
-				axisCMat = axisCMat * glm::translate(mat4(1.0), -refToAxisC);
-				axisCMat = axisCRot * axisCMat;
-				axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
+				horseGetRefinedCubeAtPosition(job, horsePos, cubePoints, cubeSides, cubeCorners);
 
-				for (size_t i = 0; i < job->cubePointCentroids.size(); ++i) {
+				for (size_t i = 0; i < cubePoints.size(); ++i) {
 					if (i >= 18 && i <= 26) {
 						continue;
 					}
 
-					vec3 point = job->cubePointCentroids[i];
-
-					point = axisCMat * vec4(point, 1.0f);
-
-					/*point += offset.x * job->axisX.direction;
-					point += offset.y * job->axisY.direction;
-					point += offset.z * -job->axisZ.direction;*/
-
-					point += mechTrans;
-
-					pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 1), 8);
+					pushDebugSphere(&appContext->defaultDebug, cubePoints[i], 0.005, vec3(0, 1, 1), 8);
 
 					int id = i;
 					int sampleId = id / (9 * 6);
@@ -1285,32 +1276,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					//displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
 				}
 
-				for (size_t i = 0; i < _refinedModelSides.size(); ++i) {
-					ldiPlane plane = _refinedModelSides[i].plane;
-
-					// Modify plane by pose 0.
-					vec3 point = job->stCubeWorlds[0] * vec4(plane.point, 1.0f);
-					vec3 normal = glm::normalize(job->stCubeWorlds[0] * vec4(plane.normal, 0.0f));
-
-					// Modify by Axis C.
-					point = axisCMat * vec4(point, 1.0f);
-					normal = glm::normalize(axisCMat * vec4(normal, 0.0f));
-
-					// Translate by machine position.
-					point += mechTrans;
-
-					//pushDebugPlane(&appContext->defaultDebug, point, normal, 3.5f, vec3(0, 1, 1));
-					//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
-
-					vec3* corners = _refinedModelSides[i].corners;
-					vec3 transCorners[4];
-
-					for (int c = 0; c < 4; ++c) {
-						transCorners[c] = job->stCubeWorlds[0] * vec4(corners[c], 1.0f);
-						transCorners[c] = axisCMat * vec4(transCorners[c], 1.0f);
-						transCorners[c] += mechTrans;
-					}
-
+				for (size_t i = 0; i < cubeSides.size(); ++i) {
 					const vec3 sideCol[6] = {
 						vec3(1, 0, 0),
 						vec3(0, 1, 0),
@@ -1320,30 +1286,69 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						vec3(0, 1, 1),
 					};
 
-					pushDebugTri(&appContext->defaultDebug, transCorners[0], transCorners[1], transCorners[2], sideCol[i] * 0.5f);
-					pushDebugTri(&appContext->defaultDebug, transCorners[2], transCorners[3], transCorners[0], sideCol[i] * 0.5f);
+					pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[0], cubeSides[i].corners[1], cubeSides[i].corners[2], sideCol[i] * 0.5f);
+					pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[2], cubeSides[i].corners[3], cubeSides[i].corners[0], sideCol[i] * 0.5f);
 				}
 
 				for (int i = 0; i < 8; ++i) {
-					vec3 point = job->stCubeWorlds[0] * vec4(_refinedModelCorners[i], 1.0f);
-
-					pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-					displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+					pushDebugSphere(&appContext->defaultDebug, cubeCorners[i], 0.001, vec3(0, 1, 1), 8);
+					displayTextAtPoint(Camera, cubeCorners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 				}
 			}
+			{
+				// Scan plane
+				{
+					vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+					float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
+					mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
+
+					vec3 newPoint = vec4(job->scanPlane.point - refToAxis, 1.0f);
+					newPoint = axisRot * vec4(newPoint, 1.0f);
+					newPoint = vec4(newPoint + refToAxis, 1.0f);
+
+					vec3 newNormal = axisRot * vec4(job->scanPlane.normal, 0.0f);
+
+					pushDebugPlane(&appContext->defaultDebug, newPoint, newNormal, 10, vec3(1.0f, 0.0f, 0.0f));
+				}
+
+				for (size_t i = 0; i < job->scanWorldPoints[0].size(); ++i) {
+					vec3 point = job->scanWorldPoints[0][i];
+
+					pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
+				}
+
+				for (size_t i = 0; i < job->scanWorldPoints[1].size(); ++i) {
+					vec3 point = job->scanWorldPoints[1][i];
+
+					pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(0.4, 1, 1), 6);
+				}
+
+				for (size_t i = 0; i < job->scanRays[0].size(); ++i) {
+					ldiLine line = job->scanRays[0][i];
+
+					pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
+				}
+
+				for (size_t i = 0; i < job->scanRays[1].size(); ++i) {
+					ldiLine line = job->scanRays[1][i];
+
+					pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(0.1f, 0.4f, 1.0f));
+				}
+			}
+			
 			//----------------------------------------------------------------------------------------------------
 			// Calibration volume.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibCubeVolume) {
 				std::vector<vec3>* modelPoints = &job->stCubePoints;
-				for (size_t cubeIter = 0; cubeIter < job->stCubeWorlds.size(); ++cubeIter) {
+				for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
 					srand(cubeIter);
 					rand();
 					vec3 col = getRandomColorHighSaturation();
 
 					for (size_t i = 0; i < modelPoints->size(); ++i) {
-						vec3 point = job->stCubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+						vec3 point = job->cubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
 
 						pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 						//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
@@ -1388,17 +1393,17 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				}
 
 				{
-					ldiLineFit line = calibContext->calibJob.axisX;
+					ldiLine line = calibContext->calibJob.axisX;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(1, 0, 0));
 				}
 
 				{
-					ldiLineFit line = calibContext->calibJob.axisY;
+					ldiLine line = calibContext->calibJob.axisY;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 1, 0));
 				}
 
 				{
-					ldiLineFit line = calibContext->calibJob.axisZ;
+					ldiLine line = calibContext->calibJob.axisZ;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 0, 1));
 				}
 
@@ -1636,6 +1641,8 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
 	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
+
+	ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
 
 	ImGui::Text("Test thing");
 	ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);

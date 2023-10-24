@@ -679,15 +679,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			{
 				if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1 && Tool->calibJobSelectedSampleType == 1) {
 
-					const std::vector<vec2>& points = calibContext->calibJob.scanPoints[hawkIter][Tool->calibJobSelectedSampleId];
+					if (calibContext->calibJob.scanPoints[hawkIter].size() > 0) {
+						std::vector<vec2>& points = calibContext->calibJob.scanPoints[hawkIter][Tool->calibJobSelectedSampleId];
 
-					std::cout << "Draw " << points.size() << "\n";
+						for (size_t i = 0; i < points.size(); ++i) {
+							vec2 point = points[i];
 
-					for (size_t i = 0; i < points.size(); ++i) {
-						vec2 point = points[i];
-
-						ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x, point.y)) * imgScale;
-						draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(0, 255, 0));
+							ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x, point.y)) * imgScale;
+							draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(0, 255, 0));
+						}
 					}
 				}
 			}

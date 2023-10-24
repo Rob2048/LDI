@@ -108,3 +108,24 @@ void displayTextAtPoint(ldiCamera* Camera, vec3 Position, std::string Text, vec4
 		TextBuffer->push_back({ vec2(projPos.x, projPos.y), Text, Color });
 	}
 }
+
+ldiLine screenToRay(ldiCamera* Camera, vec2 Pos) {
+	//NOTE: Precision of this is really bad unless using doubles.
+	ldiLine result = {};
+
+	vec3d clipPos = vec3d(vec2d(Pos), 1.0);
+	clipPos.x = ((clipPos.x / (double)Camera->viewWidth) - 0.5) * 2.0;
+	clipPos.y = ((1.0 - (clipPos.y / (double)Camera->viewHeight)) - 0.5) * 2.0;
+
+	mat4d invProjView = glm::inverse((mat4d)Camera->projViewMat);
+
+	vec4d homoPos = invProjView * vec4d(clipPos, 1.0);
+	vec3d worldPos = vec3d(homoPos) / homoPos.w;
+
+	vec3d camWorldPos = glm::inverse((mat4d)Camera->viewMat)[3];
+
+	result.origin = camWorldPos;
+	result.direction = glm::normalize(worldPos - camWorldPos);
+
+	return result;
+}

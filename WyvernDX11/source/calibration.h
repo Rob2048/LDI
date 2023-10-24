@@ -251,6 +251,10 @@ void deserializeCharucoBoard(FILE* File, ldiCharucoBoard* Board) {
 	}
 }
 
+void serializeStereoSamples(FILE* File, const std::vector<ldiCalibStereoSample>& Samples) {
+
+}
+
 // Save the entire current state of the calibration job.
 void calibSaveCalibJob(ldiCalibrationJob* Job) {
 	char path[1024];
@@ -328,9 +332,9 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 		}
 	}
 
-	fwrite(&Job->stereoCalibrated, sizeof(bool), 1, file);
+	fwrite(&Job->metricsCalculated, sizeof(bool), 1, file);
 	if (Job->metricsCalculated) {
-		/*serializeVectorPrep(file, Job->stBasisXPoints);
+		serializeVectorPrep(file, Job->stBasisXPoints);
 		for (size_t i = 0; i < Job->stBasisXPoints.size(); ++i) {
 			fwrite(&Job->stBasisXPoints[i], sizeof(vec3), 1, file);
 		}
@@ -345,7 +349,51 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 			fwrite(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
 		}
 		
-		fwrite(&Job->stVolumeCenter, sizeof(vec3), 1, file);*/
+		fwrite(&Job->stVolumeCenter, sizeof(vec3), 1, file);
+
+		fwrite(&Job->axisX, sizeof(ldiLine), 1, file);
+		fwrite(&Job->axisY, sizeof(ldiLine), 1, file);
+		fwrite(&Job->axisZ, sizeof(ldiLine), 1, file);
+		fwrite(&Job->axisC, sizeof(ldiLine), 1, file);
+		fwrite(&Job->axisA, sizeof(ldiLine), 1, file);
+
+		fwrite(&Job->basisX, sizeof(vec3), 1, file);
+		fwrite(&Job->basisY, sizeof(vec3), 1, file);
+		fwrite(&Job->basisZ, sizeof(vec3), 1, file);
+
+		fwrite(&Job->stepsToCm, sizeof(glm::f64vec3), 1, file);
+
+		serializeVectorPrep(file, Job->cubeWorlds);
+		for (size_t i = 0; i < Job->cubeWorlds.size(); ++i) {
+			fwrite(&Job->cubeWorlds[i], sizeof(mat4), 1, file);
+		}
+
+		for (int i = 0; i < 2; ++i) {
+			fwrite(&Job->camVolumeMat[i], sizeof(mat4), 1, file);
+		}
+	}
+
+	fwrite(&Job->scannerCalibrated, sizeof(bool), 1, file);
+	if (Job->scannerCalibrated) {
+		serializeVectorPrep(file, Job->scanSamples);
+		for (size_t sampleIter = 0; sampleIter < Job->scanSamples.size(); ++sampleIter) {
+			auto sample = &Job->scanSamples[sampleIter];
+
+			serializeString(file, sample->path.c_str());
+
+			fwrite(&sample->phase, sizeof(int), 1, file);
+			fwrite(&sample->X, sizeof(int), 1, file);
+			fwrite(&sample->Y, sizeof(int), 1, file);
+			fwrite(&sample->Z, sizeof(int), 1, file);
+			fwrite(&sample->C, sizeof(int), 1, file);
+			fwrite(&sample->A, sizeof(int), 1, file);
+		}
+
+		fwrite(&Job->scanPlane, sizeof(ldiPlane), 1, file);
+	}
+
+	fwrite(&Job->galvoCalibrated, sizeof(bool), 1, file);
+	if (Job->galvoCalibrated) {
 	}
 
 	fclose(file);
@@ -438,9 +486,9 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 		}
 	}
 
-	fread(&Job->stereoCalibrated, sizeof(bool), 1, file);
+	fread(&Job->metricsCalculated, sizeof(bool), 1, file);
 	if (Job->metricsCalculated) {
-		/*count = deserializeVectorPrep(file, Job->stBasisXPoints);
+		size_t count = deserializeVectorPrep(file, Job->stBasisXPoints);
 		for (size_t i = 0; i < count; ++i) {
 			fread(&Job->stBasisXPoints[i], sizeof(vec3), 1, file);
 		}
@@ -455,7 +503,49 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 			fread(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
 		}
 		
-		fread(&Job->stVolumeCenter, sizeof(vec3), 1, file);*/
+		fread(&Job->stVolumeCenter, sizeof(vec3), 1, file);
+		
+		fread(&Job->axisX, sizeof(ldiLine), 1, file);
+		fread(&Job->axisY, sizeof(ldiLine), 1, file);
+		fread(&Job->axisZ, sizeof(ldiLine), 1, file);
+		fread(&Job->axisC, sizeof(ldiLine), 1, file);
+		fread(&Job->axisA, sizeof(ldiLine), 1, file);
+
+		fread(&Job->basisX, sizeof(vec3), 1, file);
+		fread(&Job->basisY, sizeof(vec3), 1, file);
+		fread(&Job->basisZ, sizeof(vec3), 1, file);
+
+		fread(&Job->stepsToCm, sizeof(glm::f64vec3), 1, file);
+
+		count = deserializeVectorPrep(file, Job->cubeWorlds);
+		for (size_t i = 0; i < count; ++i) {
+			fread(&Job->cubeWorlds[i], sizeof(mat4), 1, file);
+		}
+
+		for (int i = 0; i < 2; ++i) {
+			fread(&Job->camVolumeMat[i], sizeof(mat4), 1, file);
+		}
+	}
+
+	fread(&Job->scannerCalibrated, sizeof(bool), 1, file);
+	if (Job->scannerCalibrated) {
+		size_t count = deserializeVectorPrep(file, Job->scanSamples);
+		for (size_t sampleIter = 0; sampleIter < count; ++sampleIter) {
+			ldiCalibStereoSample sample = {};
+
+			sample.path = deserializeString(file);
+
+			fread(&sample.phase, sizeof(int), 1, file);
+			fread(&sample.X, sizeof(int), 1, file);
+			fread(&sample.Y, sizeof(int), 1, file);
+			fread(&sample.Z, sizeof(int), 1, file);
+			fread(&sample.C, sizeof(int), 1, file);
+			fread(&sample.A, sizeof(int), 1, file);
+
+			Job->scanSamples[sampleIter] = sample;
+		}
+
+		fread(&Job->scanPlane, sizeof(ldiPlane), 1, file);
 	}
 
 	fclose(file);
@@ -1077,23 +1167,12 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		Job->camVolumeMat[1][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][2])), 0.0f);
 
 		// Cube poses.
+		Job->cubeWorlds.resize(Job->stCubeWorlds.size());
 		for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
-			Job->stCubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
-
-			//Job->stCubeWorlds[i][3] = vec4(0,0,0,1.0f);
+			Job->cubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
 		}
 
-		// Average world axes?
-
-		Job->cubePointCentroids.clear();
-		for (size_t i = 0; i < _refinedModelPoints.size(); ++i) {
-			vec3 point = vec3(_refinedModelPoints[i].x, _refinedModelPoints[i].y, _refinedModelPoints[i].z);
-			point = Job->stCubeWorlds[0] * vec4(point.x, point.y, point.z, 1.0);
-
-			//point = volumeToWorld * vec4(point.x, point.y, point.z, 1.0);
-
-			Job->cubePointCentroids.push_back(point);
-		}
+		// TODO: Average cube poses for 0th pose?
 
 		// Axis C points.
 		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
@@ -1187,6 +1266,15 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 	Job->scannerCalibrated = false;
 	Job->scanPoints[0].clear();
 	Job->scanPoints[1].clear();
+	Job->scanRays[0].clear();
+	Job->scanRays[1].clear();
+	Job->scanWorldPoints[0].clear();
+	Job->scanWorldPoints[1].clear();
+
+	if (!Job->metricsCalculated) {
+		std::cout << "Scanner calibration requires metrics to be calculated\n";
+		return;
+	}
 
 	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/scanner_calib/");
 
@@ -1198,10 +1286,40 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 			calibLoadStereoCalibSampleData(&sample);
 
 			// Find machine basis for this sample position.
-			// ...
+			ldiHorsePosition horsePos = {};
+			horsePos.x = sample.X;
+			horsePos.y = sample.Y;
+			horsePos.z = sample.Z;
+			horsePos.c = sample.C;
+			horsePos.a = sample.A;
+
+			std::vector<vec3> cubePoints;
+			std::vector<ldiCalibCubeSide> cubeSides;
+			std::vector<vec3> cubeCorners;
+
+			horseGetRefinedCubeAtPosition(Job, horsePos, cubePoints, cubeSides, cubeCorners);
+
+			// Plane scan line bounds.
+			ldiPlane boundPlanes[4];
+
+			vec3 dir01 = glm::normalize(cubeCorners[1] - cubeCorners[0]);
+			vec3 dir12 = glm::normalize(cubeCorners[2] - cubeCorners[1]);
+			vec3 dir23 = glm::normalize(cubeCorners[3] - cubeCorners[2]);
+			vec3 dir30 = glm::normalize(cubeCorners[0] - cubeCorners[3]);
+
+			boundPlanes[0].normal = dir01;
+			boundPlanes[0].point = cubeCorners[0] + dir01 * 0.2f;
+
+			boundPlanes[1].normal = dir12;
+			boundPlanes[1].point = cubeCorners[1] + dir12 * 0.01f;
+
+			boundPlanes[2].normal = dir23;
+			boundPlanes[2].point = cubeCorners[2] + dir23 * 0.2f;
+
+			boundPlanes[3].normal = dir30;
+			boundPlanes[3].point = cubeCorners[3] + dir30 * 3.0f;
 
 			for (int j = 0; j < 2; ++j) {
-				//computerVisionFindCharuco(sample.frames[j], AppContext, &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
 				std::vector<vec2> points = computerVisionFindScanLine(sample.frames[j]);
 
 				std::vector<cv::Point2f> distortedPoints;
@@ -1213,16 +1331,38 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 
 				cv::undistortPoints(distortedPoints, undistortedPoints, Job->refinedCamMat[j], Job->refinedCamDist[j], cv::noArray(), Job->refinedCamMat[j]);
 
-				// Project points against current machine basis.
-				// ...
-
 				for (size_t pIter = 0; pIter < points.size(); ++pIter) {
 					points[pIter] = toVec2(undistortedPoints[pIter]);
 				}
 
 				Job->scanPoints[j].push_back(points);
 
-				std::cout << "Cam " << j << " found " << points.size() << "\n";
+				// Project points against current machine basis.
+				ldiCamera camera = horseGetCamera(Job, horsePos, j, 3280, 2464);
+
+				//if (i == 0) {
+				{
+					for (size_t pIter = 0; pIter < points.size(); ++pIter) {
+						ldiLine ray = screenToRay(&camera, points[pIter]);
+
+						vec3 worldPoint;
+						getRayPlaneIntersection(ray, cubeSides[1].plane, worldPoint);
+
+						// Check point within bounds.
+						bool pointWithinBounds = true;
+						for (int bIter = 0; bIter < 4; ++bIter) {
+							if (glm::dot(boundPlanes[bIter].normal, worldPoint - boundPlanes[bIter].point) <= 0.0f){
+								pointWithinBounds = false;
+								break;
+							}
+						}
+
+						if (pointWithinBounds) {
+							Job->scanWorldPoints[j].push_back(worldPoint);
+							//Job->scanRays[j].push_back(ray);
+						}
+					}
+				}
 			}
 
 			calibFreeStereoCalibImages(&sample);
@@ -1230,4 +1370,14 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 			Job->scanSamples.push_back(sample);
 		}
 	}
+
+	std::vector<vec3> allWorldPoints;
+	allWorldPoints.reserve(Job->scanWorldPoints[0].size() + Job->scanWorldPoints[1].size());
+	allWorldPoints.insert(allWorldPoints.begin(), Job->scanWorldPoints[0].begin(), Job->scanWorldPoints[0].end());
+	//allWorldPoints.insert(allWorldPoints.begin() + Job->scanWorldPoints[0].size(), Job->scanWorldPoints[1].begin(), Job->scanWorldPoints[1].end());
+
+	ldiPlane scanPlane;
+	computerVisionFitPlane(allWorldPoints, &Job->scanPlane);
+
+	Job->scannerCalibrated = true;
 }

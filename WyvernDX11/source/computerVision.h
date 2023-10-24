@@ -131,18 +131,17 @@ struct ldiCalibrationJob {
 	// Calib volume metrics.
 	//----------------------------------------------------------------------------------------------------
 	bool metricsCalculated;
-	std::vector<ldiPlane> baCubePlanes;
 	std::vector<vec3> stBasisXPoints;
 	std::vector<vec3> stBasisYPoints;
 	std::vector<vec3> stBasisZPoints;
 
 	vec3 stVolumeCenter;
 
-	ldiLineFit axisX;
-	ldiLineFit axisY;
-	ldiLineFit axisZ;
-	ldiLineFit axisC;
-	ldiLineFit axisA;
+	ldiLine axisX;
+	ldiLine axisY;
+	ldiLine axisZ;
+	ldiLine axisC;
+	ldiLine axisA;
 
 	vec3 basisX;
 	vec3 basisY;
@@ -150,12 +149,15 @@ struct ldiCalibrationJob {
 
 	glm::f64vec3 stepsToCm;
 
+	std::vector<mat4> cubeWorlds;
+	mat4 camVolumeMat[2];
+
 	//----------------------------------------------------------------------------------------------------
 	// Scanner calibration.
 	//----------------------------------------------------------------------------------------------------
 	bool scannerCalibrated;
 	std::vector<ldiCalibStereoSample> scanSamples;
-	ldiPlane* scanPlane;
+	ldiPlane scanPlane;
 
 	//----------------------------------------------------------------------------------------------------
 	// Galvo calibration.
@@ -174,13 +176,12 @@ struct ldiCalibrationJob {
 	std::vector<vec2> massModelImagePoints[2];
 	std::vector<vec2> massModelUndistortedPoints[2];
 
-	mat4 camVolumeMat[2];
-
 	std::vector<std::vector<vec3>> centeredPointGroups;
 
 	std::vector<vec3> cubePointCentroids;
 	std::vector<int> cubePointCounts;
 
+	std::vector<ldiPlane> baCubePlanes;
 	std::vector<vec3> baIndvCubePoints;
 	std::vector<mat4> baViews;
 	std::vector<int> baViewIds;
@@ -198,6 +199,8 @@ struct ldiCalibrationJob {
 	ldiCircle axisACircle;
 
 	std::vector<std::vector<vec2>> scanPoints[2];
+	std::vector<ldiLine> scanRays[2];
+	std::vector<vec3> scanWorldPoints[2];
 };
 
 struct ldiCameraCalibrationContext {
@@ -1397,7 +1400,7 @@ bool computerVisionFindGeneralPoseRT(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs,
 //	return false;
 //}
 
-ldiLineFit computerVisionFitLine(std::vector<vec3>& Points) {
+ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
 	// TODO: Double check that the centroid is actually a valid point on the line.
 
 	std::vector<cv::Point3f> points;
@@ -1439,7 +1442,7 @@ ldiLineFit computerVisionFitLine(std::vector<vec3>& Points) {
 	std::cout << "U: " << pU.x << ", " << pU.y << ", " << pU.z << "\n" << std::flush;
 	std::cout << "V: " << pV.x << ", " << pV.y << ", " << pV.z << "\n" << std::flush;*/
 
-	ldiLineFit result;
+	ldiLine result;
 	result.origin = vec3(centroid.x, centroid.y, centroid.z);
 	result.direction = glm::normalize(vec3(pV.x, pV.y, pV.z));
 
@@ -1933,7 +1936,7 @@ void computerVisionLoadBundleAdjust(std::vector<ldiCameraCalibSample>& InputSamp
 			fitPoints.push_back(result.modelPoints[j + startPoint]);
 		}
 
-		ldiLineFit lineFit = computerVisionFitLine(fitPoints);
+		ldiLine lineFit = computerVisionFitLine(fitPoints);
 		ldiLineSegment lineSeg;
 		lineSeg.a = lineFit.origin - lineFit.direction * 10.0f;
 		lineSeg.b = lineFit.origin + lineFit.direction * 10.0f;
@@ -1953,7 +1956,7 @@ void computerVisionLoadBundleAdjust(std::vector<ldiCameraCalibSample>& InputSamp
 			fitPoints.push_back(result.modelPoints[startPoint + j * 8]);
 		}
 
-		ldiLineFit lineFit = computerVisionFitLine(fitPoints);
+		ldiLine lineFit = computerVisionFitLine(fitPoints);
 		ldiLineSegment lineSeg;
 		lineSeg.a = lineFit.origin - lineFit.direction * 10.0f;
 		lineSeg.b = lineFit.origin + lineFit.direction * 10.0f;

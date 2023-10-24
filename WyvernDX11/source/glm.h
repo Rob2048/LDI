@@ -9,9 +9,13 @@
 #include <glm/gtx/quaternion.hpp>
 
 typedef glm::vec2 vec2;
+typedef glm::f64vec2 vec2d;
 typedef glm::vec3 vec3;
+typedef glm::f64vec3 vec3d;
 typedef glm::vec4 vec4;
+typedef glm::f64vec4 vec4d;
 typedef glm::mat4 mat4;
+typedef glm::f64mat4 mat4d;
 typedef glm::quat quat;
 
 typedef glm::ivec3 ivec3;

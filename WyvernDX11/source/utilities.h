@@ -10,7 +10,7 @@
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
-struct ldiLineFit {
+struct ldiLine {
 	vec3 origin;
 	vec3 direction;
 };
@@ -75,6 +75,23 @@ vec3 projectPointToPlane(vec3 Point, ldiPlane Plane) {
 	vec3 delta = Point - Plane.point;
 	float dist = glm::dot(delta, Plane.normal);
 	return Point - Plane.normal * dist;
+}
+
+bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
+	float denom = glm::dot(Plane.normal, Ray.direction);
+	
+	if (denom > std::numeric_limits<float>::epsilon()) {
+		vec3 p0l0 = Plane.point - Ray.origin;
+		float t = glm::dot(p0l0, Plane.normal) / denom;
+
+		if (t >= 0) {
+			Point = Ray.origin + Ray.direction * t;
+
+			return true;
+		}
+	}
+
+	return false;
 }
 
 static bool endsWith(std::string_view str, std::string_view suffix) {
@@ -185,19 +202,6 @@ float LinearToGamma(float In) {
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
 }
 
-#include "glm.h"
-
-std::string GetMat4DebugString(mat4* Mat) {
-	std::stringstream str;
-	
-	str << (*Mat)[0][0] << " " << (*Mat)[0][1] << " " << (*Mat)[0][2] << " " << (*Mat)[0][3] << "\n";
-	str << (*Mat)[1][0] << " " << (*Mat)[1][1] << " " << (*Mat)[1][2] << " " << (*Mat)[1][3] << "\n";
-	str << (*Mat)[2][0] << " " << (*Mat)[2][1] << " " << (*Mat)[2][2] << " " << (*Mat)[2][3] << "\n";
-	str << (*Mat)[3][0] << " " << (*Mat)[3][1] << " " << (*Mat)[3][2] << " " << (*Mat)[3][3] << "\n";
-
-	return str.str();
-}
-
 vec3 HSVtoRGB(float H, float S, float V) {
 	/*if (H > 360 || H < 0 || S>100 || S < 0 || V>100 || V < 0) {
 		cout << "The givem HSV values are not in valid range" << endl;
@@ -267,4 +271,15 @@ inline cv::Point3f toPoint3f(vec3 A) {
 
 inline vec3 toVec3(cv::Point3f A) {
 	return vec3(A.x, A.y, A.z);
+}
+
+std::string GetMat4DebugString(mat4* Mat) {
+	std::stringstream str;
+
+	str << (*Mat)[0][0] << " " << (*Mat)[0][1] << " " << (*Mat)[0][2] << " " << (*Mat)[0][3] << "\n";
+	str << (*Mat)[1][0] << " " << (*Mat)[1][1] << " " << (*Mat)[1][2] << " " << (*Mat)[1][3] << "\n";
+	str << (*Mat)[2][0] << " " << (*Mat)[2][1] << " " << (*Mat)[2][2] << " " << (*Mat)[2][3] << "\n";
+	str << (*Mat)[3][0] << " " << (*Mat)[3][1] << " " << (*Mat)[3][2] << " " << (*Mat)[3][3] << "\n";
+
+	return str.str();
 }

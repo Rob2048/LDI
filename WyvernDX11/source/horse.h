@@ -1,24 +1,13 @@
 #pragma once
 
+//----------------------------------------------------------------------------------------------------
+// Transform.
+//----------------------------------------------------------------------------------------------------
 struct ldiTransform {
 	vec3 localPos;
 	vec3 localRot;
 	mat4 local;
 	mat4 world;
-};
-
-struct ldiHorse {
-	ldiTransform origin;
-	ldiTransform axisX;
-	ldiTransform axisY;
-	ldiTransform axisZ;
-	ldiTransform axisA;
-	ldiTransform axisC;
-	float x;
-	float y;
-	float z;
-	float a;
-	float b;
 };
 
 void transformUpdateLocal(ldiTransform* Transform) {
@@ -46,6 +35,56 @@ void transformInit(ldiTransform* Transform, vec3 Pos, vec3 Rot) {
 vec3 transformGetWorldPoint(ldiTransform* Transform, vec3 LocalPos) {
 	return Transform->world * vec4(LocalPos.x, LocalPos.y, LocalPos.z, 1.0f);
 }
+
+void renderTransformOrigin(ldiApp* AppContext, ldiCamera* Camera, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
+	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
+
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
+
+	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+}
+
+void renderOrigin(ldiApp* AppContext, ldiCamera* Camera, mat4 WorldMatrix, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
+	vec3 root = WorldMatrix * vec4(0, 0, 0, 1);
+
+	vec3 p0 = WorldMatrix * vec4(1, 0, 0, 1);
+	vec3 p1 = WorldMatrix * vec4(0, 1, 0, 1);
+	vec3 p2 = WorldMatrix * vec4(0, 0, 1, 1);
+
+	pushDebugLine(&AppContext->defaultDebug, root, p0, vec3(1, 0, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, p1, vec3(0, 1, 0));
+	pushDebugLine(&AppContext->defaultDebug, root, p2, vec3(0, 0, 1));
+
+	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+}
+
+//----------------------------------------------------------------------------------------------------
+// Horse.
+//----------------------------------------------------------------------------------------------------
+// Machine position in steps.
+struct ldiHorsePosition {
+	int x;
+	int y;
+	int z;
+	int c;
+	int a;
+};
+
+struct ldiHorse {
+	ldiTransform origin;
+	ldiTransform axisX;
+	ldiTransform axisY;
+	ldiTransform axisZ;
+	ldiTransform axisA;
+	ldiTransform axisC;
+	float x;
+	float y;
+	float z;
+	float a;
+	float b;
+};
 
 void horseUpdateMats(ldiHorse* Horse) {
 	transformUpdateWorld(&Horse->origin, 0);
@@ -87,26 +126,101 @@ void horseUpdate(ldiHorse* Horse) {
 	horseUpdateMats(Horse);
 }
 
-void renderTransformOrigin(ldiApp* AppContext, ldiCamera* Camera, ldiTransform* Transform, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 root = transformGetWorldPoint(Transform, vec3(0, 0, 0));
+void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Position, std::vector<vec3>& Points, std::vector<ldiCalibCubeSide>& Sides, std::vector<vec3>& Corners) {
+	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
+	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
 
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(1, 0, 0)), vec3(1, 0, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 1, 0)), vec3(0, 1, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, transformGetWorldPoint(Transform, vec3(0, 0, 1)), vec3(0, 0, 1));
+	vec3 refToAxisC = Job->axisC.origin - vec3(0.0f, 0.0f, 0.0f);
+	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
+	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
 
-	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	mat4 axisCMat = mat4(1.0f);
+	axisCMat = axisCMat * glm::translate(mat4(1.0), -refToAxisC);
+	axisCMat = axisCRot * axisCMat;
+	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
+
+	mat4 zeroTransform = Job->cubeWorlds[0];
+
+	// Transform points.
+	Points.resize(_refinedModelPoints.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < _refinedModelPoints.size(); ++i) {
+		if (i >= 18 && i <= 26) {
+			continue;
+		}
+
+		Points[i] = (zeroTransform * axisCMat) * vec4(toVec3(_refinedModelPoints[i]), 1.0f);
+		Points[i] += mechTrans;
+	}
+
+	// Transform sides.
+	Sides.resize(_refinedModelSides.size(), {});
+	for (size_t i = 0; i < _refinedModelSides.size(); ++i) {
+		Sides[i].id = _refinedModelSides[i].id;
+
+		ldiPlane plane = _refinedModelSides[i].plane;
+
+		plane.point = zeroTransform * vec4(plane.point, 1.0f);
+		plane.point = axisCMat * vec4(plane.point, 1.0f);
+		plane.point += mechTrans;
+		
+		plane.normal = glm::normalize(zeroTransform * vec4(plane.normal, 0.0f));
+		plane.normal = glm::normalize(axisCMat * vec4(plane.normal, 0.0f));
+
+		Sides[i].plane = plane;
+
+		for (int c = 0; c < 4; ++c) {
+			vec3 transCorner = zeroTransform * vec4(_refinedModelSides[i].corners[c], 1.0f);
+			transCorner = axisCMat * vec4(transCorner, 1.0f);
+			transCorner += mechTrans;
+
+			Sides[i].corners[c] = transCorner;
+		}
+	}
+
+	// Transform corners.
+	Corners.resize(8, vec3(0.0f, 0.0f, 0.0f));
+	for (int i = 0; i < 8; ++i) {
+		Corners[i] = zeroTransform * vec4(_refinedModelCorners[i], 1.0f);
+		Corners[i] = axisCMat * vec4(Corners[i], 1.0f);
+		Corners[i] += mechTrans;
+	}
 }
 
-void renderOrigin(ldiApp* AppContext, ldiCamera* Camera, mat4 WorldMatrix, std::string Text, std::vector<ldiTextInfo>* TextBuffer) {
-	vec3 root = WorldMatrix * vec4(0, 0, 0, 1);
+ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height, bool UseViewport, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
+	mat4 camWorldMat = Job->camVolumeMat[HawkId];
 
-	vec3 p0 = WorldMatrix * vec4(1, 0, 0, 1);
-	vec3 p1 = WorldMatrix * vec4(0, 1, 0, 1);
-	vec3 p2 = WorldMatrix * vec4(0, 0, 1, 1);
+	{
+		vec3 refToAxis = Job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+		float axisAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
+		mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), Job->axisA.direction);
 
-	pushDebugLine(&AppContext->defaultDebug, root, p0, vec3(1, 0, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, p1, vec3(0, 1, 0));
-	pushDebugLine(&AppContext->defaultDebug, root, p2, vec3(0, 0, 1));
+		camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
+		camWorldMat = axisRot * camWorldMat;
+		camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
+	}
 
-	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	mat4 viewMat = cameraConvertOpenCvWorldToViewMat(camWorldMat);
+	mat4 projMat = mat4(1.0);
+
+	//if (!job->refinedCamMat[HawkId].empty()) {
+	projMat = cameraCreateProjectionFromOpenCvCamera(Width, Height, Job->refinedCamMat[HawkId], 0.01f, 100.0f);
+	//}
+
+	if (UseViewport) {
+		projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
+	}
+
+	ldiCamera camera = {};
+	camera.viewMat = viewMat;
+	camera.projMat = projMat;
+	camera.invProjMat = inverse(projMat);
+	camera.projViewMat = projMat * viewMat;
+	camera.viewWidth = Width;
+	camera.viewHeight = Height;
+
+	return camera;
+}
+
+ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height) {
+	return horseGetCamera(Job, Position, HawkId, Width, Height, false, vec2(0.0f, 0.0f), vec2(Width, Height));
 }
