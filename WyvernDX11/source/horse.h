@@ -148,7 +148,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 			continue;
 		}
 
-		Points[i] = (zeroTransform * axisCMat) * vec4(toVec3(_refinedModelPoints[i]), 1.0f);
+		Points[i] = (axisCMat * zeroTransform) * vec4(toVec3(_refinedModelPoints[i]), 1.0f);
 		Points[i] += mechTrans;
 	}
 
@@ -184,6 +184,17 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 		Corners[i] = axisCMat * vec4(Corners[i], 1.0f);
 		Corners[i] += mechTrans;
 	}
+}
+
+mat4 horseGetWorkTransform(ldiCalibrationJob* Job, ldiHorsePosition Position) {
+	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
+	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
+
+	float axisCAngleDeg = Position.c * 0.001875;
+	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
+	mat4 axisCMat = glm::translate(mat4(1.0), Job->axisC.origin + mechTrans) * axisCRot;
+
+	return axisCMat;
 }
 
 ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height, bool UseViewport, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
@@ -223,4 +234,23 @@ ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int 
 
 ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height) {
 	return horseGetCamera(Job, Position, HawkId, Width, Height, false, vec2(0.0f, 0.0f), vec2(Width, Height));
+}
+
+ldiPlane horseGetScanPlane(ldiCalibrationJob* Job, ldiHorsePosition Position) {
+	ldiPlane result = {};
+
+	vec3 refToAxis = Job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+	float axisAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
+	mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), Job->axisA.direction);
+
+
+	vec3 newPoint = vec4(Job->scanPlane.point - refToAxis, 1.0f);
+	newPoint = axisRot * vec4(newPoint, 1.0f);
+	newPoint = vec4(newPoint + refToAxis, 1.0f);
+
+	vec3 newNormal = axisRot * vec4(Job->scanPlane.normal, 0.0f);
+
+	result.point = newPoint;
+	result.normal = glm::normalize(newNormal);
+	return result;
 }

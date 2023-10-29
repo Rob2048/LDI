@@ -222,7 +222,7 @@ void hawkInit(ldiHawk* Cam, const std::string& Hostname, int Port) {
 
 	Cam->latestFrameId = 0;
 	
-	Cam->workerThread = std::thread(hawkWorkerThread, Cam);
+	//Cam->workerThread = std::thread(hawkWorkerThread, Cam);
 }
 
 void hawkTriggerAndGetFrame(ldiHawk* Cam) {

@@ -6,7 +6,8 @@ enum ldiPlatformJobType {
 	PJT_HOME,
 	PJT_CAPTURE_CALIBRATION,
 	PJT_CAPTURE_SCANNER_CALIBRATION,
-	PJT_SET_SCAN_LASER_STATE
+	PJT_SET_SCAN_LASER_STATE,
+	PJT_SCAN,
 };
 
 struct ldiPlatformJobHeader {
@@ -24,6 +25,10 @@ struct ldiPlatformJobMoveAxis {
 struct ldiPlatformJobSetScanLaserState {
 	ldiPlatformJobHeader header;
 	bool Enabled;
+};
+
+struct ldiPlatformJobScan {
+	ldiPlatformJobHeader header;
 };
 
 struct ldiPlatform {
@@ -50,11 +55,11 @@ struct ldiPlatform {
 
 	// Motion platform.
 	ldiHorse					horse;
-	float						positionX;
-	float						positionY;
-	float						positionZ;
-	float						positionC;
-	float						positionA;
+	int							positionX;
+	int							positionY;
+	int							positionZ;
+	int							positionC;
+	int							positionA;
 	bool						homed;
 
 	float						mmPerStepX;
@@ -75,6 +80,19 @@ struct ldiPlatform {
 
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
+	bool						showCalibCubeFaces = true;
+	bool						liveAxisUpdate = false;
+
+	std::mutex					liveScanPointsMutex;
+	bool						liveScanPointsUpdated;
+	std::vector<vec3>			liveScanPoints;
+	std::vector<vec3>			copyOfLiveScanPoints;
+	ldiPointCloud				scanPointCloud = {};
+	ldiRenderPointCloud			scanPointCloudRenderModel = {};
+
+	float						pointWorldSize = 0.01f;
+	float						pointScreenSize = 2.0f;
+	float						pointScreenSpaceBlend = 0.0f;
 };
 
 void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
@@ -745,6 +763,135 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 	return true;
 }
 
+bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
+	ldiApp* appContext = Platform->appContext;
+	ldiPanther* panther = &Platform->panther;
+
+	{
+		std::unique_lock<std::mutex> lock(Platform->liveScanPointsMutex);
+		Platform->liveScanPoints.clear();
+		Platform->liveScanPointsUpdated = true;
+	}
+
+	// Set up cameras.
+	pantherSendScanLaserStateCommand(panther, true);
+	if (!pantherWaitForExecutionComplete(panther)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_X, -9000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_X, -8000, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_Y, -1000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Y, 0, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_Z, -29000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_Z, -28000, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_C, 12000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_C, 13000, 0.0f)) { return false; }
+
+	if (!pantherMoveAndWait(panther, PA_A, 103000, 0.0f)) { return false; }
+	if (!pantherMoveAndWait(panther, PA_A, 104000, 0.0f)) { return false; }
+
+	int posX = -8000;
+	int posY = 0;
+	int posZ = -28000;
+	int posC = 13000;
+	int posA = 104000;
+
+	Sleep(300);
+
+	int aSteps = 2;
+	int xSteps = 5;
+	int steps = 80;
+
+	for (int iA = 0; iA < aSteps; ++iA) {
+		int aStepInc = 50000;
+		posA = 104000 - iA * aStepInc;
+		if (!pantherMoveAndWait(panther, PA_A, posA, 0.0f)) { return false; }
+
+		for (int iX = 0; iX < xSteps; ++iX) {
+			// Note account for backlash reset.
+			if (iX == 0) {
+				posX = -9000;
+				if (!pantherMoveAndWait(panther, PA_X, posX, 0.0f)) { return false; }
+			}
+
+			int xStepInc = 4000;
+			posX = -8000 + iX * xStepInc;
+			if (!pantherMoveAndWait(panther, PA_X, posX, 0.0f)) { return false; }
+
+			for (int iC = 0; iC < steps; ++iC) {
+				// Note account for backlash reset.
+				if (iC == 0) {
+					posC = 12000;
+					if (!pantherMoveAndWait(panther, PA_C, posC, 0.0f)) { return false; }
+				}
+
+				int cStepInc = (32 * 200 * 30) / steps;
+				posC = 13000 + iC * cStepInc;
+				if (!pantherMoveAndWait(panther, PA_C, posC, 0.0f)) { return false; }
+
+				Sleep(600);
+
+				hawkClearWaitPacket(&Platform->hawks[0]);
+				hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+
+				std::vector<vec2> scanPoints;
+
+				{
+					std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+			
+					ldiImage frame0 = {};
+					frame0.data = Platform->hawks[0].frameBuffer;
+					frame0.width = Platform->hawks[0].imgWidth;
+					frame0.height = Platform->hawks[0].imgHeight;
+
+					scanPoints = computerVisionFindScanLine(frame0);
+				}
+
+				// Scan plane at machine position.
+				ldiHorsePosition horsePos = {};
+				horsePos.x = posX;
+				horsePos.y = posY;
+				horsePos.z = posZ;
+				horsePos.c = posC;
+				horsePos.a = posA;
+
+				// TODO: Make sure calib context is static here, we are potentially accessing it across threads.
+
+				mat4 workTrans = horseGetWorkTransform(&Platform->appContext->calibrationContext->calibJob, horsePos);
+				mat4 invWorkTrans = glm::inverse(workTrans);
+
+				ldiPlane scanPlane = horseGetScanPlane(&Platform->appContext->calibrationContext->calibJob, horsePos);
+				scanPlane.normal = -scanPlane.normal;
+
+				// Project points onto scan plane.
+				ldiCamera camera = horseGetCamera(&Platform->appContext->calibrationContext->calibJob, horsePos, 0, 3280, 2464);
+
+				for (size_t pIter = 0; pIter < scanPoints.size(); ++pIter) {
+					ldiLine ray = screenToRay(&camera, scanPoints[pIter]);
+
+					vec3 worldPoint;
+					if (getRayPlaneIntersection(ray, scanPlane, worldPoint)) {
+						//std::cout << "Ray failed " << pIter << "\n";
+
+						// Bake point into work space.
+						worldPoint = invWorkTrans * vec4(worldPoint, 1.0f);
+
+						{
+							std::unique_lock<std::mutex> lock(Platform->liveScanPointsMutex);
+							Platform->liveScanPoints.push_back(worldPoint);
+							Platform->liveScanPointsUpdated = true;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
 void platformWorkerThread(ldiPlatform* Platform) {
 	std::cout << "Running platform thread\n";
 
@@ -797,6 +944,12 @@ void platformWorkerThread(ldiPlatform* Platform) {
 					ldiPlatformJobSetScanLaserState* job = (ldiPlatformJobSetScanLaserState*)Platform->job;
 					pantherSendScanLaserStateCommand(panther, job->Enabled);
 					pantherWaitForExecutionComplete(panther);
+					platformWorkerThreadJobComplete(Platform);
+				} break;
+
+				case PJT_SCAN: {
+					ldiPlatformJobScan* job = (ldiPlatformJobScan*)Platform->job;
+					_platformScan(Platform, job);
 					platformWorkerThreadJobComplete(Platform);
 				} break;
 			};
@@ -983,6 +1136,19 @@ bool platformQueueJobSetScanLaserState(ldiPlatform* Platform, bool Enabled) {
 	return true;
 }
 
+bool platformQueueJobScan(ldiPlatform* Platform) {
+	if (!platformPrepareForNewJob(Platform)) {
+		return false;
+	};
+
+	ldiPlatformJobScan* job = new ldiPlatformJobScan();
+	job->header.type = PJT_SCAN;
+	
+	platformQueueJob(Platform, &job->header);
+
+	return true;
+}
+
 void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int Width, int Height, ldiCamera* Camera, std::vector<ldiTextInfo>* TextBuffer, bool Clear) {
 	ldiApp* appContext = Tool->appContext;
 
@@ -1034,7 +1200,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Cube definition.
 	//----------------------------------------------------------------------------------------------------
-	if (false) {	
+	if (true) {
 		for (size_t i = 0; i < _cubeWorldPoints.size(); ++i) {
 			pushDebugSphere(&appContext->defaultDebug, _cubeWorldPoints[i].position, 0.02, vec3(1, 0, 0), 8);
 			displayTextAtPoint(Camera, _cubeWorldPoints[i].position, std::to_string(_cubeWorldPoints[i].globalId), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
@@ -1246,7 +1412,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			//----------------------------------------------------------------------------------------------------
 			// Estimated cube position.
 			//----------------------------------------------------------------------------------------------------
-			{
+			if (job->metricsCalculated) {
 				ldiHorsePosition horsePos = {};
 				horsePos.x = Tool->testPosX;
 				horsePos.y = Tool->testPosY;
@@ -1276,18 +1442,20 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					//displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
 				}
 
-				for (size_t i = 0; i < cubeSides.size(); ++i) {
-					const vec3 sideCol[6] = {
-						vec3(1, 0, 0),
-						vec3(0, 1, 0),
-						vec3(0, 0, 1),
-						vec3(1, 1, 0),
-						vec3(1, 0, 1),
-						vec3(0, 1, 1),
-					};
+				if (Tool->showCalibCubeFaces) {
+					for (size_t i = 0; i < cubeSides.size(); ++i) {
+						const vec3 sideCol[6] = {
+							vec3(1, 0, 0),
+							vec3(0, 1, 0),
+							vec3(0, 0, 1),
+							vec3(1, 1, 0),
+							vec3(1, 0, 1),
+							vec3(0, 1, 1),
+						};
 
-					pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[0], cubeSides[i].corners[1], cubeSides[i].corners[2], sideCol[i] * 0.5f);
-					pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[2], cubeSides[i].corners[3], cubeSides[i].corners[0], sideCol[i] * 0.5f);
+						pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[0], cubeSides[i].corners[1], cubeSides[i].corners[2], sideCol[i] * 0.5f);
+						pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[2], cubeSides[i].corners[3], cubeSides[i].corners[0], sideCol[i] * 0.5f);
+					}
 				}
 
 				for (int i = 0; i < 8; ++i) {
@@ -1295,10 +1463,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					displayTextAtPoint(Camera, cubeCorners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 				}
 			}
-			{
+			if (job->metricsCalculated) {
 				// Scan plane
 				{
-					vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+					/*vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
 					float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
 					mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
@@ -1307,9 +1475,18 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					newPoint = axisRot * vec4(newPoint, 1.0f);
 					newPoint = vec4(newPoint + refToAxis, 1.0f);
 
-					vec3 newNormal = axisRot * vec4(job->scanPlane.normal, 0.0f);
+					vec3 newNormal = axisRot * vec4(job->scanPlane.normal, 0.0f);*/
 
-					pushDebugPlane(&appContext->defaultDebug, newPoint, newNormal, 10, vec3(1.0f, 0.0f, 0.0f));
+					ldiHorsePosition horsePos = {};
+					horsePos.x = Tool->testPosX;
+					horsePos.y = Tool->testPosY;
+					horsePos.z = Tool->testPosZ;
+					horsePos.c = Tool->testPosC;
+					horsePos.a = Tool->testPosA;
+
+					ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
+
+					pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
 				}
 
 				for (size_t i = 0; i < job->scanWorldPoints[0].size(); ++i) {
@@ -1467,6 +1644,91 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					pushDebugCirlcle(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.radius, vec3(1, 0, 1), 64, circleBasis[0], circleBasis[1]);
 					pushDebugLine(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.origin + job->axisACircle.normal * 10.0f, vec3(1, 0, 1));
 				}
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Live scan points.
+		//----------------------------------------------------------------------------------------------------
+		if (job->scannerCalibrated) {
+			ldiHorsePosition horsePos = {};
+			horsePos.x = Tool->testPosX;
+			horsePos.y = Tool->testPosY;
+			horsePos.z = Tool->testPosZ;
+			horsePos.c = Tool->testPosC;
+			horsePos.a = Tool->testPosA;
+
+			mat4 workTrans = horseGetWorkTransform(job, horsePos);
+
+			pushDebugSphere(&appContext->defaultDebug, workTrans * vec4(0, 0, 0, 1.0f), 0.1, vec3(0, 1, 0), 6);
+			pushDebugSphere(&appContext->defaultDebug, workTrans * vec4(1, 0, 0, 1.0f), 0.1, vec3(0, 0.5f, 0), 6);
+
+			/*for (size_t i = 0; i < Tool->liveScanPoints.size(); ++i) {
+				vec3 point = Tool->liveScanPoints[i];
+				point = workTrans * vec4(point, 1.0f);
+				pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 1, 1), 4);
+			}*/
+
+			// TODO: Move points update somewhere else?
+			{
+				bool update = false;
+				{
+					std::unique_lock<std::mutex> lock(Tool->liveScanPointsMutex);
+					if (Tool->liveScanPointsUpdated) {
+						Tool->liveScanPointsUpdated = false;
+						Tool->copyOfLiveScanPoints = Tool->liveScanPoints;
+						update = true;
+					}
+				}
+
+				if (update) {
+					Tool->scanPointCloud.points.clear();
+
+					for (size_t pointIter = 0; pointIter < Tool->copyOfLiveScanPoints.size(); ++ pointIter) {
+						ldiPointCloudVertex vert;
+						vert.color = vec3(1, 1, 1);
+						vert.normal = vec3(1, 0, 0);
+						vert.position = Tool->copyOfLiveScanPoints[pointIter];
+
+						Tool->scanPointCloud.points.push_back(vert);
+					}
+
+					if (Tool->scanPointCloudRenderModel.vertexBuffer) {
+						Tool->scanPointCloudRenderModel.vertexBuffer->Release();
+					}
+
+					if (Tool->scanPointCloudRenderModel.indexBuffer) {
+						Tool->scanPointCloudRenderModel.indexBuffer->Release();
+					}
+
+					Tool->scanPointCloudRenderModel = gfxCreateRenderPointCloud(appContext, &Tool->scanPointCloud);
+					std::cout << "Point cloud size: " << Tool->scanPointCloud.points.size() << "\n";
+				}
+			}
+
+			if (Tool->scanPointCloudRenderModel.indexCount > 0) {
+				{
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+					constantBuffer->screenSize = vec4(Camera->viewWidth, Camera->viewHeight, 0, 0);
+					constantBuffer->mvp = Camera->projViewMat;
+					constantBuffer->color = vec4(0, 0, 0, 1);
+					constantBuffer->view = Camera->viewMat * workTrans;
+					constantBuffer->proj = Camera->projMat;
+					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+				}
+				{
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+					//constantBuffer->size = vec4(0.1f, 0.1f, 0, 0);
+					//constantBuffer->size = vec4(16, 16, 1, 0);
+					constantBuffer->size = vec4(Tool->pointWorldSize, Tool->pointScreenSize, Tool->pointScreenSpaceBlend, 0);
+					appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+				}
+
+				gfxRenderPointCloud(appContext, &Tool->scanPointCloudRenderModel);
 			}
 		}
 
@@ -1636,15 +1898,34 @@ void platformShowUi(ldiPlatform* Tool) {
 	Tool->horse.z = Tool->positionZ / 10.0f - 0.0f;
 	horseUpdate(&Tool->horse);
 
+	if (Tool->liveAxisUpdate) {
+		Tool->testPosX = Tool->positionX;
+		Tool->testPosY = Tool->positionY;
+		Tool->testPosZ = Tool->positionZ;
+		Tool->testPosC = Tool->positionC;
+		Tool->testPosA = Tool->positionA;
+	}
+
 	//ImGui::SetNextWindowSize(ImVec2(400, ImGui::GetMainViewport()->WorkSize.y));
 	//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
 
 	//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
 	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
 
+	if (ImGui::CollapsingHeader("Scan")) {
+		ImGui::Text("Point cloud");
+		//ImGui::Checkbox("Show point cloud", &Tool->showPointCloud);
+		ImGui::SliderFloat("World size", &Tool->pointWorldSize, 0.0f, 1.0f);
+		ImGui::SliderFloat("Screen size", &Tool->pointScreenSize, 0.0f, 32.0f);
+		ImGui::SliderFloat("Screen blend", &Tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+	}
+
+	ImGui::Checkbox("Show calib cube faces", &Tool->showCalibCubeFaces);
+
 	ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
 
-	ImGui::Text("Test thing");
+	ImGui::Text("Simulated position");
+	ImGui::Checkbox("Update live", &Tool->liveAxisUpdate);
 	ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
 	ImGui::SliderInt("PosY", &Tool->testPosY, -48000, 48000);
 	ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
@@ -1773,19 +2054,19 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	ImGui::PushFont(Tool->appContext->fontBig);
 	ImGui::SetCursorPosX(startX);
-	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: %.2f", Tool->positionX);
+	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: %d", Tool->positionX);
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(startX + availX / 3);
-	ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: %.2f", Tool->positionY);
+	ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: %d", Tool->positionY);
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(startX + availX / 3 * 2);
-	ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: %.2f", Tool->positionZ);
+	ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: %d", Tool->positionZ);
 	
 	ImGui::SetCursorPosX(startX + availX / 3 * 0);
-	ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %.2f", Tool->positionA);
+	ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %d", Tool->positionA);
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(startX + availX / 3 * 1);
-	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "C: %.2f", Tool->positionC);
+	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "C: %d", Tool->positionC);
 	ImGui::PopFont();
 
 	ImGui::BeginDisabled(Tool->jobExecuting);
@@ -1895,6 +2176,14 @@ void platformShowUi(ldiPlatform* Tool) {
 
 	if (ImGui::Button("Capture scanner calibration", ImVec2(-1, 0))) {
 		platformQueueJobCaptureScannerCalibration(Tool);
+	}
+
+	ImGui::Separator();
+	
+	if (ImGui::Button("Scan model", ImVec2(-1, 0))) {
+		// Hawk 0 5000 exposure, continuous feed.
+		// Hawk 1 off.
+		platformQueueJobScan(Tool);
 	}
 
 	ImGui::EndDisabled();

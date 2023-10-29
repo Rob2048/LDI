@@ -11,6 +11,13 @@
 // http://people.csail.mit.edu/kaess/isam/
 // https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py
 
+// https://colmap.github.io/tutorial.html
+// https://www.cs.cornell.edu/~snavely/bundler/
+// https://users.ics.forth.gr/~lourakis/sba/
+// https://www.informatik.uni-marburg.de/~thormae/paper/MIRA11_2.pdf
+// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
+// https://pypi.org/project/pyba/
+
 struct ldiCharucoMarker {
 	int id;
 	vec2 corners[4];
@@ -585,12 +592,7 @@ void cameraCalibCreateTarget(int CornerCountX, int CornerCountY, float CellSize,
 	}
 }
 
-void cameraCalibProcessImage() {
-	//cv::findChessboardCorners();
-	//cv::estimateChessboardSharpness();
-	//cv::find4QuadCornerSubpix(); Needed with findChessboardCorners()?
-	//cv::drawChessboardCorners();
-}
+
 
 bool cameraCalibFindChessboard(ldiApp* AppContext, ldiImage Image, ldiCameraCalibSample* Sample) {
 	int offset = 1;
@@ -1313,7 +1315,6 @@ bool computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, s
 		rotMat[2][1] = cvRotMat.at<double>(1, 2);
 		rotMat[2][2] = cvRotMat.at<double>(2, 2);
 
-		// NOTE: This builds the camera RT matrix.
 		mat4 transMat = glm::translate(mat4(1.0f), vec3(tvecs[i].at<double>(0), tvecs[i].at<double>(1), tvecs[i].at<double>(2)));
 
 		*Pose = transMat * rotMat;

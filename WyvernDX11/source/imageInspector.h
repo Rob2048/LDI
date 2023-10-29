@@ -566,8 +566,40 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (newFrame) {
-			//Tool->hawkScanSegs.clear();
-			//Tool->hawkScanPoints.clear();
+			if (Tool->hawkScanProcessImage) {
+				Tool->hawkScanSegs.clear();
+				Tool->hawkScanPoints = computerVisionFindScanLine(camImg);
+				Tool->appContext->platform->liveScanPoints.resize(Tool->hawkScanPoints.size());
+
+				// Scan plane at machine position.
+				ldiHorsePosition horsePos = {};
+				horsePos.x = Tool->appContext->platform->testPosX;
+				horsePos.y = Tool->appContext->platform->testPosY;
+				horsePos.z = Tool->appContext->platform->testPosZ;
+				horsePos.c = Tool->appContext->platform->testPosC;
+				horsePos.a = Tool->appContext->platform->testPosA;
+				
+				ldiPlane scanPlane = horseGetScanPlane(&calibContext->calibJob, horsePos);
+				scanPlane.normal = -scanPlane.normal;
+				
+				// Project points onto scan plane.
+				ldiCamera camera = horseGetCamera(&calibContext->calibJob, horsePos, hawkIter, 3280, 2464);
+
+				for (size_t pIter = 0; pIter < Tool->hawkScanPoints.size(); ++pIter) {
+					ldiLine ray = screenToRay(&camera, Tool->hawkScanPoints[pIter]);
+					
+					vec3 worldPoint;
+					if (getRayPlaneIntersection(ray, scanPlane, worldPoint)) {
+						//std::cout << "Ray failed " << pIter << "\n";
+
+						Tool->appContext->platform->liveScanPoints[pIter] = worldPoint;
+						//Tool->appContext->platform->liveScanPoints[pIter] = ray.origin + ray.direction;
+					}
+				}
+
+				//Tool->appContext->platform->liveScanPoints[0] = scanPlane.point;
+				//Tool->appContext->platform->liveScanPoints[1] = scanPlane.point + scanPlane.normal;
+			}
 
 			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], camImg);
 
@@ -1228,6 +1260,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			if (ImGui::Button("Bundle adjust both load")) {
 				computerVisionBundleAdjustStereoBothLoad(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			ImGui::Separator();
+			if (ImGui::Button("Generate initial output")) {
+				calibGetInitialOutput(&Tool->appContext->calibrationContext->calibJob);
+			}
+
+			if (ImGui::Button("Load full BA")) {
+				calibLoadFullBA(&Tool->appContext->calibrationContext->calibJob);
 			}
 		}
 	}
