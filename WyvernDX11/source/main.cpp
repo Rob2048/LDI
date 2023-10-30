@@ -213,7 +213,6 @@ void _initTiming() {
 #include "platform.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
-#include "visionSimulator.h"
 #include "imageInspector.h"
 #include "modelEditor.h"
 #include "galvoInspector.h"
@@ -223,7 +222,6 @@ ldiApp					_appContext = {};
 ldiModelInspector		_modelInspector = {};
 ldiSamplerTester		_samplerTester = {};
 ldiPlatform				_platform = {};
-ldiVisionSimulator		_visionSimulator = {};
 ldiImageInspector		_imageInspector = {};
 ldiModelEditor			_modelEditor = {};
 ldiGalvoInspector		_galvoInspector = {};
@@ -940,12 +938,6 @@ int main() {
 		return 1;
 	}
 
-	ldiVisionSimulator* visionSimulator = &_visionSimulator;
-	if (visionSimulatorInit(appContext, visionSimulator) != 0) {
-		std::cout << "Could not init vision simulator\n";
-		return 1;
-	}
-
 	ldiModelEditor* modelEditor = &_modelEditor;
 	if (modelEditorInit(appContext, modelEditor) != 0) {
 		std::cout << "Could not init model editor\n";
@@ -1090,10 +1082,6 @@ int main() {
 
 		if (appContext->showSamplerTester) {
 			samplerTesterShowUi(samplerTester);
-		}
-
-		if (appContext->showVisionSimulator) {
-			visionSimulatorShowUi(visionSimulator);
 		}
 
 		if (appContext->showModelEditor) {

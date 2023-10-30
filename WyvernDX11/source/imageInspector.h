@@ -65,8 +65,7 @@ struct ldiImageInspector {
 	cv::Mat						cameraCalibMatrix;
 	cv::Mat						cameraCalibDist;
 	bool						cameraCalibShowUndistorted = false;
-	bool						cameraCalibShowUndistortedBundled = false;
-
+	
 	bool						showCharucoResults = false;
 	bool						showCharucoRejectedMarkers = false;
 	bool						showUndistorted = true;
@@ -237,43 +236,7 @@ void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool, int HawkId) {
 	// Calibration stuff.
 	//----------------------------------------------------------------------------------------------------
 	{
-		ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
-		std::vector<vec3>* modelPoints = &calibContext->bundleAdjustResult.modelPoints;
-
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i];
-			pushDebugSphere(&appContext->defaultDebug, point, 0.5, vec3(1, 1, 1), 32);
-		}
-
-		ldiCalibTargetInfo targetInfo = calibContext->bundleAdjustResult.targetInfo;
-
-		ldiPlane targetPlane = calibContext->bundleAdjustResult.targetInfo.plane;
-		//pushDebugPlane(&appContext->defaultDebug, targetPlane.point, targetPlane.normal, 15, vec3(1, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisX * 10.0f, vec3(1, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisY * 10.0f, vec3(0, 1, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisZ, vec3(0, 0, 1));
-
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisXortho * 10.0f, vec3(0.5, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisYortho * 10.0f, vec3(0, 0.5, 0));
-
-		for (size_t i = 0; i < calibContext->bundleAdjustResult.targetInfo.fits.size(); ++i) {
-			ldiLineSegment line = calibContext->bundleAdjustResult.targetInfo.fits[i];
-
-			pushDebugLine(&appContext->defaultDebug, line.a, line.b, vec3(0.1, 0.1, 0.1));
-		}
-
-		float widthH = (1.5 * 9) / 2.0;
-		float heightH = (1.5 * 12) / 2.0;
-
-		vec3 c0 = targetInfo.basisX * -widthH + targetInfo.basisY * -heightH + targetPlane.point;
-		vec3 c1 = targetInfo.basisX * widthH + targetInfo.basisY * -heightH + targetPlane.point;
-		vec3 c2 = targetInfo.basisX * widthH + targetInfo.basisY * heightH + targetPlane.point;
-		vec3 c3 = targetInfo.basisX * -widthH + targetInfo.basisY * heightH + targetPlane.point;
-
-		pushDebugLine(&appContext->defaultDebug, c0, c1, vec3(1.0, 0.0, 0.0));
-		pushDebugLine(&appContext->defaultDebug, c1, c2, vec3(1.0, 0.0, 0.0));
-		pushDebugLine(&appContext->defaultDebug, c2, c3, vec3(1.0, 0.0, 0.0));
-		pushDebugLine(&appContext->defaultDebug, c3, c0, vec3(1.0, 0.0, 0.0));
+	
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1149,20 +1112,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					cameraCalibRunCalibrationCircles(Tool->appContext, Tool->cameraCalibSamples, Tool->cameraCalibImageWidth, Tool->cameraCalibImageHeight, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
 				}
 
-				if (ImGui::Button("Bundle adjust")) {
-					computerVisionBundleAdjust(Tool->cameraCalibSamples, &Tool->cameraCalibMatrix, &Tool->cameraCalibDist);
-				}
-
-				if (ImGui::Button("Load bundle results")) {
-					computerVisionLoadBundleAdjust(Tool->cameraCalibSamples, &calibContext->bundleAdjustResult);
-				}
-
 				if (ImGui::Checkbox("Undistorted", &Tool->cameraCalibShowUndistorted)) {
 					std::cout << "Undistorted: " << Tool->cameraCalibShowUndistorted << "\n";
-				}
-
-				if (ImGui::Checkbox("Undistorted bundle", &Tool->cameraCalibShowUndistortedBundled)) {
-					std::cout << "Undistorted: " << Tool->cameraCalibShowUndistortedBundled << "\n";
 				}
 			}
 
@@ -1207,13 +1158,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 						Tool->cameraCalibSelectedSample = n;
 						ldiImage* calibImg = Tool->cameraCalibSamples[n].image;
 
-						if (Tool->cameraCalibShowUndistortedBundled) {
-							cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
-							cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
-							cv::undistort(image, outputImage, calibContext->bundleAdjustResult.cameraMatrix, calibContext->bundleAdjustResult.distCoeffs);
-
-							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { calibImg->width, calibImg->height, outputImage.data });
-						} else if (Tool->cameraCalibShowUndistorted) {
+						if (Tool->cameraCalibShowUndistorted) {
 							cv::Mat image(cv::Size(calibImg->width, calibImg->height), CV_8UC1, calibImg->data);
 							cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
 							cv::undistort(image, outputImage, Tool->cameraCalibMatrix, Tool->cameraCalibDist);
@@ -1235,36 +1180,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
-			if (ImGui::Button("Bundle adjust##volcal")) {
-				computerVisionBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			if (ImGui::Button("Load bundle adjust##volcal")) {
-				computerVisionLoadBundleAdjustStereo(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			ImGui::Separator();
-
-			if (ImGui::Button("Bundle adjust individual")) {
-				computerVisionBundleAdjustStereoIndividual(&Tool->appContext->calibrationContext->calibJob);
-			}
-		
-			if (ImGui::Button("Bundle adjust individual load")) {
-				computerVisionBundleAdjustStereoIndividualLoad(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			ImGui::Separator();
-
-			if (ImGui::Button("Bundle adjust both")) {
-				computerVisionBundleAdjustStereoBoth(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			if (ImGui::Button("Bundle adjust both load")) {
-				computerVisionBundleAdjustStereoBothLoad(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			ImGui::Separator();
-			if (ImGui::Button("Generate initial output")) {
+			if (ImGui::Button("Generate full BA")) {
 				calibSaveInitialOutput(&Tool->appContext->calibrationContext->calibJob);
 			}
 
@@ -1465,34 +1381,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 					draw_list->AddCircle(offset, 2.0f, ImColor(2, 117, 247));
-				}
-			}
-
-			for (size_t iterSamples = 0; iterSamples < calibContext->bundleAdjustResult.samples.size(); ++iterSamples) {
-				ldiCameraCalibSample* sample = &calibContext->bundleAdjustResult.samples[iterSamples];
-
-				if (Tool->cameraCalibSelectedSample != iterSamples) {
-					continue;
-				}
-
-				for (size_t iterPoints = 0; iterPoints < sample->undistortedImagePoints.size(); ++iterPoints) {
-					cv::Point2f o = sample->undistortedImagePoints[iterPoints];
-
-					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
-					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
-
-					draw_list->AddCircle(offset, 2.0f, ImColor(100, 255, 0));
-				}
-
-				for (size_t iterPoints = 0; iterPoints < sample->reprojectedImagePoints.size(); ++iterPoints) {
-					cv::Point2f o = sample->reprojectedImagePoints[iterPoints];
-
-					ImVec2 offset = pos;
-					offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
-					offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
-
-					draw_list->AddCircle(offset, 3.0f, ImColor(0, 0, 255));
 				}
 			}
 		}

@@ -188,7 +188,6 @@
     <ClInclude Include="source\threadSafeQueue.h" />
     <ClInclude Include="source\ui.h" />
     <ClInclude Include="source\utilities.h" />
-    <ClInclude Include="source\visionSimulator.h" />
     <ClInclude Include="source\debugPrims.h" />
     <ClInclude Include="source\glm.h" />
     <ClInclude Include="source\graphics.h" />

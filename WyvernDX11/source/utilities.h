@@ -283,3 +283,16 @@ std::string GetMat4DebugString(mat4* Mat) {
 
 	return str.str();
 }
+
+mat4 convertOpenCvTransMatToGlmMat(cv::Mat& TransMat) {
+	// NOTE: Just a transpose.
+	mat4 result = glm::identity<mat4>();
+
+	for (int iY = 0; iY < 3; ++iY) {
+		for (int iX = 0; iX < 4; ++iX) {
+			result[iX][iY] = TransMat.at<double>(iY, iX);
+		}
+	}
+
+	return result;
+}

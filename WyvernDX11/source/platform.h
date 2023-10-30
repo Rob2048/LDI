@@ -1198,72 +1198,12 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	}
 
 	//----------------------------------------------------------------------------------------------------
-	// Cube definition.
+	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
 	if (false) {
-		for (size_t i = 0; i < _cubeWorldPoints.size(); ++i) {
-			pushDebugSphere(&appContext->defaultDebug, _cubeWorldPoints[i].position, 0.02, vec3(1, 0, 0), 8);
-			displayTextAtPoint(Camera, _cubeWorldPoints[i].position, std::to_string(_cubeWorldPoints[i].globalId), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
-		}
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Calibration stuff.
-	//----------------------------------------------------------------------------------------------------
-	{
-		ldiCalibrationContext* calibContext = appContext->calibrationContext;
-		std::vector<vec3>* modelPoints = &calibContext->bundleAdjustResult.modelPoints;
-
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i];
-			pushDebugSphere(&appContext->defaultDebug, point, 0.1, vec3(1, 0, 0), 8);
-
-			displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
-		}
-
-		ldiCalibTargetInfo targetInfo = calibContext->bundleAdjustResult.targetInfo;
-
-		ldiPlane targetPlane = calibContext->bundleAdjustResult.targetInfo.plane;
-		//pushDebugPlane(&appContext->defaultDebug, targetPlane.point, targetPlane.normal, 15, vec3(1, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisX * 10.0f, vec3(1, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisY * 10.0f, vec3(0, 1, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisZ, vec3(0, 0, 1));
-
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisXortho * 10.0f, vec3(0.5, 0, 0));
-		pushDebugLine(&appContext->defaultDebug, targetPlane.point, targetPlane.point + targetInfo.basisYortho * 10.0f, vec3(0, 0.5, 0));
-
-		for (size_t i = 0; i < calibContext->bundleAdjustResult.targetInfo.fits.size(); ++i) {
-			ldiLineSegment line = calibContext->bundleAdjustResult.targetInfo.fits[i];
-
-			pushDebugLine(&appContext->defaultDebug, line.a, line.b, vec3(0.1, 0.1, 0.1));
-		}
-
-		for (size_t i = 0; i < calibContext->bundleAdjustResult.samples.size(); ++i) {
-			ldiCameraCalibSample* sample = &calibContext->bundleAdjustResult.samples[i];
-
-			mat4 invSampleMat = sample->camLocalMat;
-
-			// NOTE: Only difference for these is Z direction.
-
-			invSampleMat[0][0] = invSampleMat[0][0];
-			invSampleMat[0][1] = invSampleMat[0][1];
-			invSampleMat[0][2] = invSampleMat[0][2];
-
-			invSampleMat[1][0] = invSampleMat[1][0];
-			invSampleMat[1][1] = invSampleMat[1][1];
-			invSampleMat[1][2] = invSampleMat[1][2];
-
-			invSampleMat[2][0] = invSampleMat[2][0];
-			invSampleMat[2][1] = invSampleMat[2][1];
-			invSampleMat[2][2] = invSampleMat[2][2];
-
-			invSampleMat[3][0] = invSampleMat[3][0];
-			invSampleMat[3][1] = invSampleMat[3][1];
-			invSampleMat[3][2] = invSampleMat[3][2];
-
-			//invSampleMat = glm::inverse(invSampleMat);
-
-			renderOrigin(appContext, Camera, invSampleMat, std::to_string(i), TextBuffer);
+		for (size_t i = 0; i < _defaultCube.points.size(); ++i) {
+			pushDebugSphere(&appContext->defaultDebug, _defaultCube.points[i], 0.02, vec3(1, 0, 0), 8);
+			displayTextAtPoint(Camera, _defaultCube.points[i], std::to_string(i), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 		}
 	}
 
@@ -1358,22 +1298,6 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 			//	//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
 			//}
-			for (size_t i = 0; i < job->baStereoPairs.size(); ++i) {
-				ldiStereoPair* pair = &job->baStereoPairs[i];
-
-				{
-					ldiTransform boardTransform = {};
-					boardTransform.world = pair->cam0world;
-					renderTransformOrigin(Tool->appContext, Camera, &boardTransform, std::to_string(pair->sampleId), TextBuffer);
-					pushDebugSphere(&appContext->defaultDebug, pair->cam0world[3], 0.1, vec3(1, 0, 0), 8);
-
-					boardTransform.world = pair->cam1world;
-					renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "", TextBuffer);
-					pushDebugSphere(&appContext->defaultDebug, pair->cam1world[3], 0.1, vec3(0, 1, 0), 8);
-				}
-
-				//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
-			}
 
 			/*{
 				ldiTransform boardTransform = {};
@@ -1653,7 +1577,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		if (false) {
 			// Render refined cube.
 			if (false) {
-				ldiCalibCube2* cube = &calibContext->calibJob.opCube;
+				ldiCalibCube* cube = &calibContext->calibJob.opCube;
 				std::vector<vec3>* modelPoints = &cube->points;
 
 				for (size_t i = 0; i < modelPoints->size(); ++i) {

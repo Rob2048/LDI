@@ -158,7 +158,6 @@ def bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, c
 
 	# Relative stereo pose.
 	i = np.where(cam_indices == 1)[0]
-	print(i)
 	for s in range(6):
 		A[2 * i, n_views * 6 + n_points * 3 + 6 + s] = 1
 		A[2 * i + 1, n_views * 6 + n_points * 3 + 6 + s] = 1

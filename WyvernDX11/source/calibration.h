@@ -1,5 +1,23 @@
 #pragma once
 
+// Bundle adjust and non-linear optimization:
+// https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
+
+// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
+// https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
+// https://bitbucket.org/kaess/isam/src/master/examples/stereo.cpp
+// http://people.csail.mit.edu/kaess/isam/
+// https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py
+
+// https://colmap.github.io/tutorial.html
+// https://www.cs.cornell.edu/~snavely/bundler/
+// https://users.ics.forth.gr/~lourakis/sba/
+// https://www.informatik.uni-marburg.de/~thormae/paper/MIRA11_2.pdf
+// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
+// https://pypi.org/project/pyba/
+
+// NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
+
 void calibSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib_space") {
 	char path[1024];
 	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
@@ -591,6 +609,10 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 	Job->stPoseToSampleIds.clear();
 	Job->stCubePoints.clear();
 	Job->stCubeWorlds.clear();
+
+	// NOTE: This cube has NOT been refined, should be done by previous bundle adjust steps.
+	ldiCalibCube refinedCube;
+	calibCubeInit(&refinedCube);
 	
 	//----------------------------------------------------------------------------------------------------
 	// Perform stereo calibration.
@@ -635,7 +657,7 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 				int point1Id = tempGlobalIds[1][pointIter1];
 
 				if (point0Id == point1Id) {
-					appendObjectPoints.push_back(_refinedModelPoints[point0Id]);
+					appendObjectPoints.push_back(toPoint3f(refinedCube.points[point0Id]));
 					appendImagePoints[0].push_back(tempImagePoints[0][pointIter0]);
 					appendImagePoints[1].push_back(tempImagePoints[1][pointIter1]);
 
@@ -717,8 +739,8 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 	Job->refinedCamMat[1] = camMat[1].clone();
 	Job->refinedCamDist[1] = distMat[1].clone();
 
-	for (size_t i = 0; i < _refinedModelPoints.size(); ++i) {
-		Job->stCubePoints.push_back(vec3(_refinedModelPoints[i].x, _refinedModelPoints[i].y, _refinedModelPoints[i].z));
+	for (size_t i = 0; i < refinedCube.points.size(); ++i) {
+		Job->stCubePoints.push_back(refinedCube.points[i]);
 	}
 
 	for (size_t i = 0; i < rvecs.size(); ++i) {
@@ -1114,7 +1136,6 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	// TOOD: This always refers to the 0th sample?
 	vec3 volPos = Job->stCubeWorlds[0][3];
 	//volPos -= samp0;
-	//volPos -= _refinedModelCentroid / 2.0f;
 	std::cout << "Offset from center: " << volPos.x << ", " << volPos.y << ", " << volPos.z << "\n";
 
 	volumeRealign = glm::translate(mat4(1.0f), volPos);
@@ -1396,7 +1417,7 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 	int totalImagePointCount = 0;
 
-	ldiCalibCube2 initialCube;
+	ldiCalibCube initialCube;
 	calibCubeInit(&initialCube);
 
 	// Find a pose for each calibration sample.

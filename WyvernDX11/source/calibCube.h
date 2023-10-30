@@ -6,7 +6,7 @@ struct ldiCalibCubeSide {
 	ldiPlane plane;
 };
 
-struct ldiCalibCube2 {
+struct ldiCalibCube {
 	float cellSize;
 	int gridSize;
 	int pointsPerSide;
@@ -20,7 +20,7 @@ struct ldiCalibCube2 {
 	vec3 corners[8];
 };
 
-bool calibCubeCalculateMetrics(ldiCalibCube2* Cube) {
+bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 	//----------------------------------------------------------------------------------------------------
 	// Centroid.
 	//----------------------------------------------------------------------------------------------------
@@ -166,7 +166,7 @@ bool calibCubeCalculateMetrics(ldiCalibCube2* Cube) {
 }
 
 // Generate default cube points.
-void calibCubeInit(ldiCalibCube2* Cube) {
+void calibCubeInit(ldiCalibCube* Cube) {
 	Cube->gridSize = 3;
 	Cube->cellSize = 0.9f;
 	Cube->pointsPerSide = Cube->gridSize * Cube->gridSize;

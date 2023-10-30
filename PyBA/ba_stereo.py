@@ -1,4 +1,4 @@
-# https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
+# Inspired by https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
 
 from __future__ import print_function
 
@@ -13,9 +13,8 @@ import cv2
 #------------------------------------------------------------------------------------------------------------------------
 # Read input file.
 #------------------------------------------------------------------------------------------------------------------------
-def read_bal_data():
-	# with open("test-problem.txt", "r") as file:
-	with open("ba_test.txt", "r") as file:
+def read_input():
+	with open("ba_input.txt", "r") as file:
 		n_views, n_points, n_observations = map(int, file.readline().split())
 
 		relative_pose = np.empty(6)
@@ -36,8 +35,11 @@ def read_bal_data():
 			points_2d[i] = [float(x), float(y)]
 
 		view_params = np.empty(n_views * 6)
+		view_sample_inds = np.empty(n_views, dtype=int)
 		for v in range(n_views):
 			view_data = file.readline().split()
+			
+			view_sample_inds[v] = int(view_data[0])
 			
 			for i in range(6):
 				view_params[v * 6 + i] = float(view_data[i + 1])
@@ -52,9 +54,9 @@ def read_bal_data():
 
 		points_3d = points_3d.reshape((n_points, -1))
 
-	return relative_pose, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d
+	return relative_pose, view_sample_inds, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d
 
-# Rotate points by given rotation vectors.
+# Rotate points by given Rodrigues rotation vectors.
 def rotate(points, rot_vecs):
 	theta = np.linalg.norm(rot_vecs, axis=1)[:, np.newaxis]
 	
@@ -68,37 +70,7 @@ def rotate(points, rot_vecs):
 
 	return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
 
-# Rotate single point.
-def rotate_single(points, rot_vecs):
-	theta = np.linalg.norm(rot_vecs)
-
-	with np.errstate(invalid='ignore'):
-		v = rot_vecs / theta
-		v = np.nan_to_num(v)
-
-	dot = np.sum(points * v)
-	cos_theta = np.cos(theta)
-	sin_theta = np.sin(theta)
-
-	return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
-
-# Project 3D points to 2D image.
-def project(points, view_params, cam_intrins):
-	points_proj = rotate(points, view_params[:, :3])
-	points_proj += view_params[:, 3:6]
-	points_proj = -points_proj[:, :2] / points_proj[:, 2, np.newaxis]
-	
-	f = cam_intrins[:, 0]	
-	k1 = cam_intrins[:, 1]
-	k2 = cam_intrins[:, 2]
-
-	n = np.sum(points_proj**2, axis=1)
-	r = 1 + k1 * n + k2 * n**2
-
-	points_proj *= (r * f)[:, np.newaxis]
-
-	return points_proj
-
+# Convert a Rodrigues rotation vector and a translation vector to a 4x4 transformation matrix.
 def buildMatFromVecs(rvec, tvec):
 	r, _ = cv2.Rodrigues(rvec)
 
@@ -122,83 +94,8 @@ def buildMatFromVecs(rvec, tvec):
 	
 	return world_mat
 
-def projectRelative(points, view0_params, view_params, cam_intrins):
-	# points_proj = np.empty([points.shape[0], 2])
-
-	# # iterate through each point and project it to the view0 camera
-	# for i in range(points.shape[0]):
-	# 	cam0_view = view0_params[i, :3]
-	# 	cam0_pos = view0_params[i, 3:6]
-
-	# 	cam1_view = view_params[i, :3]
-	# 	cam1_pos = view_params[i, 3:6]
-
-	# 	cam0Mat = buildMatFromVecs(cam0_view, cam0_pos)
-	# 	diffMat = buildMatFromVecs(cam1_view, cam1_pos)
-	# 	print(cam0Mat)
-
-	# 	# cv2.composeRT(cam0_view, cam0_pos, cam1_view, cam1_pos, cam1_view, cam1_pos)
-
-	# 	cam1Mat = np.matmul(cam0Mat, diffMat)
-
-	# 	print("Cam1 Mat")
-	# 	print(cam1Mat)
-
-	# 	point_proj = np.matmul(np.hstack((points[i], 1.0)), cam1Mat)
-
-	# 	print(point_proj)
-
-	# 	point = points[i]
-
-	# 	point_proj = rotate_single(point, cam0_view)
-	# 	point_proj += cam0_pos
-
-	# 	point_proj = rotate_single(point_proj, cam1_view)
-	# 	point_proj += cam1_pos
-
-	# 	# point_proj = rotate_single(point, cam1_view)
-	# 	# point_proj += cam1_pos
-
-	# 	point_proj = -point_proj[:2] / point_proj[2]
-
-	# 	f = cam_intrins[i, 0]
-	# 	k1 = cam_intrins[i, 1]
-	# 	k2 = cam_intrins[i, 2]
-
-	# 	n = np.sum(point_proj**2)
-	# 	r = 1 + k1 * n + k2 * n**2
-
-	# 	point_proj *= r * f
-	# 	# point_proj += [1000, 0]
-	# 	points_proj[i] = point_proj
-
-	points_proj = rotate(points, view0_params[:, :3])
-	points_proj += view0_params[:, 3:6]
-
-	vp_inds = np.repeat(0, view_params.shape[0])
-
-	# Ewww.
-	vp_batch = np.tile(view_params[0, :3], view_params.shape[0]).reshape(view_params.shape[0], 3)
-
-	# points_proj = rotate(points_proj, view_params[vp_inds, :3])
-	points_proj = rotate(points_proj, vp_batch)
-	points_proj += view_params[vp_inds, 3:6]
-
-	points_proj = -points_proj[:, :2] / points_proj[:, 2, np.newaxis]
-	
-	f = cam_intrins[:, 0]	
-	k1 = cam_intrins[:, 1]
-	k2 = cam_intrins[:, 2]
-
-	n = np.sum(points_proj**2, axis=1)
-	r = 1 + k1 * n + k2 * n**2
-
-	points_proj *= (r * f)[:, np.newaxis]
-
-	return points_proj
-
 # Project 3D points to 2D image.
-def project2(points, view_params, cam_intrins, relative_params):
+def project(points, view_params, cam_intrins, relative_params):
 	base_pose_r = view_params[:, :3]
 	base_pose_t = view_params[:, 3:6]
 
@@ -233,7 +130,7 @@ def fun(params, n_views, n_points, cam_indices, view_indices, point_indices, poi
 	rel_pose = params[n_views * 6 + n_points * 3 + 6:n_views * 6 + n_points * 3 + 6 + 6]
 	relative_params = np.array([[0, 0, 0, 0, 0, 0], rel_pose])
 	
-	points_proj = project2(points_3d[point_indices], view_params[view_indices], cam_intrins[cam_indices], relative_params[cam_indices])
+	points_proj = project(points_3d[point_indices], view_params[view_indices], cam_intrins[cam_indices], relative_params[cam_indices])
 
 	return (points_proj - points_2d).ravel()
 
@@ -244,7 +141,7 @@ def bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, c
 
 	i = np.arange(view_indices.size)
 
-	# Poses.
+	# Base poses.
 	for s in range(6):
 		A[2 * i, view_indices * 6 + s] = 1
 		A[2 * i + 1, view_indices * 6 + s] = 1
@@ -259,9 +156,8 @@ def bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, c
 		A[2 * i, n_views * 6 + n_points * 3 + cam_indices * 3 + s] = 1
 		A[2 * i + 1, n_views * 6 + n_points * 3 + cam_indices * 3 + s] = 1
 
-	# Relative pose.
+	# Relative stereo pose.
 	i = np.where(cam_indices == 1)[0]
-	print(i)
 	for s in range(6):
 		A[2 * i, n_views * 6 + n_points * 3 + 6 + s] = 1
 		A[2 * i + 1, n_views * 6 + n_points * 3 + 6 + s] = 1
@@ -271,9 +167,12 @@ def bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, c
 #------------------------------------------------------------------------------------------------------------------------
 # Main.
 #------------------------------------------------------------------------------------------------------------------------
+# Disable scientific notation for clarity.
 np.set_printoptions(suppress = True)
 
-relative_pose, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d = read_bal_data()
+show_debug_plots = True
+
+relative_pose, view_sample_inds, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d = read_input()
 
 n_views = view_params.shape[0]
 n_points = points_3d.shape[0]
@@ -286,131 +185,132 @@ print("(3D points) n_points: {}".format(n_points))
 print("Observations: {}".format(points_2d.shape[0]))
 
 x0 = np.hstack((view_params.ravel(), points_3d.ravel(), cam_intrinsics.ravel(), relative_pose))
-# x0 = np.hstack((view_params.ravel(), points_3d.ravel(), cam_intrinsics.ravel()))
 f0 = fun(x0, n_views, n_points, cam_indices, view_indices, point_indices, points_2d)
 A = bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, cam_indices)
 
-# Print Jacobian sparsity pattern.
-plt.figure()
-plt.spy(A, markersize=1, aspect='auto')
-plt.show()
+#------------------------------------------------------------------------------------------------------------------------
+# Plot initial points and cameras.
+#------------------------------------------------------------------------------------------------------------------------
+if show_debug_plots:
+	# Print Jacobian sparsity pattern.
+	plt.figure()
+	plt.spy(A, markersize=1, aspect='auto')
+	plt.show()
 
-# plt.plot(f0)
-# plt.show()
+	cam_0_indices = np.where(cam_indices == 0)[0]
+	cam_1_indices = np.where(cam_indices == 1)[0]
 
-# exit()
+	point_indices_0 = point_indices[cam_0_indices]
+	view_indices_0 = view_indices[cam_0_indices]
+	cam_indices_0 = cam_indices[cam_0_indices]
 
-cam_0_indices = np.where(cam_indices == 0)[0]
-cam_1_indices = np.where(cam_indices == 1)[0]
+	point_indices_1 = point_indices[cam_1_indices]
+	view_indices_1 = view_indices[cam_1_indices]
+	cam_indices_1 = cam_indices[cam_1_indices]
 
-point_indices_0 = point_indices[cam_0_indices]
-view_indices_0 = view_indices[cam_0_indices]
-cam_indices_0 = cam_indices[cam_0_indices]
+	cam_0_proj_points = project(points_3d[point_indices_0], view_params[view_indices_0], cam_intrinsics[cam_indices_0], relative_params[cam_indices_0])
+	cam_1_proj_points = project(points_3d[point_indices_1], view_params[view_indices_1], cam_intrinsics[cam_indices_1], relative_params[cam_indices_1])
+	cam_proj_points = project(points_3d[point_indices], view_params[view_indices], cam_intrinsics[cam_indices], relative_params[cam_indices])
 
-point_indices_1 = point_indices[cam_1_indices]
-view_indices_1 = view_indices[cam_1_indices]
-cam_indices_1 = cam_indices[cam_1_indices]
+	plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=1)
+	# plt.plot(cam_proj_points[:,0], cam_proj_points[:,1], 'ro', markersize=1)
+	plt.plot(cam_0_proj_points[:,0], cam_0_proj_points[:,1], 'ro', markersize=1)
+	plt.plot(cam_1_proj_points[:,0], cam_1_proj_points[:,1], 'go', markersize=1)
 
-cam_0_proj_points = project2(points_3d[point_indices_0], view_params[view_indices_0], cam_intrinsics[cam_indices_0], relative_params[cam_indices_0])
-cam_1_proj_points = project2(points_3d[point_indices_1], view_params[view_indices_1], cam_intrinsics[cam_indices_1], relative_params[cam_indices_1])
-cam_proj_points = project2(points_3d[point_indices], view_params[view_indices], cam_intrinsics[cam_indices], relative_params[cam_indices])
+	plt.xlim([-1640, 1640])
+	plt.ylim([-1232, 1232])
+	plt.show()
 
-# offset_view_indices = view_indices_1 - 1
-# cam_1_proj_points = projectRelative(points_3d[point_indices_1], view_params[offset_view_indices], view_params[view_indices_1], cam_intrinsics[cam_indices_1])
-
-plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=1)
-plt.plot(cam_proj_points[:,0], cam_proj_points[:,1], 'ro', markersize=1)
-# plt.plot(points_2d[cam_1_indices,0], points_2d[cam_1_indices,1], 'bo', markersize=1)
-# plt.plot(cam_0_proj_points[:,0], cam_0_proj_points[:,1], 'ro', markersize=1)
-# plt.plot(cam_1_proj_points[:,0], cam_1_proj_points[:,1], 'ro', markersize=1)
-# plt.plot(points_2d[cam_1_indices,0], points_2d[cam_1_indices,1], 'bo', markersize=1)
-# plt.plot(cam_1_proj_points[:,0], cam_1_proj_points[:,1], 'ro', markersize=1)
-
-# Plot direction of each camera
-# for i in range(n_stereo_poses):
-# 	# print(view_params[i * 2, 3:6])
-# 	# print(view_params[i * 2 + 1, 3:6])
-# 	# print()
-# 	plt.plot([view_params[i * 2, 3], view_params[i * 2 + 1, 3]], [view_params[i * 2, 4], view_params[i * 2 + 1, 4]], 'g-')
-
-plt.xlim([-1640, 1640])
-plt.ylim([-1232, 1232])
-plt.show()
-
-cam_0_exts = view_params[:]
-
-# rel_points = rotate(np.tile(relative_params[1, 3:6], view_params.shape[0]).reshape(view_params.shape[0], 3), view_params[:, :3])
-rel_points = rotate(relative_params[1, 3:6].reshape(1, 3), -relative_params[1, :3].reshape(1, 3))
-
-# rel_points = rotate(view_params[:, 3:6].reshape(view_params.shape[0], 3), view_params[:, :3].reshape(view_params.shape[0], 3))
-
-cam_1_exts = cam_0_exts[:, 3:6] +  rel_points
-
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.scatter(cam_0_exts[:, 3], cam_0_exts[:, 4], cam_0_exts[:, 5], c='b', marker='o')
-ax.scatter(cam_1_exts[:, 0], cam_1_exts[:, 1], cam_1_exts[:, 2], c='r', marker='o')
-# ax.scatter(view_params_1[:, 3], view_params_1[:, 4], view_params_1[:, 5], c='r', marker='o')
-ax.set_aspect('equal')
-plt.show()
+	# Original base pose guess.
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	ax.scatter(view_params[:, 3], view_params[:, 4], view_params[:, 5], c='b', marker='o')
+	ax.set_aspect('equal')
+	plt.show()
 
 #------------------------------------------------------------------------------------------------------------------------
 # Optimize.
 #------------------------------------------------------------------------------------------------------------------------
 t0 = time.time()
-# max_nfev=30
 res = least_squares(fun, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-8, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
+# res = least_squares(fun, x0, jac_sparsity=A, verbose=2, max_nfev=400, xtol=1e-10, loss='soft_l1', f_scale=0.1, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
+# least_squares(fun, x0, verbose=2, method ='trf', xtol=1e-10,
+#                            loss='soft_l1', f_scale=0.1,
+#                            args=(obj_pts, left_pts, right_pts))
 t1 = time.time()
 
 #------------------------------------------------------------------------------------------------------------------------
 # Print results.
 #------------------------------------------------------------------------------------------------------------------------
-print("Optimization took {0:.0f} seconds".format(t1 - t0))
+print("Optimization took {0:.3f} seconds".format(t1 - t0))
 
 # Calculate reprojection error.
 f0 = fun(x0, n_views, n_points, cam_indices, view_indices, point_indices, points_2d)
 f1 = fun(res.x, n_views, n_points, cam_indices, view_indices, point_indices, points_2d)
 
+# Gather optimized parameters.
 view_params_optimized = res.x[:n_views * 6].reshape((n_views, 6))
 points_3d_optimized = res.x[n_views * 6:n_views * 6 + n_points * 3].reshape((n_points, 3))
 cam_intrinsics_optimized = res.x[n_views * 6 + n_points * 3:n_views * 6 + n_points * 3 + 6].reshape((2, 3))
 relative_pose_optimized = res.x[n_views * 6 + n_points * 3 + 6:n_views * 6 + n_points * 3 + 6 + 6]
 relative_params_optimized = np.array([[0, 0, 0, 0, 0, 0], relative_pose_optimized])
 
-points_p = project2(points_3d_optimized[point_indices], view_params_optimized[view_indices], cam_intrinsics_optimized[cam_indices], relative_params_optimized[cam_indices])
-
 print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 print("Final RMSE: {}".format(np.sqrt(np.mean(f1**2))))
 print("Initial intrinsics: {}".format(cam_intrinsics))
 print("Final intrinsics: {}".format(cam_intrinsics_optimized))
+print("Initial intrinsics: {}".format(relative_pose))
+print("Final intrinsics: {}".format(relative_pose_optimized))
 
-# Plot residuals.
-plt.plot(f0, 'bo', markersize=2)
-plt.plot(f1, 'ro', markersize=2)
-plt.show()
+if show_debug_plots:
+	# Plot residuals.
+	plt.plot(f0, 'bo', markersize=2)
+	plt.plot(f1, 'ro', markersize=2)
+	plt.show()
 
-# Plot reprojection with optimized params.
-plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=2)
-plt.plot(points_p[:,0], points_p[:,1], 'ro', markersize=2)
-plt.show()
+	# Plot reprojection with optimized params.
+	cam_0_indices = np.where(cam_indices == 0)[0]
+	point_indices_0 = point_indices[cam_0_indices]
+	view_indices_0 = view_indices[cam_0_indices]
+	cam_indices_0 = cam_indices[cam_0_indices]
 
-# Plot 3D points after optimization.
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.scatter(points_3d[:, 0], points_3d[:, 1], points_3d[:, 2], c='b', marker='o')
-ax.scatter(points_3d_optimized[:, 0], points_3d_optimized[:, 1], points_3d_optimized[:, 2], c='r', marker='o')
-ax.set_aspect('equal')
-plt.show()
+	# points_p = project(points_3d_optimized[point_indices], view_params_optimized[view_indices], cam_intrinsics_optimized[cam_indices], relative_params_optimized[cam_indices])
+	points_p = project(points_3d_optimized[point_indices_0], view_params_optimized[view_indices_0], cam_intrinsics_optimized[cam_indices_0], relative_params_optimized[cam_indices_0])
 
-# Plot optimized points and cameras.
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.scatter(view_params[:, 3], view_params[:, 4], view_params[:, 5], c='b', marker='o')
-ax.scatter(view_params_optimized[:, 3], view_params_optimized[:, 4], view_params_optimized[:, 5], c='r', marker='o')
-ax.set_aspect('equal')
-plt.show()
+	plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=2)
+	plt.plot(points_p[:,0], points_p[:,1], 'ro', markersize=2)
+	plt.show()
 
+	# Plot 3D points after optimization.
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	ax.scatter(points_3d[:, 0], points_3d[:, 1], points_3d[:, 2], c='b', marker='o')
+	ax.scatter(points_3d_optimized[:, 0], points_3d_optimized[:, 1], points_3d_optimized[:, 2], c='r', marker='o')
+	ax.set_aspect('equal')
+	plt.show()
 
+	# Plot optimized points and cameras.
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	# ax.scatter(view_params[:, 3], view_params[:, 4], view_params[:, 5], c='b', marker='o')
+	ax.scatter(view_params_optimized[:, 3], view_params_optimized[:, 4], view_params_optimized[:, 5], c='r', marker='o')
+	ax.set_aspect('equal')
+	plt.show()
 
+#------------------------------------------------------------------------------------------------------------------------
+# Save results.
+#------------------------------------------------------------------------------------------------------------------------
+with open("ba_result.txt", "w") as file:
+	file.write("{} {}\n".format(n_views, n_points))
 
+	# camera intrinsics
+	for i in range(2):
+		file.write("{} {} {} {}\n".format(i, cam_intrinsics_optimized[i, 0], cam_intrinsics_optimized[i, 1], cam_intrinsics_optimized[i, 2]))
 
+	file.write("{} {} {} {} {} {}\n".format(relative_pose_optimized[0], relative_pose_optimized[1], relative_pose_optimized[2], relative_pose_optimized[3], relative_pose_optimized[4], relative_pose_optimized[5]))
+
+	for i in range(n_views):
+		file.write("{} {} {} {} {} {} {}\n".format(view_sample_inds[i], view_params_optimized[i, 0], view_params_optimized[i, 1], view_params_optimized[i, 2], view_params_optimized[i, 3], view_params_optimized[i, 4], view_params_optimized[i, 5]))
+
+	for i in range(n_points):
+		file.write("{} {} {} {}\n".format(i, points_3d_optimized[i, 0], points_3d_optimized[i, 1], points_3d_optimized[i, 2]))
