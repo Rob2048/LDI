@@ -307,6 +307,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Wi
 	ldiCalibrationJob* job = &calibContext->calibJob;
 
 	mat4 camWorldMat = job->camVolumeMat[HawkId];
+	//mat4 camWorldMat = job->opInitialCamWorld[HawkId];
 
 	{
 		vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
@@ -1264,7 +1265,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			ImGui::Separator();
 			if (ImGui::Button("Generate initial output")) {
-				calibGetInitialOutput(&Tool->appContext->calibrationContext->calibJob);
+				calibSaveInitialOutput(&Tool->appContext->calibrationContext->calibJob);
 			}
 
 			if (ImGui::Button("Load full BA")) {

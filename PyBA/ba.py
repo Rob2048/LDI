@@ -95,7 +95,7 @@ def buildMatFromVecs(rvec, tvec):
 	return world_mat
 
 # Project 3D points to 2D image.
-def project2(points, view_params, cam_intrins, relative_params):
+def project(points, view_params, cam_intrins, relative_params):
 	base_pose_r = view_params[:, :3]
 	base_pose_t = view_params[:, 3:6]
 
@@ -130,7 +130,7 @@ def fun(params, n_views, n_points, cam_indices, view_indices, point_indices, poi
 	rel_pose = params[n_views * 6 + n_points * 3 + 6:n_views * 6 + n_points * 3 + 6 + 6]
 	relative_params = np.array([[0, 0, 0, 0, 0, 0], rel_pose])
 	
-	points_proj = project2(points_3d[point_indices], view_params[view_indices], cam_intrins[cam_indices], relative_params[cam_indices])
+	points_proj = project(points_3d[point_indices], view_params[view_indices], cam_intrins[cam_indices], relative_params[cam_indices])
 
 	return (points_proj - points_2d).ravel()
 
@@ -171,7 +171,7 @@ def bundle_adjustment_sparsity(n_views, n_points, view_indices, point_indices, c
 # Disable scientific notation for clarity.
 np.set_printoptions(suppress = True)
 
-show_debug_plots = False
+show_debug_plots = True
 
 relative_pose, view_sample_inds, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d = read_input()
 
@@ -198,22 +198,21 @@ if show_debug_plots:
 	plt.spy(A, markersize=1, aspect='auto')
 	plt.show()
 
-cam_0_indices = np.where(cam_indices == 0)[0]
-cam_1_indices = np.where(cam_indices == 1)[0]
+	cam_0_indices = np.where(cam_indices == 0)[0]
+	cam_1_indices = np.where(cam_indices == 1)[0]
 
-point_indices_0 = point_indices[cam_0_indices]
-view_indices_0 = view_indices[cam_0_indices]
-cam_indices_0 = cam_indices[cam_0_indices]
+	point_indices_0 = point_indices[cam_0_indices]
+	view_indices_0 = view_indices[cam_0_indices]
+	cam_indices_0 = cam_indices[cam_0_indices]
 
-point_indices_1 = point_indices[cam_1_indices]
-view_indices_1 = view_indices[cam_1_indices]
-cam_indices_1 = cam_indices[cam_1_indices]
+	point_indices_1 = point_indices[cam_1_indices]
+	view_indices_1 = view_indices[cam_1_indices]
+	cam_indices_1 = cam_indices[cam_1_indices]
 
-cam_0_proj_points = project2(points_3d[point_indices_0], view_params[view_indices_0], cam_intrinsics[cam_indices_0], relative_params[cam_indices_0])
-cam_1_proj_points = project2(points_3d[point_indices_1], view_params[view_indices_1], cam_intrinsics[cam_indices_1], relative_params[cam_indices_1])
-cam_proj_points = project2(points_3d[point_indices], view_params[view_indices], cam_intrinsics[cam_indices], relative_params[cam_indices])
+	cam_0_proj_points = project(points_3d[point_indices_0], view_params[view_indices_0], cam_intrinsics[cam_indices_0], relative_params[cam_indices_0])
+	cam_1_proj_points = project(points_3d[point_indices_1], view_params[view_indices_1], cam_intrinsics[cam_indices_1], relative_params[cam_indices_1])
+	cam_proj_points = project(points_3d[point_indices], view_params[view_indices], cam_intrinsics[cam_indices], relative_params[cam_indices])
 
-if show_debug_plots:
 	plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=1)
 	# plt.plot(cam_proj_points[:,0], cam_proj_points[:,1], 'ro', markersize=1)
 	plt.plot(cam_0_proj_points[:,0], cam_0_proj_points[:,1], 'ro', markersize=1)
@@ -235,24 +234,27 @@ if show_debug_plots:
 #------------------------------------------------------------------------------------------------------------------------
 t0 = time.time()
 res = least_squares(fun, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-8, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
+# res = least_squares(fun, x0, jac_sparsity=A, verbose=2, max_nfev=400, xtol=1e-10, loss='soft_l1', f_scale=0.1, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
+# least_squares(fun, x0, verbose=2, method ='trf', xtol=1e-10,
+#                            loss='soft_l1', f_scale=0.1,
+#                            args=(obj_pts, left_pts, right_pts))
 t1 = time.time()
 
 #------------------------------------------------------------------------------------------------------------------------
 # Print results.
 #------------------------------------------------------------------------------------------------------------------------
-print("Optimization took {0:.0f} seconds".format(t1 - t0))
+print("Optimization took {0:.3f} seconds".format(t1 - t0))
 
 # Calculate reprojection error.
 f0 = fun(x0, n_views, n_points, cam_indices, view_indices, point_indices, points_2d)
 f1 = fun(res.x, n_views, n_points, cam_indices, view_indices, point_indices, points_2d)
 
+# Gather optimized parameters.
 view_params_optimized = res.x[:n_views * 6].reshape((n_views, 6))
 points_3d_optimized = res.x[n_views * 6:n_views * 6 + n_points * 3].reshape((n_points, 3))
 cam_intrinsics_optimized = res.x[n_views * 6 + n_points * 3:n_views * 6 + n_points * 3 + 6].reshape((2, 3))
 relative_pose_optimized = res.x[n_views * 6 + n_points * 3 + 6:n_views * 6 + n_points * 3 + 6 + 6]
 relative_params_optimized = np.array([[0, 0, 0, 0, 0, 0], relative_pose_optimized])
-
-points_p = project2(points_3d_optimized[point_indices], view_params_optimized[view_indices], cam_intrinsics_optimized[cam_indices], relative_params_optimized[cam_indices])
 
 print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 print("Final RMSE: {}".format(np.sqrt(np.mean(f1**2))))
@@ -268,6 +270,14 @@ if show_debug_plots:
 	plt.show()
 
 	# Plot reprojection with optimized params.
+	cam_0_indices = np.where(cam_indices == 0)[0]
+	point_indices_0 = point_indices[cam_0_indices]
+	view_indices_0 = view_indices[cam_0_indices]
+	cam_indices_0 = cam_indices[cam_0_indices]
+
+	# points_p = project(points_3d_optimized[point_indices], view_params_optimized[view_indices], cam_intrinsics_optimized[cam_indices], relative_params_optimized[cam_indices])
+	points_p = project(points_3d_optimized[point_indices_0], view_params_optimized[view_indices_0], cam_intrinsics_optimized[cam_indices_0], relative_params_optimized[cam_indices_0])
+
 	plt.plot(points_2d[:,0], points_2d[:,1], 'bo', markersize=2)
 	plt.plot(points_p[:,0], points_p[:,1], 'ro', markersize=2)
 	plt.show()

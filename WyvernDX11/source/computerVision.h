@@ -2,6 +2,10 @@
 
 #include <fstream>
 
+void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
+
+#include "calibCube.h"
+
 // Things to investigate:
 // https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
 
@@ -134,6 +138,8 @@ struct ldiCalibrationJob {
 	std::vector<mat4> stCubeWorlds;
 	mat4 stStereoCamWorld[2];
 
+	ldiCalibCube2 opCube;
+
 	//----------------------------------------------------------------------------------------------------
 	// Calib volume metrics.
 	//----------------------------------------------------------------------------------------------------
@@ -240,12 +246,6 @@ struct ldiCalibrationContext {
 	ldiCalibrationJob calibJob;
 };
 
-struct ldiCalibCubeSide {
-	int id;
-	vec3 corners[4];
-	ldiPlane plane;
-};
-
 auto _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
 std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
 
@@ -260,8 +260,6 @@ std::vector<cv::Point3f> _refinedModelPoints;
 vec3 _refinedModelCentroid;
 std::vector<ldiCalibCubeSide> _refinedModelSides;
 vec3 _refinedModelCorners[8];
-
-void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
 
 void initCubePoints() {
 	_cubeWorldPoints.clear();

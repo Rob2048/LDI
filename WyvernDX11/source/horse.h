@@ -142,22 +142,22 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	mat4 zeroTransform = Job->cubeWorlds[0];
 
 	// Transform points.
-	Points.resize(_refinedModelPoints.size(), vec3(0.0f, 0.0f, 0.0f));
-	for (size_t i = 0; i < _refinedModelPoints.size(); ++i) {
+	Points.resize(Job->opCube.points.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < Job->opCube.points.size(); ++i) {
 		if (i >= 18 && i <= 26) {
 			continue;
 		}
 
-		Points[i] = (axisCMat * zeroTransform) * vec4(toVec3(_refinedModelPoints[i]), 1.0f);
+		Points[i] = (axisCMat * zeroTransform) * vec4(Job->opCube.points[i], 1.0f);
 		Points[i] += mechTrans;
 	}
 
 	// Transform sides.
-	Sides.resize(_refinedModelSides.size(), {});
-	for (size_t i = 0; i < _refinedModelSides.size(); ++i) {
-		Sides[i].id = _refinedModelSides[i].id;
+	Sides.resize(Job->opCube.sides.size(), {});
+	for (size_t i = 0; i < Job->opCube.sides.size(); ++i) {
+		Sides[i].id = Job->opCube.sides[i].id;
 
-		ldiPlane plane = _refinedModelSides[i].plane;
+		ldiPlane plane = Job->opCube.sides[i].plane;
 
 		plane.point = zeroTransform * vec4(plane.point, 1.0f);
 		plane.point = axisCMat * vec4(plane.point, 1.0f);
@@ -169,7 +169,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 		Sides[i].plane = plane;
 
 		for (int c = 0; c < 4; ++c) {
-			vec3 transCorner = zeroTransform * vec4(_refinedModelSides[i].corners[c], 1.0f);
+			vec3 transCorner = zeroTransform * vec4(Job->opCube.sides[i].corners[c], 1.0f);
 			transCorner = axisCMat * vec4(transCorner, 1.0f);
 			transCorner += mechTrans;
 
@@ -180,7 +180,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	// Transform corners.
 	Corners.resize(8, vec3(0.0f, 0.0f, 0.0f));
 	for (int i = 0; i < 8; ++i) {
-		Corners[i] = zeroTransform * vec4(_refinedModelCorners[i], 1.0f);
+		Corners[i] = zeroTransform * vec4(Job->opCube.corners[i], 1.0f);
 		Corners[i] = axisCMat * vec4(Corners[i], 1.0f);
 		Corners[i] += mechTrans;
 	}

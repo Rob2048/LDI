@@ -164,5 +164,8 @@
     <ClInclude Include="source\circleFit.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\calibCube.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

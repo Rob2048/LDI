@@ -1200,7 +1200,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Cube definition.
 	//----------------------------------------------------------------------------------------------------
-	if (true) {
+	if (false) {
 		for (size_t i = 0; i < _cubeWorldPoints.size(); ++i) {
 			pushDebugSphere(&appContext->defaultDebug, _cubeWorldPoints[i].position, 0.02, vec3(1, 0, 0), 8);
 			displayTextAtPoint(Camera, _cubeWorldPoints[i].position, std::to_string(_cubeWorldPoints[i].globalId), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
@@ -1645,6 +1645,82 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					pushDebugLine(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.origin + job->axisACircle.normal * 10.0f, vec3(1, 0, 1));
 				}
 			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Optimization results.
+		//----------------------------------------------------------------------------------------------------
+		if (false) {
+			// Render refined cube.
+			if (false) {
+				ldiCalibCube2* cube = &calibContext->calibJob.opCube;
+				std::vector<vec3>* modelPoints = &cube->points;
+
+				for (size_t i = 0; i < modelPoints->size(); ++i) {
+					vec3 point = (*modelPoints)[i];
+
+					pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
+					displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+				}
+
+				{
+					for (size_t i = 0; i < cube->sides.size(); ++i) {
+						const vec3 sideCol[6] = {
+							vec3(1, 0, 0),
+							vec3(0, 1, 0),
+							vec3(0, 0, 1),
+							vec3(1, 1, 0),
+							vec3(1, 0, 1),
+							vec3(0, 1, 1),
+						};
+
+						pushDebugTri(&appContext->defaultDebug, cube->sides[i].corners[0], cube->sides[i].corners[1], cube->sides[i].corners[2], sideCol[i] * 0.5f);
+						pushDebugTri(&appContext->defaultDebug, cube->sides[i].corners[2], cube->sides[i].corners[3], cube->sides[i].corners[0], sideCol[i] * 0.5f);
+					}
+				}
+
+				for (int i = 0; i < 8; ++i) {
+					pushDebugSphere(&appContext->defaultDebug, cube->corners[i], 0.001, vec3(0, 1, 1), 8);
+					displayTextAtPoint(Camera, cube->corners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+				}
+
+				for (int i = 0; i < 6; ++i) {
+					pushDebugPlane(&appContext->defaultDebug, cube->sides[i].plane.point, cube->sides[i].plane.normal, 3.5f, vec3(1, 0, 0));
+				}
+			}
+
+			//for (size_t i = 0; i < job->opCubeWorlds.size(); ++i) {
+			//	mat4 world = job->opCubeWorlds[i];
+
+			//	pushDebugSphere(&appContext->defaultDebug, world[3], 0.02, vec3(1, 0, 1), 8);
+			//	//displayTextAtPoint(Camera, world[3], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
+
+			//	std::vector<vec3>* modelPoints = &job->opCube.points;
+
+			//	srand(i);
+			//	rand();
+			//	vec3 col = getRandomColorHighSaturation();
+
+			//	for (size_t i = 0; i < modelPoints->size(); ++i) {
+			//		vec3 point = world * vec4((*modelPoints)[i], 1.0f);
+
+			//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 4);
+			//		//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+			//	}
+			//}
+			//
+
+			//{
+			//	ldiTransform trans = {};
+			//	trans.world = job->opInitialCamWorld[0];
+			//	renderTransformOrigin(Tool->appContext, Camera, &trans, "Hawk I0", TextBuffer);
+			//	pushDebugSphere(&appContext->defaultDebug, trans.world[3], 0.1, vec3(1, 0, 1), 8);
+
+			//	trans.world = job->opInitialCamWorld[1];
+			//	renderTransformOrigin(Tool->appContext, Camera, &trans, "Hawk I1", TextBuffer);
+			//	pushDebugSphere(&appContext->defaultDebug, trans.world[3], 0.1, vec3(0, 0, 1), 8);
+
+			//}
 		}
 
 		//----------------------------------------------------------------------------------------------------

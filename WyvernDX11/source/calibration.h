@@ -1385,7 +1385,7 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 //----------------------------------------------------------------------------------------------------
 // Bundle adjust experiments.
 //----------------------------------------------------------------------------------------------------
-void calibGetInitialOutput(ldiCalibrationJob* Job) {
+void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 	std::vector<int> viewId;
 	std::vector<int> stereoSampleId;
 	std::vector<int> camId;
@@ -1396,9 +1396,12 @@ void calibGetInitialOutput(ldiCalibrationJob* Job) {
 
 	int totalImagePointCount = 0;
 
+	ldiCalibCube2 initialCube;
+	calibCubeInit(&initialCube);
+
 	// Find a pose for each calibration sample.
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-	//for (size_t sampleIter = 0; sampleIter < 1; ++sampleIter) {
+	//for (size_t sampleIter = 0; sampleIter < 344; ++sampleIter) {
 		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
 
 		std::vector<cv::Point2f> imagePoints[2];
@@ -1420,7 +1423,7 @@ void calibGetInitialOutput(ldiCalibrationJob* Job) {
 				for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
 					ldiCharucoCorner* corner = &board->corners[cornerIter];
 					int cornerGlobalId = (board->id * 9) + corner->id;
-					vec3 targetPoint = _cubeGlobalPoints[cornerGlobalId];
+					vec3 targetPoint = initialCube.points[cornerGlobalId];
 
 					imagePoints[hawkIter].push_back(cv::Point2f(corner->position.x, corner->position.y));
 					worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
@@ -1689,7 +1692,7 @@ void calibGetInitialOutput(ldiCalibrationJob* Job) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d %d\n", stereoSampleId.size(), _cubeGlobalPoints.size(), totalImagePointCount);
+	fprintf(f, "%d %d %d\n", stereoSampleId.size(), initialCube.points.size(), totalImagePointCount);
 
 	// Starting intrinsics.
 	/*cv::Mat calibCameraMatrix = Job->defaultCamMat[hawkId];
@@ -1734,8 +1737,8 @@ void calibGetInitialOutput(ldiCalibrationJob* Job) {
 	}
 
 	// 3D points.
-	for (size_t pointIter = 0; pointIter < _cubeGlobalPoints.size(); ++pointIter) {
-		vec3 point = _cubeGlobalPoints[pointIter];
+	for (size_t pointIter = 0; pointIter < initialCube.points.size(); ++pointIter) {
+		vec3 point = initialCube.points[pointIter];
 		fprintf(f, "%f %f %f\n", point.x, point.y, point.z);
 	}
 	
@@ -1753,30 +1756,131 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 	std::cout << "Base pose count: " << basePoseCount << " Cube point count: " << cubePointCount << "\n";
 
 	// Cam intrinsics
-	/*Job->refinedCamMat[0] = camMat[0].clone();
-	Job->refinedCamDist[0] = distMat[0].clone();
-	Job->refinedCamMat[1] = camMat[1].clone();
-	Job->refinedCamDist[1] = distMat[1].clone();*/
-
 	for (int i = 0; i < 2; ++i) {
 		int camId = 0;
 		double camInts[3];
 		fscanf_s(f, "%d %lf %lf %lf\n", &camId, &camInts[0], &camInts[1], &camInts[2]);
 		std::cout << "Cam intrins: " << camInts[0] << ", " << camInts[1] << ", " << camInts[2] << "\n";
+
+		cv::Mat cam = cv::Mat::eye(3, 3, CV_64F);
+		cam.at<double>(0, 0) = camInts[0];
+		cam.at<double>(0, 1) = 0.0;
+		cam.at<double>(0, 2) = 3280.0 / 2.0;
+		cam.at<double>(1, 0) = 0.0;
+		cam.at<double>(1, 1) = camInts[0];
+		cam.at<double>(1, 2) = 2464.0 / 2.0;
+		cam.at<double>(2, 0) = 0.0;
+		cam.at<double>(2, 1) = 0.0;
+		cam.at<double>(2, 2) = 1.0;
+
+		cv::Mat dist = cv::Mat::zeros(8, 1, CV_64F);
+		dist.at<double>(0) = camInts[1];
+		dist.at<double>(1) = camInts[2];
+
+		Job->refinedCamMat[i] = cam;
+		Job->refinedCamDist[i] = dist;
 	}
+
+	mat4 cam0 = glm::identity<mat4>();
+	mat4 cam1 = glm::identity<mat4>();
 
 	{
 		// Relative pose
 		double pose[6];
 		fscanf_s(f, "%lf %lf %lf %lf %lf %lf\n", &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
+
+		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
+		rVec.at<double>(0) = pose[0];
+		rVec.at<double>(1) = pose[1];
+		rVec.at<double>(2) = pose[2];
+
+		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
+		tVec.at<double>(0) = pose[3];
+		tVec.at<double>(1) = pose[4];
+		tVec.at<double>(2) = pose[5];
+
+		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rVec, cvRotMat);
+
+		mat4 worldMat = glm::identity<mat4>();
+		worldMat[0][0] = cvRotMat.at<double>(0, 0);
+		worldMat[0][1] = cvRotMat.at<double>(1, 0);
+		worldMat[0][2] = cvRotMat.at<double>(2, 0);
+		worldMat[1][0] = cvRotMat.at<double>(0, 1);
+		worldMat[1][1] = cvRotMat.at<double>(1, 1);
+		worldMat[1][2] = cvRotMat.at<double>(2, 1);
+		worldMat[2][0] = cvRotMat.at<double>(0, 2);
+		worldMat[2][1] = cvRotMat.at<double>(1, 2);
+		worldMat[2][2] = cvRotMat.at<double>(2, 2);
+		worldMat[3][0] = tVec.at<double>(0);
+		worldMat[3][1] = tVec.at<double>(1);
+		worldMat[3][2] = tVec.at<double>(2);
+
+		worldMat = glm::inverse(worldMat);
+
+		worldMat[0][0] = worldMat[0][0];
+		worldMat[0][1] = -worldMat[0][1];
+		worldMat[0][2] = -worldMat[0][2];
+		worldMat[1][0] = worldMat[1][0];
+		worldMat[1][1] = -worldMat[1][1];
+		worldMat[1][2] = -worldMat[1][2];
+		worldMat[2][0] = worldMat[2][0];
+		worldMat[2][1] = -worldMat[2][1];
+		worldMat[2][2] = -worldMat[2][2];
+		worldMat[3][0] = worldMat[3][0];
+		worldMat[3][1] = -worldMat[3][1];
+		worldMat[3][2] = -worldMat[3][2];
+
+		cam1 = worldMat;
+
+		// Swap view for cam
+		cam1[1] = -cam1[1];
+		cam1[2] = -cam1[2];
 	}
+
+	Job->stStereoCamWorld[0] = cam0;
+	Job->stStereoCamWorld[1] = cam1;
+
+	Job->stCubeWorlds.clear();
+	Job->stPoseToSampleIds.clear();
 
 	for (int i = 0; i < basePoseCount; ++i) {
 		int sampleId;
 		double pose[6];
 		fscanf_s(f, "%d %lf %lf %lf %lf %lf %lf\n", &sampleId, &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
+
+		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
+		rVec.at<double>(0) = pose[0];
+		rVec.at<double>(1) = pose[1];
+		rVec.at<double>(2) = pose[2];
+
+		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
+		tVec.at<double>(0) = pose[3];
+		tVec.at<double>(1) = pose[4];
+		tVec.at<double>(2) = pose[5];
+
+		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rVec, cvRotMat);
+
+		mat4 worldMat = glm::identity<mat4>();
+		worldMat[0][0] = cvRotMat.at<double>(0, 0);
+		worldMat[0][1] = -cvRotMat.at<double>(1, 0);
+		worldMat[0][2] = -cvRotMat.at<double>(2, 0);
+		worldMat[1][0] = cvRotMat.at<double>(0, 1);
+		worldMat[1][1] = -cvRotMat.at<double>(1, 1);
+		worldMat[1][2] = -cvRotMat.at<double>(2, 1);
+		worldMat[2][0] = cvRotMat.at<double>(0, 2);
+		worldMat[2][1] = -cvRotMat.at<double>(1, 2);
+		worldMat[2][2] = -cvRotMat.at<double>(2, 2);
+		worldMat[3][0] = tVec.at<double>(0);
+		worldMat[3][1] = -tVec.at<double>(1);
+		worldMat[3][2] = -tVec.at<double>(2);
+
+		Job->stPoseToSampleIds.push_back(sampleId);
+		Job->stCubeWorlds.push_back(worldMat);
 	}
 
+	Job->stCubePoints.clear();
 	std::vector<vec3> cubePoints;
 
 	for (int i = 0; i < cubePointCount; ++i) {
@@ -1786,161 +1890,13 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 		std::cout << pointId << ": " << pos.x << ", " << pos.y << ", " << pos.z << "\n";
 
 		cubePoints.push_back(pos);
+		Job->stCubePoints.push_back(pos);
 	}
 
-	//----------------------------------------------------------------------------------------------------
-	// Calculate cube metrics.
-	//----------------------------------------------------------------------------------------------------
-	vec3 centroidAccum(0.0f, 0.0f, 0.0f);
-	int centroidCount = 0;
-
-	vec3 refinedModelCentroid;
-
-	for (size_t i = 0; i < cubePoints.size(); ++i) {
-		if (i >= 18 && i <= 26) {
-			continue;
-		}
-
-		refinedModelCentroid += cubePoints[i];
-		++centroidCount;
-	}
-	refinedModelCentroid /= (float)centroidCount;
-
-	std::vector<ldiCalibCubeSide> refinedModelSides;
-	vec3 refinedModelCorners[8];
-
-	refinedModelSides.resize(6);
-	for (int i = 0; i < 6; ++i) {
-		refinedModelSides[i].id = i;
-
-		if (i == 2) {
-			continue;
-		}
-
-		std::vector<vec3> points;
-
-		for (int j = i * 9; j < (i + 1) * 9; ++j) {
-			points.push_back(cubePoints[j]);
-		}
-
-		computerVisionFitPlane(points, &refinedModelSides[i].plane);
-
-		std::cout << "Cube side " << i << ": " << refinedModelSides[i].plane.normal.x << ", " << refinedModelSides[i].plane.normal.y << ", " << refinedModelSides[i].plane.normal.z << "\n";
-	}
-	ldiCalibCubeSide bottom = {};
-	bottom.id = 2;
-	bottom.plane = refinedModelSides[1].plane;
-	bottom.plane.point += bottom.plane.normal * 4.0f;
-	refinedModelSides[2] = bottom;
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[1].plane, refinedModelSides[0].plane, refinedModelSides[3].plane, &refinedModelCorners[0])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[1].plane, refinedModelSides[0].plane, refinedModelSides[5].plane, &refinedModelCorners[1])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[1].plane, refinedModelSides[4].plane, refinedModelSides[5].plane, &refinedModelCorners[2])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[1].plane, refinedModelSides[4].plane, refinedModelSides[3].plane, &refinedModelCorners[3])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[2].plane, refinedModelSides[0].plane, refinedModelSides[3].plane, &refinedModelCorners[4])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[2].plane, refinedModelSides[0].plane, refinedModelSides[5].plane, &refinedModelCorners[5])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[2].plane, refinedModelSides[4].plane, refinedModelSides[5].plane, &refinedModelCorners[6])) {
-		// Cube failed.
-	}
-
-	if (getPointAtIntersectionOfPlanes(refinedModelSides[2].plane, refinedModelSides[4].plane, refinedModelSides[3].plane, &refinedModelCorners[7])) {
-		// Cube failed.
-	}
-
-	refinedModelSides[0].corners[0] = refinedModelCorners[0];
-	refinedModelSides[0].corners[1] = refinedModelCorners[1];
-	refinedModelSides[0].corners[2] = refinedModelCorners[5];
-	refinedModelSides[0].corners[3] = refinedModelCorners[4];
-
-	refinedModelSides[1].corners[0] = refinedModelCorners[0];
-	refinedModelSides[1].corners[1] = refinedModelCorners[3];
-	refinedModelSides[1].corners[2] = refinedModelCorners[2];
-	refinedModelSides[1].corners[3] = refinedModelCorners[1];
-
-	refinedModelSides[2].corners[0] = refinedModelCorners[4];
-	refinedModelSides[2].corners[1] = refinedModelCorners[5];
-	refinedModelSides[2].corners[2] = refinedModelCorners[6];
-	refinedModelSides[2].corners[3] = refinedModelCorners[7];
-
-	refinedModelSides[3].corners[0] = refinedModelCorners[3];
-	refinedModelSides[3].corners[1] = refinedModelCorners[0];
-	refinedModelSides[3].corners[2] = refinedModelCorners[4];
-	refinedModelSides[3].corners[3] = refinedModelCorners[7];
-
-	refinedModelSides[4].corners[0] = refinedModelCorners[2];
-	refinedModelSides[4].corners[1] = refinedModelCorners[3];
-	refinedModelSides[4].corners[2] = refinedModelCorners[7];
-	refinedModelSides[4].corners[3] = refinedModelCorners[6];
-
-	refinedModelSides[5].corners[0] = refinedModelCorners[1];
-	refinedModelSides[5].corners[1] = refinedModelCorners[2];
-	refinedModelSides[5].corners[2] = refinedModelCorners[6];
-	refinedModelSides[5].corners[3] = refinedModelCorners[5];
-
-	//----------------------------------------------------------------------------------------------------
-	// Calculate scale factor.
-	//----------------------------------------------------------------------------------------------------
-	float scaleFactor = 1.0f;
-
-	{
-		float distAccum = 0.0f;
-		int distCount = 0;
-
-		int size = 3;
-
-		for (int b = 0; b < 6; ++b) {
-			if (b == 2) {
-				continue;
-			}
-
-			for (int r = 0; r < size; ++r) {
-				for (int c = 0; c < (size - 1); ++c) {
-					int id0 = c + (r * size) + b * (size * size);
-					int id1 = c + 1 + (r * size) + b * (size * size);
-					float d = glm::distance(cubePoints[id0], cubePoints[id1]);
-					std::cout << id0 << ":" << id1 << " = " << d << "\n";
-					distAccum += d;
-					++distCount;
-
-					id0 = c * size + r + b * (size * size);
-					id1 = (c + 1) * size + r + b * (size * size);
-					d = glm::distance(cubePoints[id0], cubePoints[id1]);
-					std::cout << id0 << ":" << id1 << " = " << d << "\n";
-					distAccum += d;
-					++distCount;
-				}
-			}
-		}
-
-		float distAvg = distAccum / (float)distCount;
-		scaleFactor = 0.9 / distAvg;
-		std::cout << "Avg dist: " << distAvg << " Scale factor: " << scaleFactor << "\n";
-	}
-
-	std::cout << glm::distance(refinedModelCorners[0], refinedModelCorners[3]) * scaleFactor << "\n";
-	std::cout << glm::distance(refinedModelCorners[3], refinedModelCorners[2]) * scaleFactor << "\n";
-	std::cout << glm::distance(refinedModelCorners[2], refinedModelCorners[1]) * scaleFactor << "\n";
-	std::cout << glm::distance(refinedModelCorners[1], refinedModelCorners[0]) * scaleFactor << "\n";
+	calibCubeInit(&Job->opCube);
+	Job->opCube.points = cubePoints;
+	calibCubeCalculateMetrics(&Job->opCube);
 
 	// TODO: Make sure to scale view positions, relative pose, etc.
-
 	fclose(f);
 }
