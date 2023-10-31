@@ -230,5 +230,11 @@ void calibCubeInit(ldiCalibCube* Cube) {
 	Cube->points[50] = { -ps * 1 - 1.1f, ps * 2, -2.9f };
 	Cube->points[53] = { -ps * 2 - 1.1f, ps * 2, -2.9f };
 
+	vec3 offset(-(-ps * 1 - 1.1f), -ps * 1, ps * 1);
+
+	for (size_t i = 0; i < Cube->points.size(); ++i) {
+		Cube->points[i] += offset;
+	}
+
 	calibCubeCalculateMetrics(Cube);
 }

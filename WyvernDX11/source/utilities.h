@@ -296,3 +296,81 @@ mat4 convertOpenCvTransMatToGlmMat(cv::Mat& TransMat) {
 
 	return result;
 }
+
+mat4 convertRvecTvec(cv::Mat R, cv::Mat T) {
+	mat4 result;
+
+	cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+	cv::Rodrigues(R, cvRotMat);
+
+	result[0][0] = cvRotMat.at<double>(0, 0);
+	result[0][1] = cvRotMat.at<double>(1, 0);
+	result[0][2] = cvRotMat.at<double>(2, 0);
+	result[1][0] = cvRotMat.at<double>(0, 1);
+	result[1][1] = cvRotMat.at<double>(1, 1);
+	result[1][2] = cvRotMat.at<double>(2, 1);
+	result[2][0] = cvRotMat.at<double>(0, 2);
+	result[2][1] = cvRotMat.at<double>(1, 2);
+	result[2][2] = cvRotMat.at<double>(2, 2);
+	result[3][0] = T.at<double>(0);
+	result[3][1] = T.at<double>(1);
+	result[3][2] = T.at<double>(2);
+	result[3][3] = 1.0;
+
+	return result;
+}
+
+// Takes single matrix of R and T combined.
+cv::Mat convertRvecTvec(cv::Mat RT) {
+	cv::Mat result = cv::Mat::zeros(4, 4, CV_64F);
+
+	cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+	cv::Mat r = cv::Mat::zeros(1, 3, CV_64F);
+	r.at<double>(0) = RT.at<double>(0);
+	r.at<double>(1) = RT.at<double>(1);
+	r.at<double>(2) = RT.at<double>(2);
+	cv::Rodrigues(r, cvRotMat);
+
+	result.at<double>(0, 0) = cvRotMat.at<double>(0, 0);
+	result.at<double>(1, 0) = cvRotMat.at<double>(1, 0);
+	result.at<double>(2, 0) = cvRotMat.at<double>(2, 0);
+	result.at<double>(0, 1) = cvRotMat.at<double>(0, 1);
+	result.at<double>(1, 1) = cvRotMat.at<double>(1, 1);
+	result.at<double>(2, 1) = cvRotMat.at<double>(2, 1);
+	result.at<double>(0, 2) = cvRotMat.at<double>(0, 2);
+	result.at<double>(1, 2) = cvRotMat.at<double>(1, 2);
+	result.at<double>(2, 2) = cvRotMat.at<double>(2, 2);
+	result.at<double>(0, 3) = RT.at<double>(3);
+	result.at<double>(1, 3) = RT.at<double>(4);
+	result.at<double>(2, 3) = RT.at<double>(5);
+	result.at<double>(3, 3) = 1.0;
+
+	return result;
+}
+
+cv::Mat convertTransformToRT(cv::Mat Trans) {
+	cv::Mat result = cv::Mat::zeros(1, 6, CV_64F);
+
+	cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+	cvRotMat.at<double>(0, 0) = Trans.at<double>(0, 0);
+	cvRotMat.at<double>(1, 0) = Trans.at<double>(1, 0);
+	cvRotMat.at<double>(2, 0) = Trans.at<double>(2, 0);
+	cvRotMat.at<double>(0, 1) = Trans.at<double>(0, 1);
+	cvRotMat.at<double>(1, 1) = Trans.at<double>(1, 1);
+	cvRotMat.at<double>(2, 1) = Trans.at<double>(2, 1);
+	cvRotMat.at<double>(0, 2) = Trans.at<double>(0, 2);
+	cvRotMat.at<double>(1, 2) = Trans.at<double>(1, 2);
+	cvRotMat.at<double>(2, 2) = Trans.at<double>(2, 2);
+
+	cv::Mat r = cv::Mat::zeros(1, 3, CV_64F);
+	cv::Rodrigues(cvRotMat, r);
+
+	result.at<double>(0) = r.at<double>(0);
+	result.at<double>(1) = r.at<double>(1);
+	result.at<double>(2) = r.at<double>(2);
+	result.at<double>(3) = Trans.at<double>(0, 3);
+	result.at<double>(4) = Trans.at<double>(1, 3);
+	result.at<double>(5) = Trans.at<double>(2, 3);
+
+	return result;
+}

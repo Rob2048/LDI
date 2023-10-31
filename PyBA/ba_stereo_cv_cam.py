@@ -245,7 +245,7 @@ if show_debug_plots:
 #------------------------------------------------------------------------------------------------------------------------
 t0 = time.time()
 res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-6, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
-# res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, max_nfev=30, xtol=1e-10, loss='soft_l1', f_scale=0.1, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
+# res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, max_nfev=400, xtol=1e-10, loss='soft_l1', f_scale=0.1, method='trf', args=(n_views, n_points, cam_indices, view_indices, point_indices, points_2d))
 # least_squares(residuals, x0, verbose=2, method ='trf', xtol=1e-10, loss='soft_l1', f_scale=0.1, args=(obj_pts, left_pts, right_pts))
 t1 = time.time()
 

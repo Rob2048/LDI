@@ -1270,6 +1270,10 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			circle.normal = -circle.normal;
 		}
 
+		// TODO: Not entirely sure why we need to flip this, is it becuase we are moving the cameras and not the cube?
+		circle.normal.z = -circle.normal.z;
+		circle.normal.y = -circle.normal.y;
+
 		Job->axisACircle = circle;
 		Job->axisA = { circle.origin, circle.normal };
 	}
@@ -1415,6 +1419,9 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 	std::vector<std::vector<cv::Point2f>> observations;
 	std::vector<std::vector<int>> observationPointIds;
 
+	cv::Mat relativeMat = cv::Mat::zeros(1, 6, CV_64F);
+	int relativeMatCount = 0;
+
 	int totalImagePointCount = 0;
 
 	ldiCalibCube initialCube;
@@ -1427,8 +1434,8 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 		std::vector<cv::Point2f> imagePoints[2];
 		std::vector<int> imagePointIds[2];
-		//cv::Mat camExts[2];
-		mat4 camExts[2];
+		cv::Mat camExts[2];
+		//mat4 camExts[2];
 
 		bool foundPoseInBothEyes = true;
 
@@ -1453,40 +1460,18 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 			}
 
 			if (imagePoints[hawkIter].size() >= 6) {
-				//cv::Mat r;
-				//cv::Mat t;
-				mat4 camViewMat;
-
-				std::cout << "Find pose - Sample: " << sampleIter << " Hawk: " << hawkIter << "\n";
-				if (computerVisionFindGeneralPose(&Job->defaultCamMat[hawkIter], &Job->defaultCamDist[hawkIter], &imagePoints[hawkIter], &worldPoints, &camViewMat)) {
+				cv::Mat r;
+				cv::Mat t;
 				
-					//// NOTE: OpenCV coords are flipped on Y and Z.
-					//{
-					//	cv::Mat cvRotMat;
-					//	cv::Rodrigues(r, cvRotMat);
-
-					//	cvRotMat.at<double>(1, 0) = -cvRotMat.at<double>(1, 0);
-					//	cvRotMat.at<double>(2, 0) = -cvRotMat.at<double>(2, 0);
-					//	cvRotMat.at<double>(1, 1) = -cvRotMat.at<double>(1, 1);
-					//	cvRotMat.at<double>(2, 1) = -cvRotMat.at<double>(2, 1);
-					//	cvRotMat.at<double>(1, 2) = -cvRotMat.at<double>(1, 2);
-					//	cvRotMat.at<double>(2, 2) = -cvRotMat.at<double>(2, 2);
-
-					//	cv::Rodrigues(cvRotMat, r);
-					//}
-
-					////std::cout << "Pose:\n" << GetMat4DebugString(&pose);
-					//cv::Mat cvCamExts = cv::Mat::zeros(1, 6, CV_64F);
-					//cvCamExts.at<double>(0) = r.at<double>(0);
-					//cvCamExts.at<double>(1) = r.at<double>(1);
-					//cvCamExts.at<double>(2) = r.at<double>(2);
-					//cvCamExts.at<double>(3) = t.at<double>(0);
-					//cvCamExts.at<double>(4) = -t.at<double>(1);
-					//cvCamExts.at<double>(5) = -t.at<double>(2);
-					//
-					//camExts[hawkIter] = cvCamExts;
-
-					camExts[hawkIter] = camViewMat;
+				std::cout << "Find pose - Sample: " << sampleIter << " Hawk: " << hawkIter << "\n";
+				if (computerVisionFindGeneralPoseRT(&Job->defaultCamMat[hawkIter], &Job->defaultCamDist[hawkIter], &imagePoints[hawkIter], &worldPoints, &r, &t)) {
+					camExts[hawkIter] = cv::Mat::zeros(1, 6, CV_64F);
+					camExts[hawkIter].at<double>(0) = r.at<double>(0);
+					camExts[hawkIter].at<double>(1) = r.at<double>(1);
+					camExts[hawkIter].at<double>(2) = r.at<double>(2);
+					camExts[hawkIter].at<double>(3) = t.at<double>(0);
+					camExts[hawkIter].at<double>(4) = t.at<double>(1);
+					camExts[hawkIter].at<double>(5) = t.at<double>(2);
 				} else {
 					foundPoseInBothEyes = false;
 					break;
@@ -1499,198 +1484,24 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 		if (foundPoseInBothEyes) {
 			for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
-				mat4 camLocalMat = camExts[hawkIter];
-				cv::Mat reRvec = cv::Mat::zeros(3, 1, CV_64F);
-				cv::Mat reTvec = cv::Mat::zeros(3, 1, CV_64F);
-				cv::Mat reRotMat = cv::Mat::zeros(3, 3, CV_64F);
-
-				if (hawkIter == 1) {
-					mat4 cam0 = camExts[0];
-					mat4 cam1 = camExts[1];
-					
-					cv::Mat reRvec0 = cv::Mat::zeros(3, 1, CV_64F);
-					cv::Mat reTvec0 = cv::Mat::zeros(3, 1, CV_64F);
-					cv::Mat reRotMat0 = cv::Mat::zeros(3, 3, CV_64F);
-
-					cv::Mat reRvec1 = cv::Mat::zeros(3, 1, CV_64F);
-					cv::Mat reTvec1 = cv::Mat::zeros(3, 1, CV_64F);
-					cv::Mat reRotMat1 = cv::Mat::zeros(3, 3, CV_64F);
-
-					// Convert cam mat to rvec, tvec.
-					reTvec0.at<double>(0) = cam0[3][0];
-					reTvec0.at<double>(1) = -cam0[3][1];
-					reTvec0.at<double>(2) = -cam0[3][2];
-					//std::cout << "Re T: " << reTvec << "\n";
-
-					reRotMat0.at<double>(0, 0) = cam0[0][0];
-					reRotMat0.at<double>(1, 0) = -cam0[0][1];
-					reRotMat0.at<double>(2, 0) = -cam0[0][2];
-					reRotMat0.at<double>(0, 1) = cam0[1][0];
-					reRotMat0.at<double>(1, 1) = -cam0[1][1];
-					reRotMat0.at<double>(2, 1) = -cam0[1][2];
-					reRotMat0.at<double>(0, 2) = cam0[2][0];
-					reRotMat0.at<double>(1, 2) = -cam0[2][1];
-					reRotMat0.at<double>(2, 2) = -cam0[2][2];
-					//std::cout << "ReRotMat: " << reRotMat << "\n";
-					cv::Rodrigues(reRotMat0, reRvec0);
-					//std::cout << "Re R: " << reRvec << "\n";
-
-					// Convert cam mat to rvec, tvec.
-					reTvec1.at<double>(0) = cam1[3][0];
-					reTvec1.at<double>(1) = -cam1[3][1];
-					reTvec1.at<double>(2) = -cam1[3][2];
-					//std::cout << "Re T: " << reTvec << "\n";
-
-					reRotMat1.at<double>(0, 0) = cam1[0][0];
-					reRotMat1.at<double>(1, 0) = -cam1[0][1];
-					reRotMat1.at<double>(2, 0) = -cam1[0][2];
-					reRotMat1.at<double>(0, 1) = cam1[1][0];
-					reRotMat1.at<double>(1, 1) = -cam1[1][1];
-					reRotMat1.at<double>(2, 1) = -cam1[1][2];
-					reRotMat1.at<double>(0, 2) = cam1[2][0];
-					reRotMat1.at<double>(1, 2) = -cam1[2][1];
-					reRotMat1.at<double>(2, 2) = -cam1[2][2];
-
-					cv::Rodrigues(reRotMat1, reRvec1);
-					//std::cout << "Re R: " << reRvec << "\n";
-
-					//cv::composeRT(reRvec0, reTvec0, reRvec1, reTvec1, reRvec, reTvec);
-					//reTvec = reTvec1;
-					//reRotMat = reRotMat1;
-
-					std::cout << "Cam1: " << reRvec1 << " :: " << reTvec1 << "\n";
-					std::cout << "Diff: " << reRvec << " :: " << reTvec << "\n";
-
-					mat4 diffMat(1.0f);
-					mat4 cam0Mat(1.0f);
-					mat4 cam1Mat(1.0f);
-
-					{
-						cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-						cv::Rodrigues(reRvec0, cvRotMat);
-
-						cam0Mat[0][0] = cvRotMat.at<double>(0, 0);
-						cam0Mat[0][1] = cvRotMat.at<double>(1, 0);
-						cam0Mat[0][2] = cvRotMat.at<double>(2, 0);
-						cam0Mat[1][0] = cvRotMat.at<double>(0, 1);
-						cam0Mat[1][1] = cvRotMat.at<double>(1, 1);
-						cam0Mat[1][2] = cvRotMat.at<double>(2, 1);
-						cam0Mat[2][0] = cvRotMat.at<double>(0, 2);
-						cam0Mat[2][1] = cvRotMat.at<double>(1, 2);
-						cam0Mat[2][2] = cvRotMat.at<double>(2, 2);
-						cam0Mat[3][0] = reTvec0.at<double>(0);
-						cam0Mat[3][1] = reTvec0.at<double>(1);
-						cam0Mat[3][2] = reTvec0.at<double>(2);
-						cam0Mat[3][3] = 1.0;
-
-						std::cout << "Cam0 mat: " << GetMat4DebugString(&cam0Mat) << "\n";
-					}
-					{
-						cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-						cv::Rodrigues(reRvec1, cvRotMat);
-
-						cam1Mat[0][0] = cvRotMat.at<double>(0, 0);
-						cam1Mat[0][1] = cvRotMat.at<double>(1, 0);
-						cam1Mat[0][2] = cvRotMat.at<double>(2, 0);
-						cam1Mat[1][0] = cvRotMat.at<double>(0, 1);
-						cam1Mat[1][1] = cvRotMat.at<double>(1, 1);
-						cam1Mat[1][2] = cvRotMat.at<double>(2, 1);
-						cam1Mat[2][0] = cvRotMat.at<double>(0, 2);
-						cam1Mat[2][1] = cvRotMat.at<double>(1, 2);
-						cam1Mat[2][2] = cvRotMat.at<double>(2, 2);
-						cam1Mat[3][0] = reTvec1.at<double>(0);
-						cam1Mat[3][1] = reTvec1.at<double>(1);
-						cam1Mat[3][2] = reTvec1.at<double>(2);
-						cam1Mat[3][3] = 1.0;
-
-						std::cout << "Cam0 mat: " << GetMat4DebugString(&cam0Mat) << "\n";
-					}
-
-					mat4 invCam0 = glm::inverse(cam0Mat);
-					camLocalMat = cam1Mat * invCam0;
-
-					// Convert cam mat to rvec, tvec.
-					reTvec.at<double>(0) = camLocalMat[3][0];
-					reTvec.at<double>(1) = camLocalMat[3][1];
-					reTvec.at<double>(2) = camLocalMat[3][2];
-					//std::cout << "Re T: " << reTvec << "\n";
-
-					reRotMat.at<double>(0, 0) = camLocalMat[0][0];
-					reRotMat.at<double>(1, 0) = camLocalMat[0][1];
-					reRotMat.at<double>(2, 0) = camLocalMat[0][2];
-					reRotMat.at<double>(0, 1) = camLocalMat[1][0];
-					reRotMat.at<double>(1, 1) = camLocalMat[1][1];
-					reRotMat.at<double>(2, 1) = camLocalMat[1][2];
-					reRotMat.at<double>(0, 2) = camLocalMat[2][0];
-					reRotMat.at<double>(1, 2) = camLocalMat[2][1];
-					reRotMat.at<double>(2, 2) = camLocalMat[2][2];
-					//std::cout << "ReRotMat: " << reRotMat << "\n";
-
-					cv::Rodrigues(reRotMat, reRvec);
-					std::cout << "Re R: " << reRvec << "\n";
-
-					{
-						cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-						cv::Rodrigues(reRvec, cvRotMat);
-
-						diffMat[0][0] = cvRotMat.at<double>(0, 0);
-						diffMat[0][1] = cvRotMat.at<double>(1, 0);
-						diffMat[0][2] = cvRotMat.at<double>(2, 0);
-						diffMat[1][0] = cvRotMat.at<double>(0, 1);
-						diffMat[1][1] = cvRotMat.at<double>(1, 1);
-						diffMat[1][2] = cvRotMat.at<double>(2, 1);
-						diffMat[2][0] = cvRotMat.at<double>(0, 2);
-						diffMat[2][1] = cvRotMat.at<double>(1, 2);
-						diffMat[2][2] = cvRotMat.at<double>(2, 2);
-						diffMat[3][0] = reTvec.at<double>(0);
-						diffMat[3][1] = reTvec.at<double>(1);
-						diffMat[3][2] = reTvec.at<double>(2);
-						diffMat[3][3] = 1.0;
-
-						std::cout << "Diff mat: " << GetMat4DebugString(&diffMat) << "\n";
-					}
-
-					std::cout << "Cam1 mat: " << GetMat4DebugString(&cam1Mat) << "\n";
-
-					mat4 recompCam1 = diffMat * cam0Mat;
-
-					std::cout << "recompCam1 mat: " << GetMat4DebugString(&recompCam1) << "\n";
-
-				} else {
-					// Convert cam mat to rvec, tvec.
-					reTvec.at<double>(0) = camLocalMat[3][0];
-					reTvec.at<double>(1) = -camLocalMat[3][1];
-					reTvec.at<double>(2) = -camLocalMat[3][2];
-					//std::cout << "Re T: " << reTvec << "\n";
-
-					reRotMat.at<double>(0, 0) = camLocalMat[0][0];
-					reRotMat.at<double>(1, 0) = -camLocalMat[0][1];
-					reRotMat.at<double>(2, 0) = -camLocalMat[0][2];
-					reRotMat.at<double>(0, 1) = camLocalMat[1][0];
-					reRotMat.at<double>(1, 1) = -camLocalMat[1][1];
-					reRotMat.at<double>(2, 1) = -camLocalMat[1][2];
-					reRotMat.at<double>(0, 2) = camLocalMat[2][0];
-					reRotMat.at<double>(1, 2) = -camLocalMat[2][1];
-					reRotMat.at<double>(2, 2) = -camLocalMat[2][2];
-					//std::cout << "ReRotMat: " << reRotMat << "\n";
-
-					cv::Rodrigues(reRotMat, reRvec);
-					//std::cout << "Re R: " << reRvec << "\n";
-				}
-
-				cv::Mat cvCamExts = cv::Mat::zeros(1, 6, CV_64F);
-				cvCamExts.at<double>(0) = reRvec.at<double>(0);
-				cvCamExts.at<double>(1) = reRvec.at<double>(1);
-				cvCamExts.at<double>(2) = reRvec.at<double>(2);
-				cvCamExts.at<double>(3) = reTvec.at<double>(0);
-				cvCamExts.at<double>(4) = reTvec.at<double>(1);
-				cvCamExts.at<double>(5) = reTvec.at<double>(2);
-
+				
 				if (hawkIter == 0) {
 					stereoSampleId.push_back(sampleIter);
-					camExtrinsics.push_back(cvCamExts);
+					camExtrinsics.push_back(camExts[hawkIter]);
 				} else {
-					diffExtrinsics.push_back(cvCamExts);
+					cv::Mat cam0 = convertRvecTvec(camExts[0]);
+					cv::Mat cam1 = convertRvecTvec(camExts[1]);
+					cam1 = cam1 * cam0.inv();
+
+					cv::Mat relativeRT = convertTransformToRT(cam1);
+
+					relativeMat += relativeRT;
+					relativeMatCount += 1;
+
+					diffExtrinsics.push_back(relativeRT);
+					//diffExtrinsics.push_back(camExts[hawkIter]);
+
+					std::cout << relativeRT << "\n";
 				}
 
 				viewId.push_back(stereoSampleId.size() - 1);
@@ -1713,9 +1524,26 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d %d\n", stereoSampleId.size(), initialCube.points.size(), totalImagePointCount);
+	fprintf(f, "%d %d %d\n", (int)stereoSampleId.size(), (int)initialCube.points.size(), totalImagePointCount);
 
 	// Starting intrinsics.
+	for (int i = 0; i < 2; ++i) {
+		//Job->defaultCamMat[i]
+
+		for (int j = 0; j < 9; ++j) {
+			fprintf(f, "%f ", Job->defaultCamMat[i].at<double>(j));
+		}
+
+		fprintf(f, "\n");
+
+		for (int j = 0; j < 8; ++j) {
+			fprintf(f, "%f ", Job->defaultCamDist[i].at<double>(j));
+		}
+
+		fprintf(f, "\n");
+	}
+
+
 	/*cv::Mat calibCameraMatrix = Job->defaultCamMat[hawkId];
 	cv::Mat calibCameraDist = Job->defaultCamDist[hawkId];
 	float focal = calibCameraMatrix.at<double>(0);
@@ -1723,14 +1551,41 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 	float k2 = calibCameraDist.at<double>(1);*/
 
 	{
+		relativeMat /= (float)relativeMatCount;
+
 		// Starting relative stereo pose
 		// 6 params. r, t
 		for (int i = 0; i < 6; ++i) {
-			fprintf(f, "%f ", diffExtrinsics[0].at<double>(i));
+			fprintf(f, "%f ", relativeMat.at<double>(i));
 		}
 
 		fprintf(f, "\n");
 	}
+
+	//{
+	//	// Test project
+	//	std::vector<cv::Point3f> tempModel;
+	//	for (size_t i = 0; i < initialCube.points.size(); ++i) {
+	//		tempModel.push_back(toPoint3f(initialCube.points[i]));
+	//	}
+
+	//	cv::Mat rVec = cv::Mat::zeros(1, 3, CV_64F);
+	//	rVec.at<double>(0) = camExtrinsics[0].at<double>(0);
+	//	rVec.at<double>(1) = camExtrinsics[0].at<double>(1);
+	//	rVec.at<double>(2) = camExtrinsics[0].at<double>(2);
+
+	//	cv::Mat tVec = cv::Mat::zeros(1, 3, CV_64F);
+	//	tVec.at<double>(0) = camExtrinsics[0].at<double>(3);
+	//	tVec.at<double>(1) = camExtrinsics[0].at<double>(4);
+	//	tVec.at<double>(2) = camExtrinsics[0].at<double>(5);
+
+	//	std::vector<cv::Point2f> projPoints;
+	//	cv::projectPoints(tempModel, rVec, tVec, Job->defaultCamMat[0], Job->defaultCamDist[0], projPoints);
+
+	//	for (size_t i = 0; i < projPoints.size(); ++i) {
+	//		std::cout << "Point " << i << ": " << projPoints[i] << "\n";
+	//	}
+	//}
 
 	// Observations.
 	for (size_t viewIter = 0; viewIter < observations.size(); ++viewIter) {
@@ -1740,7 +1595,7 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 			cv::Point2f point = observations[viewIter][pointIter];
 			int pointId = observationPointIds[viewIter][pointIter];
 
-			fprintf(f, "%d %d %d %f %f\n", viewId[viewIter], camId[viewIter], pointId, point.x - (3280 / 2), (2464 - point.y) - (2464 / 2));
+			fprintf(f, "%d %d %d %f %f\n", viewId[viewIter], camId[viewIter], pointId, point.x, point.y);
 		}
 	}
 
@@ -1770,6 +1625,11 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 	FILE* f;
 	fopen_s(&f, "C:/Projects/LDI/PyBA/ba_result.txt", "r");
 
+	if (f == 0) {
+		std::cout << "Could not open bundle adjust file.\n";
+		return;
+	}
+
 	int basePoseCount;
 	int cubePointCount;
 
@@ -1778,25 +1638,27 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 
 	// Cam intrinsics
 	for (int i = 0; i < 2; ++i) {
-		int camId = 0;
-		double camInts[3];
-		fscanf_s(f, "%d %lf %lf %lf\n", &camId, &camInts[0], &camInts[1], &camInts[2]);
-		std::cout << "Cam intrins: " << camInts[0] << ", " << camInts[1] << ", " << camInts[2] << "\n";
-
+		double camInts[4];
+		double camDist[4];
+		fscanf_s(f, "%lf %lf %lf %lf\n", &camInts[0], &camInts[1], &camInts[2], &camInts[3]);
+		fscanf_s(f, "%lf %lf %lf %lf\n", &camDist[0], &camDist[1], &camDist[2], &camDist[3]);
+		
 		cv::Mat cam = cv::Mat::eye(3, 3, CV_64F);
 		cam.at<double>(0, 0) = camInts[0];
 		cam.at<double>(0, 1) = 0.0;
-		cam.at<double>(0, 2) = 3280.0 / 2.0;
+		cam.at<double>(0, 2) = camInts[2];
 		cam.at<double>(1, 0) = 0.0;
-		cam.at<double>(1, 1) = camInts[0];
-		cam.at<double>(1, 2) = 2464.0 / 2.0;
+		cam.at<double>(1, 1) = camInts[1];
+		cam.at<double>(1, 2) = camInts[3];
 		cam.at<double>(2, 0) = 0.0;
 		cam.at<double>(2, 1) = 0.0;
 		cam.at<double>(2, 2) = 1.0;
 
 		cv::Mat dist = cv::Mat::zeros(8, 1, CV_64F);
-		dist.at<double>(0) = camInts[1];
-		dist.at<double>(1) = camInts[2];
+		dist.at<double>(0) = camDist[0];
+		dist.at<double>(1) = camDist[1];
+		dist.at<double>(2) = camDist[2];
+		dist.at<double>(3) = camDist[3];
 
 		Job->refinedCamMat[i] = cam;
 		Job->refinedCamDist[i] = dist;
@@ -1839,7 +1701,7 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 
 		worldMat = glm::inverse(worldMat);
 
-		worldMat[0][0] = worldMat[0][0];
+		/*worldMat[0][0] = worldMat[0][0];
 		worldMat[0][1] = -worldMat[0][1];
 		worldMat[0][2] = -worldMat[0][2];
 		worldMat[1][0] = worldMat[1][0];
@@ -1850,13 +1712,13 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 		worldMat[2][2] = -worldMat[2][2];
 		worldMat[3][0] = worldMat[3][0];
 		worldMat[3][1] = -worldMat[3][1];
-		worldMat[3][2] = -worldMat[3][2];
+		worldMat[3][2] = -worldMat[3][2];*/
 
 		cam1 = worldMat;
 
 		// Swap view for cam
-		cam1[1] = -cam1[1];
-		cam1[2] = -cam1[2];
+		//cam1[1] = -cam1[1];
+		//cam1[2] = -cam1[2];
 	}
 
 	Job->stStereoCamWorld[0] = cam0;
@@ -1883,19 +1745,20 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
 		cv::Rodrigues(rVec, cvRotMat);
 
+		// NOTE: Had Y/Z negated
 		mat4 worldMat = glm::identity<mat4>();
 		worldMat[0][0] = cvRotMat.at<double>(0, 0);
-		worldMat[0][1] = -cvRotMat.at<double>(1, 0);
-		worldMat[0][2] = -cvRotMat.at<double>(2, 0);
+		worldMat[0][1] = cvRotMat.at<double>(1, 0);
+		worldMat[0][2] = cvRotMat.at<double>(2, 0);
 		worldMat[1][0] = cvRotMat.at<double>(0, 1);
-		worldMat[1][1] = -cvRotMat.at<double>(1, 1);
-		worldMat[1][2] = -cvRotMat.at<double>(2, 1);
+		worldMat[1][1] = cvRotMat.at<double>(1, 1);
+		worldMat[1][2] = cvRotMat.at<double>(2, 1);
 		worldMat[2][0] = cvRotMat.at<double>(0, 2);
-		worldMat[2][1] = -cvRotMat.at<double>(1, 2);
-		worldMat[2][2] = -cvRotMat.at<double>(2, 2);
+		worldMat[2][1] = cvRotMat.at<double>(1, 2);
+		worldMat[2][2] = cvRotMat.at<double>(2, 2);
 		worldMat[3][0] = tVec.at<double>(0);
-		worldMat[3][1] = -tVec.at<double>(1);
-		worldMat[3][2] = -tVec.at<double>(2);
+		worldMat[3][1] = tVec.at<double>(1);
+		worldMat[3][2] = tVec.at<double>(2);
 
 		Job->stPoseToSampleIds.push_back(sampleId);
 		Job->stCubeWorlds.push_back(worldMat);

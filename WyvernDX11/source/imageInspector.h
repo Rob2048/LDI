@@ -88,6 +88,8 @@ struct ldiImageInspector {
 
 	std::vector<vec4>			hawkScanSegs;
 	std::vector<vec2>			hawkScanPoints;
+
+	vec3						axisATestOffset;
 };
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -273,7 +275,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Wi
 	//mat4 camWorldMat = job->opInitialCamWorld[HawkId];
 
 	{
-		vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+		vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f) + Tool->axisATestOffset;
 		float axisAngleDeg = (Tool->appContext->platform->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
 		mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
@@ -945,6 +947,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			ImGui::Checkbox("Show charuco rejected markers", &Tool->showCharucoRejectedMarkers);
 			ImGui::Checkbox("Show calib cube volume", &Tool->appContext->platform->showCalibCubeVolume);
 			ImGui::Checkbox("Show calib basis", &Tool->appContext->platform->showCalibVolumeBasis);
+
+			ImGui::DragFloat3("Axis A Test", (float*)&Tool->axisATestOffset, 0.01);
 			
 			if (ImGui::Checkbox("Show undistorted", &Tool->showUndistorted)) {
 				_imageInspectorSelectCalibJob(Tool, Tool->calibJobSelectedSampleId, Tool->calibJobSelectedSampleType);

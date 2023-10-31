@@ -1200,7 +1200,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
-	if (false) {
+	if (true) {
 		for (size_t i = 0; i < _defaultCube.points.size(); ++i) {
 			pushDebugSphere(&appContext->defaultDebug, _defaultCube.points[i], 0.02, vec3(1, 0, 0), 8);
 			displayTextAtPoint(Camera, _defaultCube.points[i], std::to_string(i), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
@@ -1443,13 +1443,16 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibCubeVolume) {
 				std::vector<vec3>* modelPoints = &job->stCubePoints;
-				for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
+				//for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
+				for (size_t cubeIter = 0; cubeIter < 340; ++cubeIter) {
 					srand(cubeIter);
 					rand();
 					vec3 col = getRandomColorHighSaturation();
 
 					for (size_t i = 0; i < modelPoints->size(); ++i) {
-						vec3 point = job->cubeWorlds[cubeIter] * vec4((*modelPoints)[i], 1.0f);
+						mat4 world = job->cubeWorlds[cubeIter];
+						//world[3] = vec4(0, 0, 0, 1.0f);
+						vec3 point = world * vec4((*modelPoints)[i], 1.0f);
 
 						pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 						//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
@@ -1735,7 +1738,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		//----------------------------------------------------------------------------------------------------
 		// Machine representation.
 		//----------------------------------------------------------------------------------------------------
-		{
+		if (false) {
 			vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
 			vec3 point(0.0f, 0.0f, 0.0f);
 			point += offset.x * job->axisX.direction;
