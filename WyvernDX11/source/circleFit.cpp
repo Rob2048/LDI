@@ -539,12 +539,12 @@ ldiCircle circleFit(const std::vector<vec2>& Points) {
 
 	Circle circle = CircleFitByHyper(data);
 
-	std::cout << "Circle initial guess - Itrs: " << circle.j << " Err: " << circle.s << " Pos: " << circle.a << ", " << circle.b << " Radius: " << circle.r << "\n";
+	//std::cout << "Circle initial guess - Itrs: " << circle.j << " Err: " << circle.s << " Pos: " << circle.a << ", " << circle.b << " Radius: " << circle.r << "\n";
 
 	Circle outCircle;
 
 	int status = CircleFitByLevenbergMarquardtFull(data, circle, 0.001, outCircle);
-	std::cout << "Circle final fit - Status: " << status << " Itrs: " << outCircle.i << "/" << outCircle.j << " Err: " << outCircle.s << " Pos: " << outCircle.a << ", " << outCircle.b << " Radius: " << outCircle.r << "\n";
+	//std::cout << "Circle final fit - Status: " << status << " Itrs: " << outCircle.i << "/" << outCircle.j << " Err: " << outCircle.s << " Pos: " << outCircle.a << ", " << outCircle.b << " Radius: " << outCircle.r << "\n";
 
 	ldiCircle result = {};
 	result.normal = vec3(0, 0, 1.0f);

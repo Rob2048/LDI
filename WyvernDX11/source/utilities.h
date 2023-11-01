@@ -25,6 +25,9 @@ struct ldiPlane {
 	vec3 normal;
 };
 
+//----------------------------------------------------------------------------------------------------
+// Planes.
+//----------------------------------------------------------------------------------------------------
 mat4 planeGetBasis(ldiPlane Plane) {
 	vec3 up = vec3Up;
 
@@ -94,6 +97,9 @@ bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
 	return false;
 }
 
+//----------------------------------------------------------------------------------------------------
+// Strings.
+//----------------------------------------------------------------------------------------------------
 static bool endsWith(std::string_view str, std::string_view suffix) {
 	return str.size() >= suffix.size() && 0 == str.compare(str.size() - suffix.size(), suffix.size(), suffix);
 }
@@ -102,6 +108,15 @@ static bool startsWith(std::string_view str, std::string_view prefix) {
 	return str.size() >= prefix.size() && 0 == str.compare(0, prefix.size(), prefix);
 }
 
+void convertStrToWide(const char* Str, wchar_t* WideStr) {
+	size_t size = strlen(Str) + 1;
+	size_t outSize;
+	mbstowcs_s(&outSize, WideStr, size, Str, size - 1);
+}
+
+//----------------------------------------------------------------------------------------------------
+// Files.
+//----------------------------------------------------------------------------------------------------
 std::vector<std::string> listAllFilesInDirectory(std::string Path) {
 	std::vector<std::string> result;
 
@@ -130,13 +145,7 @@ bool copyFile(std::string Src, std::string Dst) {
 	return std::filesystem::copy_file(Src, Dst, std::filesystem::copy_options::overwrite_existing);
 }
 
-void convertStrToWide(const char* Str, wchar_t* WideStr) {
-	size_t size = strlen(Str) + 1;
-	size_t outSize;
-	mbstowcs_s(&outSize, WideStr, size, Str, size - 1);
-}
-
-bool showOpenFileDialog(HWND WindowHandle, std::string& DefaultFolderPath, std::string& FilePath, const LPCWSTR ExtensionInfo, const LPCWSTR ExtensionFilter) {
+bool showOpenFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath, std::string& FilePath, const LPCWSTR ExtensionInfo, const LPCWSTR ExtensionFilter) {
 	bool result = false;
 	
 	wchar_t defaultFolderWStr[1024];
@@ -189,6 +198,9 @@ bool showOpenFileDialog(HWND WindowHandle, std::string& DefaultFolderPath, std::
 	return result;
 }
 
+//----------------------------------------------------------------------------------------------------
+// Color.
+//----------------------------------------------------------------------------------------------------
 float GammaToLinear(float In) {
 	float linearRGBLo = In / 12.92f;
 	float linearRGBHi = pow(max(abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
@@ -249,6 +261,9 @@ vec3 getRandomColor() {
 	return result;
 }
 
+//----------------------------------------------------------------------------------------------------
+// Conversions.
+//----------------------------------------------------------------------------------------------------
 inline ImVec2 toImVec2(vec2 A) {
 	return ImVec2(A.x, A.y);
 }
@@ -273,7 +288,19 @@ inline vec3 toVec3(cv::Point3f A) {
 	return vec3(A.x, A.y, A.z);
 }
 
-std::string GetMat4DebugString(mat4* Mat) {
+inline vec3d toVec3(cv::Point3d A) {
+	return vec3d(A.x, A.y, A.z);
+}
+
+inline std::string GetStr(vec3 V) {
+	std::stringstream str;
+
+	str << V.x << ", " << V.y << ", " << V.z;
+
+	return str.str();
+}
+
+std::string GetStr(mat4* Mat) {
 	std::stringstream str;
 
 	str << (*Mat)[0][0] << " " << (*Mat)[0][1] << " " << (*Mat)[0][2] << " " << (*Mat)[0][3] << "\n";

@@ -602,7 +602,7 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 }
 
 // Calculate stereo camera intrinsics, extrinsics, and cube transforms.
-void calibStereoCalibrate(ldiCalibrationJob* Job) {
+void _calibStereoCalibrate(ldiCalibrationJob* Job) {
 	std::cout << "Starting stereo calibration: " << getTime() << "\n";
 
 	Job->stereoCalibrated = false;
@@ -1075,12 +1075,12 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->basisZ = glm::normalize(glm::cross(Job->basisX, Job->basisY));
 
 	//----------------------------------------------------------------------------------------------------
-	// Gather rotarty axis samples.
+	// Gather rotary axis samples.
 	//----------------------------------------------------------------------------------------------------
-	// TODO: Fit to offset cube pose center point for now, but when we rebase this to cube middle, this can't work (as effectively).
 	Job->axisCPoints.clear();
 	Job->axisAPoints.clear();
 
+	// Just for visualization.
 	for (size_t poseIter = 0; poseIter < Job->stPoseToSampleIds.size(); ++poseIter) {
 		ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[poseIter]];
 
@@ -1092,6 +1092,41 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			Job->axisAPoints.push_back(transPoint);
 		}
 	}
+
+	std::vector<vec3> circOriginsC;
+	std::vector<vec3> circOriginsA;
+
+	for (size_t pointIter = 0; pointIter < Job->opCube.points.size(); ++pointIter) {
+		if (pointIter / 9 == 2) {
+			continue;
+		}
+
+		std::vector<vec3d> axisPointsC;
+		std::vector<vec3d> axisPointsA;
+
+		for (size_t poseIter = 0; poseIter < Job->stPoseToSampleIds.size(); ++poseIter) {
+			ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[poseIter]];
+
+			if (sample->phase == 2) {
+				vec3d transPoint = mat4d(Job->stCubeWorlds[poseIter]) * vec4d(Job->opCube.points[pointIter], 1.0);
+				axisPointsC.push_back(transPoint);
+			} else if (sample->phase == 3) {
+				vec3d transPoint = mat4d(Job->stCubeWorlds[poseIter]) * vec4d(Job->opCube.points[pointIter], 1.0);
+				axisPointsA.push_back(transPoint);
+			}
+		}
+
+		circOriginsC.push_back(computerVisionFitCircle(axisPointsC).origin);
+		circOriginsA.push_back(computerVisionFitCircle(axisPointsA).origin);
+	}
+
+	ldiLine fitC = computerVisionFitLine(circOriginsC);
+	Job->axisC.direction = fitC.direction;
+	Job->axisC.origin = fitC.origin;
+	
+	ldiLine fitA = computerVisionFitLine(circOriginsA);
+	Job->axisA.direction = fitA.direction;
+	Job->axisA.origin = fitA.origin;
 
 	//----------------------------------------------------------------------------------------------------
 	// Calculate calib volume to world basis.
@@ -1193,8 +1228,6 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			Job->cubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
 		}
 
-		// TODO: Average cube poses for 0th pose?
-
 		// Axis C points.
 		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
 			Job->axisCPoints[i] = volumeToWorld * vec4(Job->axisCPoints[i], 1.0f);
@@ -1204,78 +1237,18 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		for (size_t i = 0; i < Job->axisAPoints.size(); ++i) {
 			Job->axisAPoints[i] = volumeToWorld * vec4(Job->axisAPoints[i], 1.0f);
 		}
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Axis C measurement.
-	//----------------------------------------------------------------------------------------------------
-	{
-		computerVisionFitPlane(Job->axisCPoints, &Job->axisCPlane);
-
-		mat4 planeBasis = planeGetBasis(Job->axisCPlane);
-		mat4 planeBasisInv = glm::inverse(planeBasis);
-		std::vector<vec2> pointsOnPlane;
-
-		// Project all points onto the plane.
-		Job->axisCPointsPlaneProjected.clear();
-		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
-			Job->axisCPointsPlaneProjected.push_back(projectPointToPlane(Job->axisCPoints[i], Job->axisCPlane));
-
-			vec3 planePos = planeBasisInv * vec4(Job->axisCPointsPlaneProjected[i], 1.0f);
-			pointsOnPlane.push_back(vec2(planePos.x, planePos.y));
-		}
-
-		ldiCircle circle = circleFit(pointsOnPlane);
-
-		// Transform 2D circle back to 3D plane.
-		circle.normal = planeBasis * vec4(circle.normal, 0.0f);
-		circle.origin = planeBasis * vec4(circle.origin, 1.0f);
-
-		// This axis always points positive on Y.
-		if (circle.normal.y < 0.0f) {
-			circle.normal = -circle.normal;
-		}
-
-		Job->axisCCircle = circle;
-		Job->axisC = { circle.origin, circle.normal };
-	}
-
-	//----------------------------------------------------------------------------------------------------
-	// Axis A measurement.
-	//----------------------------------------------------------------------------------------------------
-	{
-		computerVisionFitPlane(Job->axisAPoints, &Job->axisAPlane);
-
-		mat4 planeBasis = planeGetBasis(Job->axisAPlane);
-		mat4 planeBasisInv = glm::inverse(planeBasis);
-		std::vector<vec2> pointsOnPlane;
-
-		// Project all points onto the plane.
-		Job->axisAPointsPlaneProjected.clear();
-		for (size_t i = 0; i < Job->axisAPoints.size(); ++i) {
-			Job->axisAPointsPlaneProjected.push_back(projectPointToPlane(Job->axisAPoints[i], Job->axisAPlane));
-
-			vec3 planePos = planeBasisInv * vec4(Job->axisAPointsPlaneProjected[i], 1.0f);
-			pointsOnPlane.push_back(vec2(planePos.x, planePos.y));
-		}
-
-		ldiCircle circle = circleFit(pointsOnPlane);
-
-		// Transform 2D circle back to 3D plane.
-		circle.normal = planeBasis * vec4(circle.normal, 0.0f);
-		circle.origin = planeBasis * vec4(circle.origin, 1.0f);
 
 		// This axis always points negative on X.
-		if (circle.normal.x > 0.0f) {
+		/*if (fitC.direction.x > 0.0f) {
 			circle.normal = -circle.normal;
-		}
+		}*/
 
-		// TODO: Not entirely sure why we need to flip this, is it becuase we are moving the cameras and not the cube?
-		circle.normal.z = -circle.normal.z;
-		circle.normal.y = -circle.normal.y;
+		Job->axisC.origin = volumeToWorld * vec4(Job->axisC.origin, 1.0f);
+		Job->axisC.direction = volumeToWorld * vec4(-Job->axisC.direction, 0.0f);
+		//	std::cout << "Axis A - Origin: " << GetStr(Job->axisA.origin) << " Dir: " << GetStr(Job->axisA.direction) << "\n";
 
-		Job->axisACircle = circle;
-		Job->axisA = { circle.origin, circle.normal };
+		Job->axisA.origin = volumeToWorld * vec4(Job->axisA.origin, 1.0f);
+		Job->axisA.direction = volumeToWorld * vec4(-Job->axisA.direction, 0.0f);
 	}
 
 	Job->metricsCalculated = true;
@@ -1410,7 +1383,7 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 //----------------------------------------------------------------------------------------------------
 // Bundle adjust experiments.
 //----------------------------------------------------------------------------------------------------
-void calibSaveInitialOutput(ldiCalibrationJob* Job) {
+void calibSaveFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	std::vector<int> viewId;
 	std::vector<int> stereoSampleId;
 	std::vector<int> camId;
@@ -1500,8 +1473,6 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 					diffExtrinsics.push_back(relativeRT);
 					//diffExtrinsics.push_back(camExts[hawkIter]);
-
-					std::cout << relativeRT << "\n";
 				}
 
 				viewId.push_back(stereoSampleId.size() - 1);
@@ -1515,8 +1486,8 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 	// Write file.
 	FILE* f;
-	//fopen_s(&f, "../cache/ba_input.txt", "w");
-	fopen_s(&f, "C:/Projects/LDI/PyBA/ba_input.txt", "w");
+	fopen_s(&f, FilePath.c_str(), "w");
+	//fopen_s(&f, "C:/Projects/LDI/PyBA/ba_input.txt", "w");
 
 	if (f == 0) {
 		std::cout << "Could not open bundle adjust input file for writing\n";
@@ -1543,13 +1514,7 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 		fprintf(f, "\n");
 	}
 
-
-	/*cv::Mat calibCameraMatrix = Job->defaultCamMat[hawkId];
-	cv::Mat calibCameraDist = Job->defaultCamDist[hawkId];
-	float focal = calibCameraMatrix.at<double>(0);
-	float k1 = calibCameraDist.at<double>(0);
-	float k2 = calibCameraDist.at<double>(1);*/
-
+	// Relative pose.
 	{
 		relativeMat /= (float)relativeMatCount;
 
@@ -1561,31 +1526,6 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 
 		fprintf(f, "\n");
 	}
-
-	//{
-	//	// Test project
-	//	std::vector<cv::Point3f> tempModel;
-	//	for (size_t i = 0; i < initialCube.points.size(); ++i) {
-	//		tempModel.push_back(toPoint3f(initialCube.points[i]));
-	//	}
-
-	//	cv::Mat rVec = cv::Mat::zeros(1, 3, CV_64F);
-	//	rVec.at<double>(0) = camExtrinsics[0].at<double>(0);
-	//	rVec.at<double>(1) = camExtrinsics[0].at<double>(1);
-	//	rVec.at<double>(2) = camExtrinsics[0].at<double>(2);
-
-	//	cv::Mat tVec = cv::Mat::zeros(1, 3, CV_64F);
-	//	tVec.at<double>(0) = camExtrinsics[0].at<double>(3);
-	//	tVec.at<double>(1) = camExtrinsics[0].at<double>(4);
-	//	tVec.at<double>(2) = camExtrinsics[0].at<double>(5);
-
-	//	std::vector<cv::Point2f> projPoints;
-	//	cv::projectPoints(tempModel, rVec, tVec, Job->defaultCamMat[0], Job->defaultCamDist[0], projPoints);
-
-	//	for (size_t i = 0; i < projPoints.size(); ++i) {
-	//		std::cout << "Point " << i << ": " << projPoints[i] << "\n";
-	//	}
-	//}
 
 	// Observations.
 	for (size_t viewIter = 0; viewIter < observations.size(); ++viewIter) {
@@ -1599,11 +1539,11 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 		}
 	}
 
-	// View info
+	// Base poses.
 	for (size_t viewIter = 0; viewIter < stereoSampleId.size(); ++viewIter) {
 		fprintf(f, "%d ", stereoSampleId[viewIter]);
 		
-		// Camera extrinsics
+		// Camera extrinsics.
 		// 6 params. r, t
 		for (int i = 0; i < 6; ++i) {
 			fprintf(f, "%f ", camExtrinsics[viewIter].at<double>(i));
@@ -1621,9 +1561,9 @@ void calibSaveInitialOutput(ldiCalibrationJob* Job) {
 	fclose(f);
 }
 
-void calibLoadFullBA(ldiCalibrationJob* Job) {
+void calibLoadFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	FILE* f;
-	fopen_s(&f, "C:/Projects/LDI/PyBA/ba_result.txt", "r");
+	fopen_s(&f, FilePath.c_str(), "r");
 
 	if (f == 0) {
 		std::cout << "Could not open bundle adjust file.\n";
@@ -1700,25 +1640,7 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 		worldMat[3][2] = tVec.at<double>(2);
 
 		worldMat = glm::inverse(worldMat);
-
-		/*worldMat[0][0] = worldMat[0][0];
-		worldMat[0][1] = -worldMat[0][1];
-		worldMat[0][2] = -worldMat[0][2];
-		worldMat[1][0] = worldMat[1][0];
-		worldMat[1][1] = -worldMat[1][1];
-		worldMat[1][2] = -worldMat[1][2];
-		worldMat[2][0] = worldMat[2][0];
-		worldMat[2][1] = -worldMat[2][1];
-		worldMat[2][2] = -worldMat[2][2];
-		worldMat[3][0] = worldMat[3][0];
-		worldMat[3][1] = -worldMat[3][1];
-		worldMat[3][2] = -worldMat[3][2];*/
-
 		cam1 = worldMat;
-
-		// Swap view for cam
-		//cam1[1] = -cam1[1];
-		//cam1[2] = -cam1[2];
 	}
 
 	Job->stStereoCamWorld[0] = cam0;
@@ -1762,6 +1684,20 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 
 		Job->stPoseToSampleIds.push_back(sampleId);
 		Job->stCubeWorlds.push_back(worldMat);
+
+		mat4d worldMatD = glm::identity<mat4>();
+		worldMatD[0][0] = cvRotMat.at<double>(0, 0);
+		worldMatD[0][1] = cvRotMat.at<double>(1, 0);
+		worldMatD[0][2] = cvRotMat.at<double>(2, 0);
+		worldMatD[1][0] = cvRotMat.at<double>(0, 1);
+		worldMatD[1][1] = cvRotMat.at<double>(1, 1);
+		worldMatD[1][2] = cvRotMat.at<double>(2, 1);
+		worldMatD[2][0] = cvRotMat.at<double>(0, 2);
+		worldMatD[2][1] = cvRotMat.at<double>(1, 2);
+		worldMatD[2][2] = cvRotMat.at<double>(2, 2);
+		worldMatD[3][0] = tVec.at<double>(0);
+		worldMatD[3][1] = tVec.at<double>(1);
+		worldMatD[3][2] = tVec.at<double>(2);
 	}
 
 	Job->stCubePoints.clear();
@@ -1783,4 +1719,45 @@ void calibLoadFullBA(ldiCalibrationJob* Job) {
 
 	// TODO: Make sure to scale view positions, relative pose, etc.
 	fclose(f);
+}
+
+// Calculate stereo camera intrinsics, extrinsics, and cube transforms.
+void calibStereoCalibrate(ldiCalibrationJob* Job) {
+	std::cout << "Starting stereo calibration: " << getTime() << "\n";
+
+	Job->stereoCalibrated = false;
+	Job->stPoseToSampleIds.clear();
+	Job->stCubePoints.clear();
+	Job->stCubeWorlds.clear();
+
+	calibSaveFullBA(Job, "../cache/ba_input.txt");
+
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	char args[2048];
+	sprintf_s(args, "python bundleAdjust.py ../../bin/cache/ba_input.txt ../../bin/cache/ba_refined.txt");
+
+	CreateProcessA(
+		NULL,
+		args,
+		NULL,
+		NULL,
+		FALSE,
+		0, //CREATE_NEW_CONSOLE,
+		NULL,
+		"../../assets/bin",
+		&si,
+		&pi
+	);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	calibLoadFullBA(Job, "../cache/ba_refined.txt");
+
+	Job->stereoCalibrated = true;
 }

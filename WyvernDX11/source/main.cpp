@@ -894,8 +894,7 @@ int main() {
 	// TODO: Move to callibration machine vision setup.
 	createCharucos(false);
 	cameraCalibCreateTarget(9, 6, 1.0f, 64);
-	initCubePoints();
-
+	
 	if (!_initResources(appContext)) {
 		return 1;
 	}

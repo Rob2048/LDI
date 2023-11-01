@@ -88,8 +88,6 @@ struct ldiImageInspector {
 
 	std::vector<vec4>			hawkScanSegs;
 	std::vector<vec2>			hawkScanPoints;
-
-	vec3						axisATestOffset;
 };
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -275,7 +273,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Wi
 	//mat4 camWorldMat = job->opInitialCamWorld[HawkId];
 
 	{
-		vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f) + Tool->axisATestOffset;
+		vec3 refToAxis = job->axisA.origin;
 		float axisAngleDeg = (Tool->appContext->platform->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
 		mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
@@ -759,8 +757,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					ImGui::Text("%.3f %.3f", surfaceResult.worldPos.x, surfaceResult.worldPos.y);
 				}
 
-				//ImGui::Text("Surfels: %d", laserViewSurfelCount);
-
 				ImGui::EndChild();
 			}
 		}
@@ -945,10 +941,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			ImGui::Separator();
 			ImGui::Checkbox("Show charuco results", &Tool->showCharucoResults);
 			ImGui::Checkbox("Show charuco rejected markers", &Tool->showCharucoRejectedMarkers);
-			ImGui::Checkbox("Show calib cube volume", &Tool->appContext->platform->showCalibCubeVolume);
-			ImGui::Checkbox("Show calib basis", &Tool->appContext->platform->showCalibVolumeBasis);
-
-			ImGui::DragFloat3("Axis A Test", (float*)&Tool->axisATestOffset, 0.01);
 			
 			if (ImGui::Checkbox("Show undistorted", &Tool->showUndistorted)) {
 				_imageInspectorSelectCalibJob(Tool, Tool->calibJobSelectedSampleId, Tool->calibJobSelectedSampleType);
@@ -1182,16 +1174,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ImGui::EndListBox();
 			}
 		}
-
-		if (ImGui::CollapsingHeader("Platform calibration", ImGuiTreeNodeFlags_DefaultOpen)) {
-			if (ImGui::Button("Generate full BA")) {
-				calibSaveInitialOutput(&Tool->appContext->calibrationContext->calibJob);
-			}
-
-			if (ImGui::Button("Load full BA")) {
-				calibLoadFullBA(&Tool->appContext->calibrationContext->calibJob);
-			}
-		}
 	}
 	ImGui::End();
 
@@ -1423,8 +1405,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 			//ImGui::Text("%.3f %.3f - %.3f", tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, tool->surfelViewScale);
-			ImGui::Text("%.3f %.3f", surfaceResult.worldPos.x, surfaceResult.worldPos.y);
-			//ImGui::Text("Surfels: %d", laserViewSurfelCount);
+
+			if (surfaceResult.isHovered) {
+				ImGui::Text("%.3f %.3f", surfaceResult.worldPos.x, surfaceResult.worldPos.y);
+			}
 
 			ImGui::EndChild();
 		}

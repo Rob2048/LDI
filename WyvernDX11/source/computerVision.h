@@ -155,15 +155,8 @@ struct ldiCalibrationJob {
 	mat4 baStereoCamWorld[2];
 
 	std::vector<vec3> axisCPoints;
-	ldiPlane axisCPlane;
-	std::vector<vec3> axisCPointsPlaneProjected;
-	ldiCircle axisCCircle;
-
 	std::vector<vec3> axisAPoints;
-	ldiPlane axisAPlane;
-	std::vector<vec3> axisAPointsPlaneProjected;
-	ldiCircle axisACircle;
-
+	
 	std::vector<std::vector<vec2>> scanPoints[2];
 	std::vector<ldiLine> scanRays[2];
 	std::vector<vec3> scanWorldPoints[2];
@@ -180,12 +173,6 @@ ldiImage _calibrationTargetImage;
 float _calibrationTargetFullWidthCm;
 float _calibrationTargetFullHeightCm;
 std::vector<vec3> _calibrationTargetLocalPoints;
-
-ldiCalibCube _defaultCube;
-
-void initCubePoints() {
-	calibCubeInit(&_defaultCube);
-}
 
 void cameraCalibCreateTarget(int CornerCountX, int CornerCountY, float CellSize, int CellPixelSize, bool OutputImage = false) {
 	// NOTE: Border is half cellSize.
@@ -512,8 +499,8 @@ void cameraCalibRunCalibrationCircles(ldiApp* AppContext, std::vector<ldiCameraC
 		//std::cout << "R: " << rvecs[i] << "\n";
 		//std::cout << "T: " << tvecs[i] << "\n";
 		//std::cout << "cvRotMat: " << cvRotMat << "\n";
-		//std::cout << "rotMat: " << GetMat4DebugString(&rotMat);
-		//std::cout << "camLocalMat: " << GetMat4DebugString(&Samples[i].camLocalMat);
+		//std::cout << "rotMat: " << GetStr(&rotMat);
+		//std::cout << "camLocalMat: " << GetStr(&Samples[i].camLocalMat);
 
 		//// Convert cam mat to rvec, tvec.
 		//cv::Mat reTvec = cv::Mat::zeros(3, 1, CV_64F);
@@ -984,8 +971,6 @@ bool computerVisionFindGeneralPoseRT(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs,
 }
 
 ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
-	// TODO: Double check that the centroid is actually a valid point on the line.
-
 	std::vector<cv::Point3f> points;
 
 	for (size_t i = 0; i < Points.size(); ++i) {
@@ -1109,24 +1094,24 @@ void computerVisionFitPoints(std::vector<vec3>& A, std::vector<vec3>& B, cv::Mat
 // Original code by Emil Ernerfeldt.
 // https://www.ilikebigbits.com/2017_09_25_plane_from_points_2.html
 void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane) {
-	float pointCount = Points.size();
+	double pointCount = Points.size();
 
-	vec3 sum(0.0f, 0.0f, 0.0f);
+	vec3d sum(0.0, 0.0, 0.0);
 	for (int i = 0; i < pointCount; ++i) {
 		sum += Points[i];
 	}
 
-	vec3 centroid = sum * (1.0f / pointCount);
+	vec3d centroid = sum * (1.0 / pointCount);
 
-	float xx = 0.0f;
-	float xy = 0.0f;
-	float xz = 0.0f;
-	float yy = 0.0f;
-	float yz = 0.0f;
-	float zz = 0.0f;
+	double xx = 0.0;
+	double xy = 0.0;
+	double xz = 0.0;
+	double yy = 0.0;
+	double yz = 0.0;
+	double zz = 0.0;
 
 	for (int i = 0; i < pointCount; ++i) {
-		vec3 r = Points[i] - centroid;
+		vec3d r = vec3d(Points[i]) - centroid;
 		xx += r.x * r.x;
 		xy += r.x * r.y;
 		xz += r.x * r.z;
@@ -1142,19 +1127,19 @@ void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane) {
 	yz /= pointCount;
 	zz /= pointCount;
 
-	vec3 weightedDir(0.0f, 0.0f, 0.0f);
+	vec3d weightedDir(0.0, 0.0, 0.0);
 
 	{
-		float detX = yy * zz - yz * yz;
-		vec3 axisDir = vec3(
+		double detX = yy * zz - yz * yz;
+		vec3d axisDir = vec3d(
 			detX,
 			xz * yz - xy * zz,
 			xy * yz - xz * yy
 		);
 
-		float weight = detX * detX;
+		double weight = detX * detX;
 
-		if (glm::dot(weightedDir, axisDir) < 0.0f) {
+		if (glm::dot(weightedDir, axisDir) < 0.0) {
 			weight = -weight;
 		}
 
@@ -1162,16 +1147,16 @@ void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane) {
 	}
 
 	{
-		float detY = xx * zz - xz * xz;
-		vec3 axisDir = vec3(
+		double detY = xx * zz - xz * xz;
+		vec3d axisDir = vec3d(
 			xz * yz - xy * zz,
 			detY,
 			xy * xz - yz * xx
 		);
 
-		float weight = detY * detY;
+		double weight = detY * detY;
 
-		if (glm::dot(weightedDir, axisDir) < 0.0f) {
+		if (glm::dot(weightedDir, axisDir) < 0.0) {
 			weight = -weight;
 		}
 
@@ -1179,31 +1164,99 @@ void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane) {
 	}
 
 	{
-		float detZ = xx * yy - xy * xy;
-		vec3 axisDir = vec3(
+		double detZ = xx * yy - xy * xy;
+		vec3d axisDir = vec3d(
 			xy * yz - xz * yy,
 			xy * xz - yz * xx,
 			detZ
 		);
 
-		float weight = detZ * detZ;
+		double weight = detZ * detZ;
 
-		if (glm::dot(weightedDir, axisDir) < 0.0f) {
+		if (glm::dot(weightedDir, axisDir) < 0.0) {
 			weight = -weight;
 		}
 
 		weightedDir += axisDir * weight;
 	}
 
-	vec3 normal = glm::normalize(weightedDir);
+	vec3d normal = glm::normalize(weightedDir);
 
 	ResultPlane->point = centroid;
 	ResultPlane->normal = normal;
 
-	if (glm::length(normal) == 0.0f) {
+	if (glm::length(normal) == 0.0) {
 		ResultPlane->point = vec3Zero;
 		ResultPlane->normal = vec3Up;
 	}
+}
+
+ldiPlane computerVisionFitPlane2(std::vector<vec3d>& Points) {
+	std::vector<cv::Point3d> points;
+
+	for (size_t i = 0; i < Points.size(); ++i) {
+		points.push_back(cv::Point3d(Points[i].x, Points[i].y, Points[i].z));
+	}
+
+	int pointCount = (int)Points.size();
+	
+	cv::Point3d centroid(0, 0, 0);
+
+	for (int i = 0; i < pointCount; ++i) {
+		centroid += points[i];
+	}
+
+	centroid /= (double)pointCount;
+	
+	cv::Mat mP = cv::Mat(pointCount, 3, CV_64F);
+
+	for (int i = 0; i < pointCount; ++i) {
+		points[i] -= centroid;
+		mP.at<double>(i, 0) = points[i].x;
+		mP.at<double>(i, 1) = points[i].y;
+		mP.at<double>(i, 2) = points[i].z;
+	}
+
+	cv::Mat w, u, vt;
+	cv::SVD::compute(mP, w, u, vt);
+
+	cv::Point3d pV(vt.at<double>(2, 0), vt.at<double>(2, 1), vt.at<double>(2, 2));
+	
+	vec3d normal = glm::normalize(toVec3(pV));
+
+	ldiPlane result;
+	result.point = toVec3(centroid);
+	result.normal = normal;
+
+	if (glm::length(normal) == 0.0) {
+		result.point = vec3Zero;
+		result.normal = vec3Up;
+	}
+
+	return result;
+}
+
+ldiCircle computerVisionFitCircle(std::vector<vec3d>& Points) {
+	// Transform 3D points to 2D plane.
+	ldiPlane basePlane = computerVisionFitPlane2(Points);
+	mat4 planeBasis = planeGetBasis(basePlane);
+	mat4 planeBasisInv = glm::inverse(planeBasis);
+	std::vector<vec2> pointsOnPlane;
+
+	// Project all points onto the plane.
+	for (size_t i = 0; i < Points.size(); ++i) {
+		vec3 proj = projectPointToPlane(Points[i], basePlane);
+		vec3 planePos = planeBasisInv * vec4(proj, 1.0f);
+		pointsOnPlane.push_back(vec2(planePos.x, planePos.y));
+	}
+
+	ldiCircle circle = circleFit(pointsOnPlane);
+
+	// Transform 2D circle back to 3D plane.
+	circle.normal = planeBasis * vec4(circle.normal, 0.0f);
+	circle.origin = planeBasis * vec4(circle.origin, 1.0f);
+
+	return circle;
 }
 
 std::vector<vec2> computerVisionFindScanLine(ldiImage Image) {

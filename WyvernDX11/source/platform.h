@@ -78,6 +78,7 @@ struct ldiPlatform {
 
 	ldiRenderModel				cubeModel;
 
+	bool						showMachineFrame = true;
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = true;
@@ -93,6 +94,8 @@ struct ldiPlatform {
 	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
 	float						pointScreenSpaceBlend = 0.0f;
+
+	ldiCalibCube				defaultCube;
 };
 
 void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
@@ -978,6 +981,8 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	Tool->mainCamera.rotation = vec3(-50, 30, 0);
 	Tool->mainCamera.fov = 60.0f;
 
+	calibCubeInit(&Tool->defaultCube);
+
 	horseInit(&Tool->horse);
 
 	if (!pantherInit(AppContext, &Tool->panther)) {
@@ -1200,10 +1205,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
-	if (true) {
-		for (size_t i = 0; i < _defaultCube.points.size(); ++i) {
-			pushDebugSphere(&appContext->defaultDebug, _defaultCube.points[i], 0.02, vec3(1, 0, 0), 8);
-			displayTextAtPoint(Camera, _defaultCube.points[i], std::to_string(i), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	if (false) {
+		for (size_t i = 0; i < Tool->defaultCube.points.size(); ++i) {
+			pushDebugSphere(&appContext->defaultDebug, Tool->defaultCube.points[i], 0.02, vec3(1, 0, 0), 8);
+			displayTextAtPoint(Camera, Tool->defaultCube.points[i], std::to_string(i), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 		}
 	}
 
@@ -1536,17 +1541,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
 					}
 
-					for (size_t i = 0; i < job->axisCPointsPlaneProjected.size(); ++i) {
-						vec3 point = job->axisCPointsPlaneProjected[i];
-
-						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 0), 8);
-					}
-
-					//pushDebugPlane(&appContext->defaultDebug, job->axisCPlane.point, job->axisCPlane.normal, 10.0f, vec3(0, 0, 1));
-
-					mat4 circleBasis = planeGetBasis({ job->axisCCircle.origin, job->axisCCircle.normal });
-					pushDebugCirlcle(&appContext->defaultDebug, job->axisCCircle.origin, job->axisCCircle.radius, vec3(1, 0, 1), 64, circleBasis[0], circleBasis[1]);
-					pushDebugLine(&appContext->defaultDebug, job->axisCCircle.origin, job->axisCCircle.origin + job->axisCCircle.normal * 10.0f, vec3(1, 1, 0));
+					pushDebugSphere(&appContext->defaultDebug, job->axisC.origin, 0.1, vec3(1, 0, 1), 32);
+					pushDebugLine(&appContext->defaultDebug, job->axisC.origin, job->axisC.origin + job->axisC.direction * 10.0f, vec3(1, 0, 1));
 				}
 
 				//----------------------------------------------------------------------------------------------------
@@ -1559,17 +1555,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
 					}
 
-					for (size_t i = 0; i < job->axisAPointsPlaneProjected.size(); ++i) {
-						vec3 point = job->axisAPointsPlaneProjected[i];
-
-						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 1, 0), 8);
-					}
-
-					//pushDebugPlane(&appContext->defaultDebug, job->axisAPlane.point, job->axisAPlane.normal, 10.0f, vec3(0, 0, 1));
-
-					mat4 circleBasis = planeGetBasis({ job->axisACircle.origin, job->axisACircle.normal });
-					pushDebugCirlcle(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.radius, vec3(1, 0, 1), 64, circleBasis[0], circleBasis[1]);
-					pushDebugLine(&appContext->defaultDebug, job->axisACircle.origin, job->axisACircle.origin + job->axisACircle.normal * 10.0f, vec3(1, 0, 1));
+					pushDebugSphere(&appContext->defaultDebug, job->axisA.origin, 0.1, vec3(1, 0, 1), 32);
+					pushDebugLine(&appContext->defaultDebug, job->axisA.origin, job->axisA.origin + job->axisA.direction * 10.0f, vec3(1, 0, 1));
 				}
 			}
 		}
@@ -1738,7 +1725,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		//----------------------------------------------------------------------------------------------------
 		// Machine representation.
 		//----------------------------------------------------------------------------------------------------
-		if (false) {
+		if (Tool->showMachineFrame) {
 			vec3 offset = glm::f64vec3(Tool->testPosX, Tool->testPosY, Tool->testPosZ) * job->stepsToCm;
 			vec3 point(0.0f, 0.0f, 0.0f);
 			point += offset.x * job->axisX.direction;
@@ -1913,288 +1900,297 @@ void platformShowUi(ldiPlatform* Tool) {
 	//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
 
 	//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
-	ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse);
+	if (ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse)) {
+		if (ImGui::CollapsingHeader("Viewport")) {
+			ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
 
-	if (ImGui::CollapsingHeader("Scan")) {
-		ImGui::Text("Point cloud");
-		//ImGui::Checkbox("Show point cloud", &Tool->showPointCloud);
-		ImGui::SliderFloat("World size", &Tool->pointWorldSize, 0.0f, 1.0f);
-		ImGui::SliderFloat("Screen size", &Tool->pointScreenSize, 0.0f, 32.0f);
-		ImGui::SliderFloat("Screen blend", &Tool->pointScreenSpaceBlend, 0.0f, 1.0f);
-	}
-
-	ImGui::Checkbox("Show calib cube faces", &Tool->showCalibCubeFaces);
-
-	ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
-
-	ImGui::Text("Simulated position");
-	ImGui::Checkbox("Update live", &Tool->liveAxisUpdate);
-	ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
-	ImGui::SliderInt("PosY", &Tool->testPosY, -48000, 48000);
-	ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
-	ImGui::SliderInt("PosC", &Tool->testPosC, -192000 * 2, 192000 * 2);
-	ImGui::SliderInt("PosA", &Tool->testPosA, -15000, 300000);
-	ImGui::Separator();
-
-	ImGui::Text("Connection");
-	ImGui::BeginDisabled(Tool->panther.serialPortConnected);
-	/*char ipBuff[] = "192.168.0.50";
-	int port = 5000;
-	ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
-	ImGui::InputInt("Port", &port);*/
-
-	char comPortPath[7] = "COM4";
-	ImGui::InputText("COM path", comPortPath, sizeof(comPortPath));
-
-	ImGui::EndDisabled();
-
-	if (Tool->panther.serialPortConnected) {
-		if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
-			pantherDisconnect(&Tool->panther);
-		};
-	} else {
-		if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-			if (pantherConnect(&Tool->panther, "\\\\.\\COM4")) {
-				pantherSendDiagCommand(&Tool->panther);
+			if (ImGui::CollapsingHeader("Scan")) {
+				ImGui::Text("Point cloud");
+				//ImGui::Checkbox("Show point cloud", &Tool->showPointCloud);
+				ImGui::SliderFloat("World size", &Tool->pointWorldSize, 0.0f, 1.0f);
+				ImGui::SliderFloat("Screen size", &Tool->pointScreenSize, 0.0f, 32.0f);
+				ImGui::SliderFloat("Screen blend", &Tool->pointScreenSpaceBlend, 0.0f, 1.0f);
 			}
+
+			ImGui::Separator();
+			ImGui::Text("Rendering options");
+			ImGui::Checkbox("Show machine frame", &Tool->showMachineFrame);
+			ImGui::Checkbox("Show calib cube faces", &Tool->showCalibCubeFaces);
+			ImGui::Checkbox("Show calib cube volume", &Tool->showCalibCubeVolume);
+			ImGui::Checkbox("Show calib basis", &Tool->showCalibVolumeBasis);
+
+			ImGui::Separator();
+			ImGui::Text("Simulated position");
+			ImGui::Checkbox("Update live", &Tool->liveAxisUpdate);
+			ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
+			ImGui::SliderInt("PosY", &Tool->testPosY, -48000, 48000);
+			ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
+			ImGui::SliderInt("PosC", &Tool->testPosC, -192000 * 2, 192000 * 2);
+			ImGui::SliderInt("PosA", &Tool->testPosA, -15000, 300000);
+		}
+
+		if (ImGui::CollapsingHeader("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::Text("Connection");
+			ImGui::BeginDisabled(Tool->panther.serialPortConnected);
+			/*char ipBuff[] = "192.168.0.50";
+			int port = 5000;
+			ImGui::InputText("Address", ipBuff, sizeof(ipBuff));
+			ImGui::InputInt("Port", &port);*/
+
+			char comPortPath[7] = "COM4";
+			ImGui::InputText("COM path", comPortPath, sizeof(comPortPath));
+
+			ImGui::EndDisabled();
+
+			if (Tool->panther.serialPortConnected) {
+				if (ImGui::Button("Disconnect", ImVec2(-1, 0))) {
+					pantherDisconnect(&Tool->panther);
+				};
+			} else {
+				if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+					if (pantherConnect(&Tool->panther, "\\\\.\\COM4")) {
+						pantherSendDiagCommand(&Tool->panther);
+					}
+				}
+			}
+
+			ImGui::Separator();
+
+			ImGui::BeginDisabled(!Tool->panther.serialPortConnected);
+			ImGui::Text("Platform status");
+			ImGui::PushFont(Tool->appContext->fontBig);
+
+			const char* labelStrs[] = {
+				"Disconnected",
+				"Connected",
+				"Idle",
+				"Cancelling job",
+				"Running job",
+				"Idle - Not homed",
+			};
+
+			ImColor labelColors[] = {
+				ImColor(0, 0, 0, 50),
+				ImColor(184, 179, 55, 255),
+				ImColor(61, 184, 55, 255),
+				ImColor(186, 28, 28, 255),
+				ImColor(179, 72, 27, 255),
+				ImColor(184, 179, 55, 255),
+			};
+
+			int labelIndex = 0;
+
+			if (Tool->panther.serialPortConnected) {
+				labelIndex = 1;
+
+				if (Tool->jobExecuting) {
+					if (Tool->jobCancel) {
+						labelIndex = 3;
+					} else {
+						labelIndex = 4;
+					}
+				} else {
+					if (Tool->homed) {
+						labelIndex = 2;
+					} else {
+						labelIndex = 5;
+					}
+				}
+			}
+
+			float startX = ImGui::GetCursorPosX();
+			float availX = ImGui::GetContentRegionAvail().x;
+
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			ImGuiStyle style = ImGui::GetStyle();
+
+			{
+				ImVec2 bannerCursorStart = ImGui::GetCursorPos();
+				ImVec2 bannerMin = ImGui::GetCursorScreenPos() + ImVec2(0.0f, style.FramePadding.y);
+				ImVec2 bannerMax = bannerMin + ImVec2(availX, 32);
+				int bannerHeight = 32;
+
+				drawList->AddRectFilled(bannerMin, bannerMax, labelColors[labelIndex]);
+
+				ImVec2 bannerCursorEnd = ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + bannerHeight + style.FramePadding.y * 2);
+
+				ImVec2 labelSize = ImGui::CalcTextSize(labelStrs[labelIndex]);
+				ImGui::SetCursorPos(bannerCursorStart + ImVec2(availX / 2.0f - labelSize.x / 2.0f, bannerHeight / 2.0f - labelSize.y / 2.0f + style.FramePadding.y));
+				ImGui::Text(labelStrs[labelIndex]);
+				ImGui::SetCursorPos(bannerCursorEnd);
+				ImGui::PopFont();
+			}
+
+			ImGui::BeginDisabled(!Tool->jobExecuting || Tool->jobCancel);
+
+			if (ImGui::Button("Cancel job", ImVec2(-1, 0))) {
+				platformCancelJob(Tool);
+			}
+	
+			ImGui::EndDisabled();
+
+			ImGui::Separator();
+			ImGui::Text("Position");
+
+			/*{
+				ImVec2 bannerCursorStart = ImGui::GetCursorPos();
+				ImVec2 bannerMin = ImGui::GetCursorScreenPos() + ImVec2(0.0f, style.FramePadding.y);
+				ImVec2 bannerMax = bannerMin + ImVec2(availX, 32);
+				int bannerHeight = 32;
+
+				drawList->AddRectFilled(bannerMin, bannerMax, labelColors[labelIndex]);
+
+				ImVec2 bannerCursorEnd = ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + bannerHeight + style.FramePadding.y * 2);
+
+				ImVec2 labelSize = ImGui::CalcTextSize(labelStrs[labelIndex]);
+				ImGui::SetCursorPos(bannerCursorStart + ImVec2(availX / 2.0f - labelSize.x / 2.0f, bannerHeight / 2.0f - labelSize.y / 2.0f + style.FramePadding.y));
+				ImGui::Text(labelStrs[labelIndex]);
+				ImGui::SetCursorPos(bannerCursorEnd);
+				ImGui::PopFont();
+			}*/
+
+			ImGui::PushFont(Tool->appContext->fontBig);
+			ImGui::SetCursorPosX(startX);
+			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: %d", Tool->positionX);
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(startX + availX / 3);
+			ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: %d", Tool->positionY);
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(startX + availX / 3 * 2);
+			ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: %d", Tool->positionZ);
+	
+			ImGui::SetCursorPosX(startX + availX / 3 * 0);
+			ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %d", Tool->positionA);
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(startX + availX / 3 * 1);
+			ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "C: %d", Tool->positionC);
+			ImGui::PopFont();
+
+			ImGui::BeginDisabled(Tool->jobExecuting);
+	
+			ImGui::Separator();
+
+			float distance = 1;
+			ImGui::InputFloat("Distance", &distance);
+
+			static int steps = 10000;
+			ImGui::InputInt("Steps", &steps);
+			static float velocity = 30.0f;
+			ImGui::InputFloat("Velocity", &velocity);
+
+			ImGui::BeginDisabled(!Tool->homed);
+
+			if (ImGui::Button("-X", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_X, -steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("-Y", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Y, -steps, velocity, true);
+			}
+			ImGui::SameLine();		
+			if (ImGui::Button("-Z", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Z, -steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("-C", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_C, -steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("-A", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_A, -steps, velocity, true);
+			}
+
+			if (ImGui::Button("+X", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_X, steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("+Y", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Y, steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("+Z", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Z, steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("+C", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_C, steps, velocity, true);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("+A", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_A, steps, velocity, true);
+			}
+
+			static int absoluteStep = 0;
+			ImGui::InputInt("Absolute step", &absoluteStep);
+			if (ImGui::Button("X", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_X, absoluteStep, 0, false);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Y", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Y, absoluteStep, 0, false);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Z", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_Z, absoluteStep, 0, false);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("C", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_C, absoluteStep, 0, false);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("A", ImVec2(32, 32))) {
+				platformQueueJobMoveAxis(Tool, PA_A, absoluteStep, 0, false);
+			}
+
+			ImGui::EndDisabled();
+
+			ImGui::Separator();
+			ImGui::Text("Jobs");
+
+			if (ImGui::Button("Find home", ImVec2(-1, 0))) {
+				platformQueueJobHome(Tool);
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::Button("Enable scan laser", ImVec2(-1, 0))) {
+				platformQueueJobSetScanLaserState(Tool, true);
+			}
+
+			if (ImGui::Button("Disable scan laser", ImVec2(-1, 0))) {
+				platformQueueJobSetScanLaserState(Tool, false);
+			}
+
+			ImGui::Separator();
+
+			ImGui::BeginDisabled(!Tool->homed);
+
+			//ImGui::Button("Go home", ImVec2(-1, 0));
+
+			if (ImGui::Button("Capture calibration", ImVec2(-1, 0))) {
+				platformQueueJobCaptureCalibration(Tool);
+			}
+
+			if (ImGui::Button("Capture scanner calibration", ImVec2(-1, 0))) {
+				platformQueueJobCaptureScannerCalibration(Tool);
+			}
+
+			ImGui::Separator();
+	
+			if (ImGui::Button("Scan model", ImVec2(-1, 0))) {
+				// Hawk 0 5000 exposure, continuous feed.
+				// Hawk 1 off.
+				platformQueueJobScan(Tool);
+			}
+
+			ImGui::EndDisabled();
+
+			ImGui::Button("Start laser preview", ImVec2(-1, 0));
+
+			ImGui::EndDisabled();
+			ImGui::EndDisabled();
 		}
 	}
-
-	ImGui::Separator();
-
-	ImGui::BeginDisabled(!Tool->panther.serialPortConnected);
-	ImGui::Text("Platform status");
-	ImGui::PushFont(Tool->appContext->fontBig);
-
-	const char* labelStrs[] = {
-		"Disconnected",
-		"Connected",
-		"Idle",
-		"Cancelling job",
-		"Running job",
-		"Idle - Not homed",
-	};
-
-	ImColor labelColors[] = {
-		ImColor(0, 0, 0, 50),
-		ImColor(184, 179, 55, 255),
-		ImColor(61, 184, 55, 255),
-		ImColor(186, 28, 28, 255),
-		ImColor(179, 72, 27, 255),
-		ImColor(184, 179, 55, 255),
-	};
-
-	int labelIndex = 0;
-
-	if (Tool->panther.serialPortConnected) {
-		labelIndex = 1;
-
-		if (Tool->jobExecuting) {
-			if (Tool->jobCancel) {
-				labelIndex = 3;
-			} else {
-				labelIndex = 4;
-			}
-		} else {
-			if (Tool->homed) {
-				labelIndex = 2;
-			} else {
-				labelIndex = 5;
-			}
-		}
-	}
-
-	float startX = ImGui::GetCursorPosX();
-	float availX = ImGui::GetContentRegionAvail().x;
-
-	ImDrawList* drawList = ImGui::GetWindowDrawList();
-	ImGuiStyle style = ImGui::GetStyle();
-
-	{
-		ImVec2 bannerCursorStart = ImGui::GetCursorPos();
-		ImVec2 bannerMin = ImGui::GetCursorScreenPos() + ImVec2(0.0f, style.FramePadding.y);
-		ImVec2 bannerMax = bannerMin + ImVec2(availX, 32);
-		int bannerHeight = 32;
-
-		drawList->AddRectFilled(bannerMin, bannerMax, labelColors[labelIndex]);
-
-		ImVec2 bannerCursorEnd = ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + bannerHeight + style.FramePadding.y * 2);
-
-		ImVec2 labelSize = ImGui::CalcTextSize(labelStrs[labelIndex]);
-		ImGui::SetCursorPos(bannerCursorStart + ImVec2(availX / 2.0f - labelSize.x / 2.0f, bannerHeight / 2.0f - labelSize.y / 2.0f + style.FramePadding.y));
-		ImGui::Text(labelStrs[labelIndex]);
-		ImGui::SetCursorPos(bannerCursorEnd);
-		ImGui::PopFont();
-	}
-
-	ImGui::BeginDisabled(!Tool->jobExecuting || Tool->jobCancel);
-
-	if (ImGui::Button("Cancel job", ImVec2(-1, 0))) {
-		platformCancelJob(Tool);
-	}
-	
-	ImGui::EndDisabled();
-
-	ImGui::Separator();
-	ImGui::Text("Position");
-
-	/*{
-		ImVec2 bannerCursorStart = ImGui::GetCursorPos();
-		ImVec2 bannerMin = ImGui::GetCursorScreenPos() + ImVec2(0.0f, style.FramePadding.y);
-		ImVec2 bannerMax = bannerMin + ImVec2(availX, 32);
-		int bannerHeight = 32;
-
-		drawList->AddRectFilled(bannerMin, bannerMax, labelColors[labelIndex]);
-
-		ImVec2 bannerCursorEnd = ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + bannerHeight + style.FramePadding.y * 2);
-
-		ImVec2 labelSize = ImGui::CalcTextSize(labelStrs[labelIndex]);
-		ImGui::SetCursorPos(bannerCursorStart + ImVec2(availX / 2.0f - labelSize.x / 2.0f, bannerHeight / 2.0f - labelSize.y / 2.0f + style.FramePadding.y));
-		ImGui::Text(labelStrs[labelIndex]);
-		ImGui::SetCursorPos(bannerCursorEnd);
-		ImGui::PopFont();
-	}*/
-
-	ImGui::PushFont(Tool->appContext->fontBig);
-	ImGui::SetCursorPosX(startX);
-	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.231f, 1.0f), "X: %d", Tool->positionX);
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(startX + availX / 3);
-	ImGui::TextColored(ImVec4(0.164f, 0.945f, 0.266f, 1.0f), "Y: %d", Tool->positionY);
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(startX + availX / 3 * 2);
-	ImGui::TextColored(ImVec4(0.227f, 0.690f, 1.000f, 1.0f), "Z: %d", Tool->positionZ);
-	
-	ImGui::SetCursorPosX(startX + availX / 3 * 0);
-	ImGui::TextColored(ImVec4(0.921f, 0.921f, 0.125f, 1.0f), "A: %d", Tool->positionA);
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(startX + availX / 3 * 1);
-	ImGui::TextColored(ImVec4(0.921f, 0.125f, 0.921f, 1.0f), "C: %d", Tool->positionC);
-	ImGui::PopFont();
-
-	ImGui::BeginDisabled(Tool->jobExecuting);
-	
-	ImGui::Separator();
-
-	float distance = 1;
-	ImGui::InputFloat("Distance", &distance);
-
-	static int steps = 10000;
-	ImGui::InputInt("Steps", &steps);
-	static float velocity = 30.0f;
-	ImGui::InputFloat("Velocity", &velocity);
-
-	ImGui::BeginDisabled(!Tool->homed);
-
-	if (ImGui::Button("-X", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_X, -steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("-Y", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Y, -steps, velocity, true);
-	}
-	ImGui::SameLine();		
-	if (ImGui::Button("-Z", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Z, -steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("-C", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_C, -steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("-A", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_A, -steps, velocity, true);
-	}
-
-	if (ImGui::Button("+X", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_X, steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("+Y", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Y, steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("+Z", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Z, steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("+C", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_C, steps, velocity, true);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("+A", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_A, steps, velocity, true);
-	}
-
-	static int absoluteStep = 0;
-	ImGui::InputInt("Absolute step", &absoluteStep);
-	if (ImGui::Button("X", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_X, absoluteStep, 0, false);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("Y", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Y, absoluteStep, 0, false);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("Z", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_Z, absoluteStep, 0, false);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("C", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_C, absoluteStep, 0, false);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("A", ImVec2(32, 32))) {
-		platformQueueJobMoveAxis(Tool, PA_A, absoluteStep, 0, false);
-	}
-
-	ImGui::EndDisabled();
-
-	ImGui::Separator();
-	ImGui::Text("Jobs");
-
-	if (ImGui::Button("Find home", ImVec2(-1, 0))) {
-		platformQueueJobHome(Tool);
-	}
-
-	ImGui::Separator();
-
-	if (ImGui::Button("Enable scan laser", ImVec2(-1, 0))) {
-		platformQueueJobSetScanLaserState(Tool, true);
-	}
-
-	if (ImGui::Button("Disable scan laser", ImVec2(-1, 0))) {
-		platformQueueJobSetScanLaserState(Tool, false);
-	}
-
-	ImGui::Separator();
-
-	ImGui::BeginDisabled(!Tool->homed);
-
-	//ImGui::Button("Go home", ImVec2(-1, 0));
-
-	if (ImGui::Button("Capture calibration", ImVec2(-1, 0))) {
-		platformQueueJobCaptureCalibration(Tool);
-	}
-
-	if (ImGui::Button("Capture scanner calibration", ImVec2(-1, 0))) {
-		platformQueueJobCaptureScannerCalibration(Tool);
-	}
-
-	ImGui::Separator();
-	
-	if (ImGui::Button("Scan model", ImVec2(-1, 0))) {
-		// Hawk 0 5000 exposure, continuous feed.
-		// Hawk 1 off.
-		platformQueueJobScan(Tool);
-	}
-
-	ImGui::EndDisabled();
-
-	ImGui::Button("Start laser preview", ImVec2(-1, 0));
-
-	ImGui::EndDisabled();
-	ImGui::EndDisabled();
 
 	ImGui::End();
 
