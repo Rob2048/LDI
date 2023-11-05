@@ -117,7 +117,7 @@ void convertStrToWide(const char* Str, wchar_t* WideStr) {
 //----------------------------------------------------------------------------------------------------
 // Files.
 //----------------------------------------------------------------------------------------------------
-std::vector<std::string> listAllFilesInDirectory(std::string Path) {
+std::vector<std::string> listAllFilesInDirectory(const std::string& Path) {
 	std::vector<std::string> result;
 
 	try {
@@ -131,18 +131,37 @@ std::vector<std::string> listAllFilesInDirectory(std::string Path) {
 	return result;
 }
 
-bool removeAllFilesInDirectory(std::string Path) {
+bool removeAllFilesInDirectory(const std::string& Path) {
 	std::filesystem::remove_all(Path);
 
 	return true;
 }
 
-bool createDirectory(std::string Path) {
+bool createDirectory(const std::string& Path) {
 	return true;
 }
 
-bool copyFile(std::string Src, std::string Dst) {
+bool copyFile(const std::string& Src, const std::string& Dst) {
 	return std::filesystem::copy_file(Src, Dst, std::filesystem::copy_options::overwrite_existing);
+}
+
+int readFile(const std::string& Path, uint8_t** Data) {
+	FILE* file;
+
+	if (fopen_s(&file, Path.c_str(), "rb") != 0) {
+		*Data = nullptr;
+		return -1;
+	}
+
+	fseek(file, 0, SEEK_END);
+	long fileLen = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	uint8_t* fileBuffer = new uint8_t[fileLen];
+	fread(fileBuffer, 1, fileLen, file);
+
+	*Data = fileBuffer;
+	
+	return (int)fileLen;
 }
 
 bool showOpenFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath, std::string& FilePath, const LPCWSTR ExtensionInfo, const LPCWSTR ExtensionFilter) {
@@ -191,6 +210,60 @@ bool showOpenFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath,
 				pDefaultFolderItem->Release();
 			}
 			pFileOpen->Release();
+		}
+		CoUninitialize();
+	}
+
+	return result;
+}
+
+bool showSaveFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath, std::string& FilePath, const LPCWSTR ExtensionInfo, const LPCWSTR ExtensionFilter, const LPCWSTR DefaultExtension) {
+	bool result = false;
+
+	wchar_t defaultFolderWStr[1024];
+	convertStrToWide(DefaultFolderPath.c_str(), defaultFolderWStr);
+
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	if (SUCCEEDED(hr)) {
+		IFileSaveDialog* pFileSave;
+		hr = CoCreateInstance(CLSID_FileSaveDialog, NULL, CLSCTX_ALL, IID_IFileSaveDialog, reinterpret_cast<void**>(&pFileSave));
+
+		if (SUCCEEDED(hr)) {
+			IShellItem* pDefaultFolderItem;
+			hr = SHCreateItemFromParsingName(defaultFolderWStr, NULL, IID_IShellItem, reinterpret_cast<void**>(&pDefaultFolderItem));
+			if (SUCCEEDED(hr)) {
+				COMDLG_FILTERSPEC rgSpec[] = {
+					{ ExtensionInfo, ExtensionFilter }
+				};
+
+				pFileSave->SetFileTypes(1, rgSpec);
+				pFileSave->SetDefaultExtension(DefaultExtension);
+				hr = pFileSave->SetDefaultFolder(pDefaultFolderItem);
+
+				if (SUCCEEDED(hr)) {
+					hr = pFileSave->Show(WindowHandle);
+
+					if (SUCCEEDED(hr)) {
+						IShellItem* pItem;
+						hr = pFileSave->GetResult(&pItem);
+						if (SUCCEEDED(hr)) {
+							PWSTR pszFilePath;
+							hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+
+							// Display the file name to the user.
+							if (SUCCEEDED(hr)) {
+								std::wstring wstr = pszFilePath;
+								FilePath = std::string(wstr.begin(), wstr.end());
+								CoTaskMemFree(pszFilePath);
+								result = true;
+							}
+							pItem->Release();
+						}
+					}
+				}
+				pDefaultFolderItem->Release();
+			}
+			pFileSave->Release();
 		}
 		CoUninitialize();
 	}

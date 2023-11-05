@@ -269,8 +269,81 @@ void deserializeCharucoBoard(FILE* File, ldiCharucoBoard* Board) {
 	}
 }
 
-void serializeStereoSamples(FILE* File, const std::vector<ldiCalibStereoSample>& Samples) {
+void serialize(FILE* File, ldiModel* Model) {
+	serializeVectorPrep(File, Model->verts);
+	for (size_t i = 0; i < Model->verts.size(); ++i) {
+		fwrite(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
+	}
 
+	serializeVectorPrep(File, Model->indices);
+	for (size_t i = 0; i < Model->indices.size(); ++i) {
+		fwrite(&Model->indices[i], sizeof(uint32_t), 1, File);
+	}
+}
+
+void deserialize(FILE* File, ldiModel* Model) {
+	deserializeVectorPrep(File, Model->verts);
+	for (size_t i = 0; i < Model->verts.size(); ++i) {
+		fread(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
+	}
+
+	deserializeVectorPrep(File, Model->indices);
+	for (size_t i = 0; i < Model->indices.size(); ++i) {
+		fread(&Model->indices[i], sizeof(uint32_t), 1, File);
+	}
+}
+
+void serialize(FILE* File, ldiImage* Image, int Channels) {
+	fwrite(&Image->width, sizeof(int), 1, File);
+	fwrite(&Image->height, sizeof(int), 1, File);
+	fwrite(Image->data, Image->width * Image->height * Channels, 1, File);
+}
+
+void deserialize(FILE* File, ldiImage* Image, int Channels) {
+	fread(&Image->width, sizeof(int), 1, File);
+	fread(&Image->height, sizeof(int), 1, File);
+	Image->data = new uint8_t[Image->width * Image->height * Channels];
+	fread(Image->data, Image->width * Image->height * Channels, 1, File);
+}
+
+void serializeCalibCube(FILE* File, ldiCalibCube* Cube) {
+	fwrite(&Cube->cellSize, sizeof(float), 1, File);
+	fwrite(&Cube->gridSize, sizeof(int), 1, File);
+	fwrite(&Cube->pointsPerSide, sizeof(int), 1, File);
+	fwrite(&Cube->totalPoints, sizeof(int), 1, File);
+	fwrite(&Cube->scaleFactor, sizeof(float), 1, File);
+
+	serializeVectorPrep(File, Cube->points);
+	for (size_t i = 0; i < Cube->points.size(); ++i) {
+		fwrite(&Cube->points[i], sizeof(vec3), 1, File);
+	}
+
+	serializeVectorPrep(File, Cube->sides);
+	for (size_t i = 0; i < Cube->sides.size(); ++i) {
+		fwrite(&Cube->sides[i], sizeof(ldiCalibCubeSide), 1, File);
+	}
+
+	fwrite(&Cube->corners, sizeof(ldiCalibCube::corners), 1, File);
+}
+
+void deserializeCalibCube(FILE* File, ldiCalibCube* Cube) {
+	fread(&Cube->cellSize, sizeof(float), 1, File);
+	fread(&Cube->gridSize, sizeof(int), 1, File);
+	fread(&Cube->pointsPerSide, sizeof(int), 1, File);
+	fread(&Cube->totalPoints, sizeof(int), 1, File);
+	fread(&Cube->scaleFactor, sizeof(float), 1, File);
+
+	deserializeVectorPrep(File, Cube->points);
+	for (size_t i = 0; i < Cube->points.size(); ++i) {
+		fread(&Cube->points[i], sizeof(vec3), 1, File);
+	}
+
+	deserializeVectorPrep(File, Cube->sides);
+	for (size_t i = 0; i < Cube->sides.size(); ++i) {
+		fread(&Cube->sides[i], sizeof(ldiCalibCubeSide), 1, File);
+	}
+
+	fread(&Cube->corners, sizeof(ldiCalibCube::corners), 1, File);
 }
 
 // Save the entire current state of the calibration job.
@@ -348,6 +421,8 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 		for (int i = 0; i < 2; ++i) {
 			fwrite(&Job->stStereoCamWorld[i], sizeof(mat4), 1, file);
 		}
+
+		serializeCalibCube(file, &Job->opCube);
 	}
 
 	fwrite(&Job->metricsCalculated, sizeof(bool), 1, file);
@@ -502,6 +577,8 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 		for (int i = 0; i < 2; ++i) {
 			fread(&Job->stStereoCamWorld[i], sizeof(mat4), 1, file);
 		}
+
+		deserializeCalibCube(file, &Job->opCube);
 	}
 
 	fread(&Job->metricsCalculated, sizeof(bool), 1, file);

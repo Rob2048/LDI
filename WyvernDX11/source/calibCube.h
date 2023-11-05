@@ -11,11 +11,8 @@ struct ldiCalibCube {
 	int gridSize;
 	int pointsPerSide;
 	int totalPoints;
-
 	float scaleFactor;
-
 	std::vector<vec3> points;
-
 	std::vector<ldiCalibCubeSide> sides;
 	vec3 corners[8];
 };
@@ -68,8 +65,6 @@ bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 	// NOTE: Using a guess of 40mm, but doesn't take refined scaling into account.
 	bottom.plane.point += bottom.plane.normal * 4.0f;
 	Cube->sides[2] = bottom;
-
-	
 
 	//----------------------------------------------------------------------------------------------------
 	// Corners.
@@ -137,14 +132,14 @@ bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 				int id0 = c + (r * size) + b * (size * size);
 				int id1 = c + 1 + (r * size) + b * (size * size);
 				float d = glm::distance(Cube->points[id0], Cube->points[id1]);
-				std::cout << id0 << ":" << id1 << " = " << d << "\n";
+				//std::cout << id0 << ":" << id1 << " = " << d << "\n";
 				distAccum += d;
 				++distCount;
 
 				id0 = c * size + r + b * (size * size);
 				id1 = (c + 1) * size + r + b * (size * size);
 				d = glm::distance(Cube->points[id0], Cube->points[id1]);
-				std::cout << id0 << ":" << id1 << " = " << d << "\n";
+				//std::cout << id0 << ":" << id1 << " = " << d << "\n";
 				distAccum += d;
 				++distCount;
 			}
@@ -155,10 +150,10 @@ bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 	Cube->scaleFactor = 0.9 / distAvg;
 	std::cout << "Avg dist: " << distAvg << " Scale factor: " << Cube->scaleFactor << "\n";
 
-	std::cout << glm::distance(Cube->corners[0], Cube->corners[3]) * Cube->scaleFactor << "\n";
+	/*std::cout << glm::distance(Cube->corners[0], Cube->corners[3]) * Cube->scaleFactor << "\n";
 	std::cout << glm::distance(Cube->corners[3], Cube->corners[2]) * Cube->scaleFactor << "\n";
 	std::cout << glm::distance(Cube->corners[2], Cube->corners[1]) * Cube->scaleFactor << "\n";
-	std::cout << glm::distance(Cube->corners[1], Cube->corners[0]) * Cube->scaleFactor << "\n";
+	std::cout << glm::distance(Cube->corners[1], Cube->corners[0]) * Cube->scaleFactor << "\n";*/
 
 	// TODO: Normalize to match scale?
 

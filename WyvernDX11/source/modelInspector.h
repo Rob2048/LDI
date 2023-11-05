@@ -171,7 +171,7 @@ struct ldiModelInspector {
 };
 
 struct ldiProjectContext {
-	std::string					dir;
+	std::string					path;
 
 	bool						sourceModelLoaded = false;
 	ldiModel					sourceModel;
@@ -554,7 +554,7 @@ bool modelInspectorCreateVoxelMesh(ldiApp* AppContext, ldiModel* Model) {
 	return true;
 }
 
-bool modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
+bool modelInspectorCreateQuadMesh(ldiApp* AppContext, const std::string& OutputPath) {
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;
 
@@ -571,7 +571,7 @@ bool modelInspectorCreateQuadMesh(ldiApp* AppContext, const char* OutputPath) {
 
 	char args[2048];
 	//../../bin/cache/output.ply
-	sprintf_s(args, "\"Instant Meshes.exe\" ../../bin/cache/voxel_tri_invert.ply -o %s --scale 0.030", OutputPath);
+	sprintf_s(args, "\"Instant Meshes.exe\" ../../bin/cache/voxel_tri_invert.ply -o %s --scale 0.030", OutputPath.c_str());
 	
 	CreateProcessA(
 		"../../assets/bin/Instant Meshes.exe",
@@ -1820,28 +1820,47 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 	AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageAreaStagingBuffer, 0);
 }
 
-void projectInit(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Dir) {
-	*Project = {};
-	Project->dir = Dir;
-}
-
 void projectInvalidateModelData(ldiApp* AppContext, ldiProjectContext* Project) {
-	Project->sourceModelLoaded = false;
-	//sourceRenderModel
-	Project->quadModelLoaded = false;
-	//quadModel
+	// TODO: Change to a general clear?
+
+	if (Project->sourceModelLoaded) {
+		Project->sourceModelLoaded = false;
+		//sourceRenderModel
+	}
+
+	if (Project->quadModelLoaded) {
+		Project->quadModelLoaded = false;
+		//quadModel
+	}
 }
 
-bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+void projectInvalidateTextureData(ldiApp* AppContext, ldiProjectContext* Project) {
+	// TODO: Destroy other texture resources.
+
+	if (Project->sourceTextureLoaded) {
+		Project->sourceTextureLoaded = false;
+	}
+}
+
+void projectInit(ldiApp* AppContext, ldiProjectContext* Project) {
+	projectInvalidateModelData(AppContext, Project);
+	projectInvalidateTextureData(AppContext, Project);
+	*Project = {};
+}
+
+bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
 	projectInvalidateModelData(AppContext, Project);
 	std::cout << "Project source mesh path: " << Path << "\n";
 
-	if (!copyFile(Path, Project->dir + "source_mesh.obj")) {
-		std::cout << "Project import model could not copy source mesh file\n";
+	uint8_t* sourceModelFile = nullptr;
+	int sourceModelFileSize = readFile(Path, &sourceModelFile);
+
+	if (sourceModelFileSize < 0) {
+		std::cout << "Failed to load source model file " << Path << "\n";
 		return false;
 	}
 
-	Project->sourceModel = objLoadModel(Path);
+	Project->sourceModel = objLoadModel(sourceModelFile, sourceModelFileSize);
 
 	// Scale and translate model.
 	for (int i = 0; i < Project->sourceModel.verts.size(); ++i) {
@@ -1856,16 +1875,11 @@ bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const ch
 }
 
 bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
-	Project->sourceTextureLoaded = false;
-	// TODO: Destroy other texture resources.
+	projectInvalidateTextureData(AppContext, Project);
+	
 	std::cout << "Project source texture path: " << Path << "\n";
 
 	double t0 = getTime();
-
-	if (!copyFile(Path, Project->dir + "source_texture.png")) {
-		std::cout << "Project import model could not copy source texture file\n";
-		return false;
-	}
 
 	int x, y, n;
 	uint8_t* imageRawPixels = imageLoadRgba(Path, &x, &y, &n);
@@ -1954,10 +1968,10 @@ bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const 
 	return true;
 }
 
-bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
+bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
 	Project->quadModelLoaded = false;
 
-	if (!plyLoadQuadMesh(Path, &Project->quadModel)) {
+	if (!plyLoadQuadMesh(Path.c_str(), &Project->quadModel)) {
 		return false;
 	}
 
@@ -1979,17 +1993,18 @@ bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 
 	Project->quadModelLoaded = false;
 
-	std::string quadMeshPath = AppContext->currentWorkingDir + "\\" + Project->dir + "quad_mesh.ply";
+	//std::string quadMeshPath = AppContext->currentWorkingDir + "\\" + Project->path + "quad_mesh.ply";
+	std::string quadMeshPath = "../../bin/cache/quad_mesh.ply";
 
 	if (!modelInspectorCreateVoxelMesh(AppContext, &Project->sourceModel)) {
 		return false;
 	}
 
-	if (!modelInspectorCreateQuadMesh(AppContext, quadMeshPath.c_str())) {
+	if (!modelInspectorCreateQuadMesh(AppContext, quadMeshPath)) {
 		return false;
 	}
 
-	if (!projectLoadQuadModel(AppContext, Project, quadMeshPath.c_str())) {
+	if (!projectLoadQuadModel(AppContext, Project, quadMeshPath)) {
 		return false;
 	}
 
@@ -2117,9 +2132,16 @@ bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project,
 	return true;
 }
 
-bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
-	projectInvalidateModelData(AppContext, Project);
-	//Project->dir = std::string(Path);
+bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
+	std::cout << "Loading project: " << Project->path << "\n";
+
+	projectInit(AppContext, Project);
+	Project->path = Path;
+
+	FILE* file;
+	fopen_s(&file, Path.c_str(), "rb");
+
+	fclose(file);
 
 	//char pathStr[1024];
 	//sprintf_s(pathStr, "%ssource_mesh.obj", Project->dir.c_str());
@@ -2136,8 +2158,41 @@ bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const char* Pat
 	return true;
 }
 
-void projectSave(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
-	// ...
+void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (Project->path.empty()) {
+		std::cout << "Project does not have a file path\n";
+		return;
+	}
+
+	std::cout << "Saving project: " << Project->path << "\n";
+
+	FILE* file;
+	fopen_s(&file, Project->path.c_str(), "wb");
+
+	fwrite(&Project->sourceModelLoaded, sizeof(bool), 1, file);
+	if (Project->sourceModelLoaded) {
+		serialize(file, &Project->sourceModel);
+		fwrite(&Project->sourceModelScale, sizeof(float), 1, file);
+		fwrite(&Project->sourceModelTranslate, sizeof(vec3), 1, file);
+	}
+
+	fwrite(&Project->sourceTextureLoaded, sizeof(bool), 1, file);
+	if (Project->sourceTextureLoaded) {
+		serialize(file, &Project->sourceTextureRaw, 4);
+		serialize(file, &Project->sourceTextureCmyk, 4);
+	}
+
+	fwrite(&Project->quadModelLoaded, sizeof(bool), 1, file);
+	if (Project->quadModelLoaded) {
+
+	}
+
+	fwrite(&Project->surfelsLoaded, sizeof(bool), 1, file);
+	if (Project->surfelsLoaded) {
+
+	}
+
+	fclose(file);
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
@@ -3214,6 +3269,19 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 
 	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 	renderDebugPrimitives(appContext, &tool->surfelViewDebug);
+}
+
+void projectShowUi(ldiApp* AppContedxt, ldiProjectContext* Project) {
+	if (ImGui::Begin("Project inspector")) {
+		if (ImGui::CollapsingHeader("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::Text("Directory: %s", Project->path.c_str());
+			ImGui::Text("Source model: %s", Project->sourceModelLoaded ? "Yes" : "No");
+			ImGui::Text("Source texture: %s", Project->sourceTextureLoaded ? "Yes" : "No");
+			ImGui::Text("Quad model: %s", Project->quadModelLoaded ? "Yes" : "No");
+			ImGui::Text("Surfels: %s", Project->surfelsLoaded ? "Yes" : "No");
+		}
+	}
+	ImGui::End();
 }
 
 void modelInspectorShowUi(ldiModelInspector* tool) {

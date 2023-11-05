@@ -161,9 +161,9 @@ struct ldiApp {
 	bool						showImageInspector = true;
 	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
-	bool						showVisionSimulator = false;
 	bool						showModelEditor = false;
 	bool						showGalvoInspector = false;
+	bool						showProjectInspector = true;
 
 	ldiServer					server = {};
 	ldiPhysics*					physics = 0;
@@ -210,6 +210,7 @@ void _initTiming() {
 #include "horse.h"
 #include "panther.h"
 #include "calibration.h"
+#include "scan.h"
 #include "platform.h"
 #include "modelInspector.h"
 #include "samplerTester.h"
@@ -307,6 +308,7 @@ void _initImgui(ldiApp* AppContext) {
 	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.21f, 0.21f, 0.24f, 1.00f);
 	colors[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.40f, 0.98f, 0.70f);
 	colors[ImGuiCol_NavHighlight] = ImVec4(0.41f, 0.26f, 0.98f, 1.00f);
+	colors[ImGuiCol_PopupBg] = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
 
 	ImGui_ImplWin32_Init(AppContext->hWnd);
 	ImGui_ImplDX11_Init(AppContext->d3dDevice, AppContext->d3dDeviceContext);
@@ -965,13 +967,6 @@ int main() {
 	//	return 1;
 	//}
 
-	projectInit(appContext, appContext->projectContext, "..\\project_deer\\");
-
-	/*if (!projectLoad(appContext, appContext->projectContext, "..\\project_deer\\")) {
-		std::cout << "Failed to load project\n";
-		return 1;
-	}*/
-
 	// Main loop
 	bool running = true;
 	while (running) {
@@ -989,10 +984,37 @@ int main() {
 		
 		if (ImGui::BeginMainMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
-				if (ImGui::MenuItem("New project")) {}
-				if (ImGui::MenuItem("Open project")) {}
-				if (ImGui::MenuItem("Save project")) {}
-				if (ImGui::MenuItem("Save project as...")) {}
+				if (ImGui::MenuItem("New project")) {
+					projectInit(appContext, appContext->projectContext);
+				}
+
+				if (ImGui::MenuItem("Open project")) {
+					std::string filePath;
+					if (showOpenFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj")) {
+						projectLoad(appContext, appContext->projectContext, filePath);
+					}
+				}
+
+				if (ImGui::MenuItem("Save project")) {
+					if (appContext->projectContext->path.empty()) {
+						std::string filePath;
+						if (showSaveFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
+							appContext->projectContext->path = filePath;
+							projectSave(appContext, appContext->projectContext);
+						}
+					} else {
+						projectSave(appContext, appContext->projectContext);
+					}
+				}
+
+				if (ImGui::MenuItem("Save project as...")) {
+					std::string filePath;
+					if (showSaveFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
+						appContext->projectContext->path = filePath;
+						projectSave(appContext, appContext->projectContext);
+					}
+				}
+
 				ImGui::Separator();
 				if (ImGui::MenuItem("Quit", "Alt+F4")) {
 					running = false;
@@ -1002,14 +1024,14 @@ int main() {
 			}
 
 			if (ImGui::BeginMenu("Platform")) {
-				if (ImGui::MenuItem("New configuration")) {}
-				if (ImGui::MenuItem("Open configuration")) {}
-				if (ImGui::MenuItem("Save configuration")) {}
-				if (ImGui::MenuItem("Save configuration as...")) {}
+				if (ImGui::MenuItem("New calibration")) {}
+				if (ImGui::MenuItem("Open calibration")) {}
+				if (ImGui::MenuItem("Save calibration")) {}
+				if (ImGui::MenuItem("Save calibration as...")) {}
 				ImGui::EndMenu();
 			}
 			
-			if (ImGui::BeginMenu("Workspace")) {
+			/*if (ImGui::BeginMenu("Workspace")) {
 				if (ImGui::MenuItem("Platform")) {}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Scan")) {}
@@ -1019,14 +1041,18 @@ int main() {
 				if (ImGui::MenuItem("Model inspector")) {}
 				if (ImGui::MenuItem("Image inspector")) {}
 				ImGui::EndMenu();
-			}
+			}*/
 
-			if (ImGui::BeginMenu("View")) {
+			if (ImGui::BeginMenu("Window")) {
 				if (ImGui::MenuItem("ImGUI demo window", NULL, appContext->showDemoWindow)) {
 					appContext->showDemoWindow = !appContext->showDemoWindow;
 				}
 				
 				ImGui::Separator();				
+				if (ImGui::MenuItem("Project inspector", NULL, appContext->showProjectInspector)) {
+					appContext->showProjectInspector = !appContext->showProjectInspector;
+				}
+
 				if (ImGui::MenuItem("Platform controls", NULL, appContext->showPlatformWindow)) {
 					appContext->showPlatformWindow = !appContext->showPlatformWindow;
 				}
@@ -1043,10 +1069,6 @@ int main() {
 					appContext->showImageInspector = !appContext->showImageInspector;
 				}
 
-				if (ImGui::MenuItem("Vision simulator", NULL, appContext->showVisionSimulator)) {
-					appContext->showVisionSimulator = !appContext->showVisionSimulator;
-				}
-
 				if (ImGui::MenuItem("Model editor", NULL, appContext->showModelEditor)) {
 					appContext->showModelEditor = !appContext->showModelEditor;
 				}
@@ -1054,7 +1076,7 @@ int main() {
 				if (ImGui::MenuItem("Galvo inspector", NULL, appContext->showGalvoInspector)) {
 					appContext->showGalvoInspector = !appContext->showGalvoInspector;
 				}
-				
+
 				ImGui::EndMenu();
 			}
 
@@ -1089,6 +1111,10 @@ int main() {
 
 		if (appContext->showGalvoInspector) {
 			galvoInspectorShowUi(galvoInspector);
+		}
+
+		if (appContext->showProjectInspector) {
+			projectShowUi(appContext, appContext->projectContext);
 		}
 
 		_renderImgui(&_appContext);

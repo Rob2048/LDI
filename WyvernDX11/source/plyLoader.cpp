@@ -1,5 +1,6 @@
 #include "plyLoader.h"
 #include <iostream>
+#include <string>
 
 // Read alpha numeric characters until space or newline.
 bool _compareWord(char* Data, const char* Word) {
@@ -234,6 +235,42 @@ bool plyLoadPoints(const char* FileName, ldiPointCloud* PointCloud) {
 	}
 
 	delete[] fileBuffer;
+
+	return true;
+}
+
+void _write(FILE* F, const std::string& String) {
+	//size_t len = strlen(String);
+	fwrite(String.c_str(), String.length(), 1, F);
+}
+
+bool plySavePoints(const char* FileName, ldiPointCloud* PointCloud) {
+	std::cout << "Saving PLY points: " << FileName << " Points: " << PointCloud->points.size() <<  "\n";
+
+	FILE* file;
+	if (fopen_s(&file, FileName, "wb") != 0) {
+		return false;
+	}
+
+	_write(file, "ply\n");
+	_write(file, "format binary_little_endian 1.0\n");
+	_write(file, "element vertex " + std::to_string(PointCloud->points.size()) + "\n");
+	_write(file, "property float x\n");
+	_write(file, "property float y\n");
+	_write(file, "property float z\n");
+	_write(file, "end_header\n");
+
+	for (size_t i = 0; i < PointCloud->points.size(); ++i) {
+		vec3 p = PointCloud->points[i].position;
+		//p.x = -p.x;
+		fwrite(&p, sizeof(p), 1, file);
+
+		if (i == 282272) {
+			std::cout << p.x << ", " << p.y << ", " << p.z << "\n";
+		}
+	}
+
+	fclose(file);
 
 	return true;
 }

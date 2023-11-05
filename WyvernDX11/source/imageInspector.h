@@ -565,7 +565,18 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				//Tool->appContext->platform->liveScanPoints[1] = scanPlane.point + scanPlane.normal;
 			}
 
-			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], camImg);
+			if (Tool->showUndistorted && calibContext->calibJob.stereoCalibrated) {
+				cv::Mat image(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
+				cv::Mat outputImage(cv::Size(camImg.width, camImg.height), CV_8UC1);
+
+				cv::undistort(image, outputImage, calibContext->calibJob.refinedCamMat[hawkIter], calibContext->calibJob.refinedCamDist[hawkIter]);
+
+				ldiImage tempImg = camImg;
+				tempImg.data = outputImage.data;
+				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], tempImg);
+			} else {
+				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], camImg);
+			}
 
 			if (Tool->camCalibProcess) {
 				ldiCameraCalibSample calibSample;

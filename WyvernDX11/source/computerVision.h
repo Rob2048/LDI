@@ -1393,3 +1393,18 @@ std::vector<vec2> computerVisionFindScanLine(ldiImage Image) {
 
 	return result;
 }
+
+void computerVisionUndistortPoints(std::vector<vec2>& Points, cv::Mat CamMat, cv::Mat CamDist) {
+	std::vector<cv::Point2f> distortedPoints(Points.size());
+	std::vector<cv::Point2f> undistortedPoints;
+
+	for (size_t pIter = 0; pIter < Points.size(); ++pIter) {
+		distortedPoints[pIter] = toPoint2f(Points[pIter]);
+	}
+
+	cv::undistortPoints(distortedPoints, undistortedPoints, CamMat, CamDist, cv::noArray(), CamMat);
+
+	for (size_t pIter = 0; pIter < Points.size(); ++pIter) {
+		Points[pIter] = toVec2(undistortedPoints[pIter]);
+	}
+}

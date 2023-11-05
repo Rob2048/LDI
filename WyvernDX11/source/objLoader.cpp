@@ -89,6 +89,17 @@ float _ParseFloat(char* Buffer, int* Index, int Length) {
 	return ret;
 }
 
+bool _getNextChar(char* FileBuffer, int FileSize, int* Position, char* C) {
+	if (*Position >= FileSize) {
+		return false;
+	}
+
+	*C = FileBuffer[*Position];
+	*Position += 1;
+
+	return true;
+}
+
 struct HashNode
 {
 	int			vertId;
@@ -168,7 +179,7 @@ int _GetUniqueVert(char* Buffer, int* Index, int Length)
 	return vertIndex;
 }
 
-ldiModel objLoadModel(const char* FileName) {
+ldiModel objLoadModel(uint8_t* Data, int Size) {
 	ldiModel result = {};
 
 	tempVertCount = 0;
@@ -178,23 +189,18 @@ ldiModel objLoadModel(const char* FileName) {
 	vertCount = 0;
 	memset(hashMap, 0, sizeof(hashMap) * HASHMAP_SIZE);
 	
-	FILE* file;
-	fopen_s(&file, FileName, "rb");
-	fseek(file, 0, SEEK_END);
-	int fileLen = ftell(file);
-	fseek(file, 0, SEEK_SET);
-	char* fileBuffer = new char[fileLen + 1];
-	fread(fileBuffer, 1, fileLen, file);
-	fileBuffer[fileLen] = 0;
-
+	int fileLen = Size;
+	char* fileBuffer = (char*)Data;
+	
 	int idx = 0;
-	char c = fileBuffer[idx++];
+	char c = 0;
+	_getNextChar(fileBuffer, fileLen, &idx, &c);
 
-	while (c != 0)
+	while (true)
 	{
 		if (c == 'v')
 		{
-			c = fileBuffer[idx++];
+			if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 
 			if (c == ' ')
 			{
@@ -202,7 +208,6 @@ ldiModel objLoadModel(const char* FileName) {
 				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
 				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
 				attr.z = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
-				c = fileBuffer[idx++];
 
 				if (attr.x == 0.0f) attr.x = 0.0f;
 				if (attr.y == 0.0f) attr.y = 0.0f;
@@ -210,18 +215,21 @@ ldiModel objLoadModel(const char* FileName) {
 				//attr.x = -attr.x;
 
 				tempVerts[tempVertCount++] = attr;
+
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 			}
 			else if (c == 't')
 			{
 				vec2 attr;
 				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
 				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
-				c = fileBuffer[idx++];
-
+				
 				if (attr.x == 0.0f) attr.x = 0.0f;
 				if (attr.y == 0.0f) attr.y = 0.0f;
 				
 				tempUVs[tempUVCount++] = attr;
+
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 			}
 			else if (c == 'n')
 			{
@@ -229,22 +237,24 @@ ldiModel objLoadModel(const char* FileName) {
 				attr.x = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
 				attr.y = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
 				attr.z = _ParseFloat(fileBuffer, &idx, fileLen); idx++;
-				c = fileBuffer[idx++];
-
+				
 				if (attr.x == 0.0f) attr.x = 0.0f;
 				if (attr.y == 0.0f) attr.y = 0.0f;
 				if (attr.z == 0.0f) attr.z = 0.0f;
 				
 				tempNormals[tempNormalCount++] = attr;
+
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 			}
 		}
 		else if (c == 'f')
 		{
-			c = fileBuffer[idx++];
+			if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 
 			int rootVertId = _GetUniqueVert(fileBuffer, &idx, fileLen);
 			int currVertId = _GetUniqueVert(fileBuffer, &idx, fileLen);
-			c = fileBuffer[idx++];
+			
+			if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 
 			while (c == ' ')
 			{
@@ -253,33 +263,45 @@ ldiModel objLoadModel(const char* FileName) {
 				tris[triCount++] = rootVertId;
 				tris[triCount++] = currVertId;
 				tris[triCount++] = nextVertId;
-				c = fileBuffer[idx++];
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
 			}
 		}
 		else
 		{
-			while (c != '\n' && c != 0)
-				c = fileBuffer[idx++];
+			while (c != '\n') {
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
+			}
 
-			if (c == '\n')
-				c = fileBuffer[idx++];
+			if (c == '\n') {
+				if (!_getNextChar(fileBuffer, fileLen, &idx, &c)) { break; }
+			}
 		}
 	}
-
-	delete[] fileBuffer;
-	fclose(file);
 
 	result.verts.resize(vertCount);
 	memcpy(result.verts.data(), verts, sizeof(ldiMeshVertex) * vertCount);
 	result.indices.resize(triCount);
 	memcpy(result.indices.data(), tris, sizeof(uint32_t) * triCount);
 
-	/*result.verts = verts;
-	result.indices = tris;
-	result.vertCount = vertCount;
-	result.indexCount = triCount;*/
+	std::cout << "Loaded OBJ - Verts: " << vertCount << " Tris: " << (triCount / 3) << "\n";
 
-	std::cout << "Loaded OBJ " << FileName << " Verts: " << vertCount << " Tris: " << (triCount / 3) << "\n";
+	return result;
+}
+
+ldiModel objLoadModel(const std::string& FileName) {
+	FILE* file;
+	fopen_s(&file, FileName.c_str(), "rb");
+	fseek(file, 0, SEEK_END);
+	int fileLen = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	uint8_t* fileBuffer = new uint8_t[fileLen + 1];
+	fread(fileBuffer, 1, fileLen, file);
+	fileBuffer[fileLen] = 0;
+
+	ldiModel result = objLoadModel(fileBuffer, fileLen);
+
+	delete[] fileBuffer;
+	fclose(file);
 
 	return result;
 }

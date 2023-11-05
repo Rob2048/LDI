@@ -200,7 +200,7 @@ print("Arguments:")
 for i in range(len(sys.argv)):
 	print("  {}: {}".format(i, sys.argv[i]))
 
-show_debug_plots = True
+show_debug_plots = False
 
 cam_intrins, relative_pose, view_sample_inds, view_params, points_3d, view_indices, cam_indices, point_indices, points_2d = read_input(sys.argv[1])
 

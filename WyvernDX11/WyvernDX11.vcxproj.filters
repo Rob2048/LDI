@@ -164,5 +164,8 @@
     <ClInclude Include="source\calibCube.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\scan.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

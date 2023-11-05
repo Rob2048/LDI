@@ -75,27 +75,32 @@ struct ldiPlatform {
 	int							testPosZ;
 	int							testPosC;
 	int							testPosA;
+	
+	ldiCalibCube				defaultCube;
 
 	ldiRenderModel				cubeModel;
 
-	bool						showMachineFrame = true;
+	bool						showMachineFrame = false;
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
-	bool						showCalibCubeFaces = true;
+	bool						showCalibCubeFaces = false;
 	bool						liveAxisUpdate = false;
 
 	std::mutex					liveScanPointsMutex;
 	bool						liveScanPointsUpdated;
 	std::vector<vec3>			liveScanPoints;
 	std::vector<vec3>			copyOfLiveScanPoints;
-	ldiPointCloud				scanPointCloud = {};
-	ldiRenderPointCloud			scanPointCloudRenderModel = {};
 
+	ldiScan						scan = {};
+
+	bool						scanShowPointCloud = true;
+	bool						scanUseWorkTrans = true;
 	float						pointWorldSize = 0.01f;
 	float						pointScreenSize = 2.0f;
 	float						pointScreenSpaceBlend = 0.0f;
 
-	ldiCalibCube				defaultCube;
+	vec3						scanBoundsMin = vec3(-5, -5, -5);
+	vec3						scanBoundsMax = vec3(5, 5, 5);
 };
 
 void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
@@ -345,7 +350,7 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		if (!pantherMoveAndWait(panther, PA_A, -1000, 0.0f)) { return false; }
 		if (!pantherMoveAndWait(panther, PA_A, 0, 0.0f)) { return false; }
 
-		Sleep(300);
+		Sleep(1000);
 
 		hawkClearWaitPacket(&Platform->hawks[0]);
 		hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
@@ -590,7 +595,8 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 
 	for (int iA = 0; iA < 61 + 1; ++iA) {
 		if (iA < 61) {
-			int stepInc = ((32 * 200 * 90) / 2) / 60;
+			//int stepInc = ((32 * 200 * 90) / 2) / 60;
+			int stepInc = 4300; // Ends up at 258000. (60 steps)
 			posA = iA * stepInc;
 			if (!pantherMoveAndWait(panther, PA_A, posA, 0.0f)) { return false; }
 		}
@@ -766,7 +772,7 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 	return true;
 }
 
-bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
+bool _platformScan2(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 	ldiApp* appContext = Platform->appContext;
 	ldiPanther* panther = &Platform->panther;
 
@@ -776,7 +782,7 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 		Platform->liveScanPointsUpdated = true;
 	}
 
-	// Set up cameras.
+	// Set up cameras and other machine state.
 	pantherSendScanLaserStateCommand(panther, true);
 	if (!pantherWaitForExecutionComplete(panther)) { return false; }
 
@@ -889,6 +895,130 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 					}
 				}
 			}
+		}
+	}
+
+	return true;
+}
+
+bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
+	ldiApp* appContext = Platform->appContext;
+	ldiPanther* panther = &Platform->panther;
+
+	{
+		std::unique_lock<std::mutex> lock(Platform->liveScanPointsMutex);
+		Platform->liveScanPoints.clear();
+		Platform->liveScanPointsUpdated = true;
+	}
+
+	std::vector<ldiHorsePosition> positions;
+
+
+	int cSteps = 45;
+	for (int iC = 0; iC < cSteps; ++iC) {
+		double cStepInc = (32 * 200 * 30) / (double)cSteps;
+		int posC = (int)(iC * cStepInc);
+	
+		for (int iX = -13000; iX < 22000; iX += 500) {
+			positions.push_back({ iX, 0, -28000, posC, 130000 });
+		}
+	}
+	
+	/*int cSteps = 360 * 2;
+	for (int iC = 0; iC < cSteps; ++iC) {
+		double cStepInc = (32 * 200 * 30) / (double)cSteps;
+		int posC = 13000 + (int)(iC * cStepInc);
+
+		positions.push_back({ 0, 0, 0, posC, 80000 });
+	}*/
+
+	// Set up cameras and other machine state.
+	pantherSendScanLaserStateCommand(panther, true);
+	if (!pantherWaitForExecutionComplete(panther)) { return false; }
+
+	int backlashAmount = 1000;
+
+	// Execute list of positions.
+	for (size_t posIter = 0; posIter < positions.size(); ++posIter) {
+		if (Platform->jobCancel) {
+			return false;
+		}
+
+		ldiHorsePosition currentPos = pantherGetHorsePosition(panther);
+		ldiHorsePosition targetPos = positions[posIter];
+
+		if (currentPos.x > targetPos.x) {
+			if (!pantherMoveAndWait(panther, PA_X, targetPos.x - backlashAmount, 0.0f)) { return false; }
+		}
+		if (!pantherMoveAndWait(panther, PA_X, targetPos.x, 0.0f)) { return false; }
+
+		if (currentPos.y > targetPos.y) {
+			if (!pantherMoveAndWait(panther, PA_Y, targetPos.y - backlashAmount, 0.0f)) { return false; }
+		}
+		if (!pantherMoveAndWait(panther, PA_Y, targetPos.y, 0.0f)) { return false; }
+
+		if (currentPos.z > targetPos.z) {
+			if (!pantherMoveAndWait(panther, PA_Z, targetPos.z - backlashAmount, 0.0f)) { return false; }
+		}
+		if (!pantherMoveAndWait(panther, PA_Z, targetPos.z, 0.0f)) { return false; }
+
+		if (currentPos.c > targetPos.c) {
+			if (!pantherMoveAndWait(panther, PA_C, targetPos.c - backlashAmount, 0.0f)) { return false; }
+		}
+		if (!pantherMoveAndWait(panther, PA_C, targetPos.c, 0.0f)) { return false; }
+
+		if (currentPos.a > targetPos.a) {
+			if (!pantherMoveAndWait(panther, PA_A, targetPos.a - backlashAmount, 0.0f)) { return false; }
+		}
+		if (!pantherMoveAndWait(panther, PA_A, targetPos.a, 0.0f)) { return false; }
+
+		Sleep(600);
+
+		hawkClearWaitPacket(&Platform->hawks[0]);
+		hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+
+		std::vector<vec2> scanPoints;
+
+		{
+			std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+
+			ldiImage frame0 = {};
+			frame0.data = Platform->hawks[0].frameBuffer;
+			frame0.width = Platform->hawks[0].imgWidth;
+			frame0.height = Platform->hawks[0].imgHeight;
+
+			scanPoints = computerVisionFindScanLine(frame0);
+		}
+
+		// TODO: Make sure calib context is static here, we are potentially accessing it across threads.
+		ldiCalibrationJob* job = &Platform->appContext->calibrationContext->calibJob;
+
+		mat4 workTrans = horseGetWorkTransform(job, targetPos);
+		mat4 invWorkTrans = glm::inverse(workTrans);
+
+		ldiPlane scanPlane = horseGetScanPlane(job, targetPos);
+		scanPlane.normal = -scanPlane.normal;
+
+		ldiCamera camera = horseGetCamera(job, targetPos, 0, 3280, 2464);
+
+		computerVisionUndistortPoints(scanPoints, job->refinedCamMat[0], job->refinedCamDist[0]);
+
+		// Project points onto scan plane.
+		{
+			std::unique_lock<std::mutex> lock(Platform->liveScanPointsMutex);
+
+			for (size_t pIter = 0; pIter < scanPoints.size(); ++pIter) {
+				ldiLine ray = screenToRay(&camera, scanPoints[pIter]);
+
+				vec3 worldPoint;
+				if (getRayPlaneIntersection(ray, scanPlane, worldPoint)) {
+					// Bake point into work space.
+					worldPoint = invWorkTrans * vec4(worldPoint, 1.0f);
+					Platform->liveScanPoints.push_back(worldPoint);
+				}
+			}
+
+			Platform->liveScanPointsUpdated = true;
 		}
 	}
 
@@ -1218,7 +1348,6 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	{
 		ldiCalibrationContext* calibContext = appContext->calibrationContext;
 		ldiCalibrationJob* job = &calibContext->calibJob;
-
 
 		//----------------------------------------------------------------------------------------------------
 		// Other.
@@ -1672,31 +1801,26 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				}
 
 				if (update) {
-					Tool->scanPointCloud.points.clear();
-
-					for (size_t pointIter = 0; pointIter < Tool->copyOfLiveScanPoints.size(); ++ pointIter) {
-						ldiPointCloudVertex vert;
-						vert.color = vec3(1, 1, 1);
-						vert.normal = vec3(1, 0, 0);
-						vert.position = Tool->copyOfLiveScanPoints[pointIter];
-
-						Tool->scanPointCloud.points.push_back(vert);
-					}
-
-					if (Tool->scanPointCloudRenderModel.vertexBuffer) {
-						Tool->scanPointCloudRenderModel.vertexBuffer->Release();
-					}
-
-					if (Tool->scanPointCloudRenderModel.indexBuffer) {
-						Tool->scanPointCloudRenderModel.indexBuffer->Release();
-					}
-
-					Tool->scanPointCloudRenderModel = gfxCreateRenderPointCloud(appContext, &Tool->scanPointCloud);
-					std::cout << "Point cloud size: " << Tool->scanPointCloud.points.size() << "\n";
+					std::cout << "Updating point cloud - Size: " << Tool->copyOfLiveScanPoints.size() << "\n";
+					scanUpdatePoints(Tool->appContext, &Tool->scan, Tool->copyOfLiveScanPoints);
 				}
 			}
+		}
 
-			if (Tool->scanPointCloudRenderModel.indexCount > 0) {
+		//----------------------------------------------------------------------------------------------------
+		// Scan tools.
+		//----------------------------------------------------------------------------------------------------
+		{
+			ldiHorsePosition horsePos = {};
+			horsePos.x = Tool->testPosX;
+			horsePos.y = Tool->testPosY;
+			horsePos.z = Tool->testPosZ;
+			horsePos.c = Tool->testPosC;
+			horsePos.a = Tool->testPosA;
+
+			mat4 workTrans = horseGetWorkTransform(job, horsePos);
+
+			if (Tool->scan.pointCloudRenderModel.indexCount > 0) {
 				{
 					D3D11_MAPPED_SUBRESOURCE ms;
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -1704,7 +1828,13 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					constantBuffer->screenSize = vec4(Camera->viewWidth, Camera->viewHeight, 0, 0);
 					constantBuffer->mvp = Camera->projViewMat;
 					constantBuffer->color = vec4(0, 0, 0, 1);
-					constantBuffer->view = Camera->viewMat * workTrans;
+
+					if (Tool->scanUseWorkTrans) {
+						constantBuffer->view = Camera->viewMat * workTrans;
+					} else {
+						constantBuffer->view = Camera->viewMat;
+					}
+
 					constantBuffer->proj = Camera->projMat;
 					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 				}
@@ -1718,8 +1848,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
 				}
 
-				gfxRenderPointCloud(appContext, &Tool->scanPointCloudRenderModel);
+				gfxRenderPointCloud(appContext, &Tool->scan.pointCloudRenderModel);
 			}
+
+			pushDebugBoxMinMax(&appContext->defaultDebug, Tool->scanBoundsMin, Tool->scanBoundsMax, vec3(0, 1, 0));
 		}
 
 		//----------------------------------------------------------------------------------------------------
@@ -1896,21 +2028,70 @@ void platformShowUi(ldiPlatform* Tool) {
 		Tool->testPosA = Tool->positionA;
 	}
 
-	//ImGui::SetNextWindowSize(ImVec2(400, ImGui::GetMainViewport()->WorkSize.y));
-	//ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkSize.x, ImGui::GetMainViewport()->WorkPos.y), 0, ImVec2(1, 0));
+	if (ImGui::Begin("Scan", 0, ImGuiWindowFlags_NoCollapse)) {
+		ImGui::Checkbox("Use machine transformation", &Tool->scanUseWorkTrans);
 
-	//ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Once);
+		if (ImGui::CollapsingHeader("Point cloud rendering")) {
+			ImGui::Checkbox("Show point cloud", &Tool->scanShowPointCloud);
+			ImGui::SliderFloat("World size", &Tool->pointWorldSize, 0.0f, 1.0f);
+			ImGui::SliderFloat("Screen size", &Tool->pointScreenSize, 0.0f, 32.0f);
+			ImGui::SliderFloat("Screen blend", &Tool->pointScreenSpaceBlend, 0.0f, 1.0f);
+		}
+
+		ImGui::Separator();
+
+		ImGui::DragFloat3("min##scanBoundsMin", (float*)&Tool->scanBoundsMin, 0.1f);
+		ImGui::DragFloat3("max##scanBoundsMax", (float*)&Tool->scanBoundsMax, 0.1f);
+
+		if (ImGui::Button("Clip points")) {
+			std::vector<ldiPointCloudVertex> clippedPoints;
+
+			for (auto& point : Tool->scan.pointCloud.points) {
+				vec3 p = point.position;
+
+				if (p.x <= Tool->scanBoundsMax.x && p.y <= Tool->scanBoundsMax.y && p.z <= Tool->scanBoundsMax.z &&
+					p.x >= Tool->scanBoundsMin.x && p.y >= Tool->scanBoundsMin.y && p.z >= Tool->scanBoundsMin.z) {
+					clippedPoints.push_back(point);
+				}
+			}
+
+			scanUpdatePoints(Tool->appContext, &Tool->scan, clippedPoints);
+		}
+
+		ImGui::Separator();
+
+		if (ImGui::Button("Save scan")) {
+			std::string filePath;
+			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Scan file", L"*.scan", L"scan")) {
+				scanSaveFile(&Tool->scan, filePath);
+			}
+		}
+
+		if (ImGui::Button("Load scan")) {
+			std::string filePath;
+			if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Scan file", L"*.scan")) {
+				scanLoadFile(Tool->appContext, &Tool->scan, filePath);
+			}
+		}
+
+		ImGui::Separator();
+
+		if (ImGui::Button("Clear scan points")) {
+			scanClearPoints(Tool->appContext, &Tool->scan);
+		}
+
+		if (ImGui::Button("Save point cloud")) {
+			std::string filePath;
+			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Polygon", L"*.ply", L"ply")) {
+				plySavePoints(filePath.c_str(), &Tool->scan.pointCloud);
+			}
+		}
+	}
+	ImGui::End();
+		
 	if (ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse)) {
 		if (ImGui::CollapsingHeader("Viewport")) {
 			ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
-
-			if (ImGui::CollapsingHeader("Scan")) {
-				ImGui::Text("Point cloud");
-				//ImGui::Checkbox("Show point cloud", &Tool->showPointCloud);
-				ImGui::SliderFloat("World size", &Tool->pointWorldSize, 0.0f, 1.0f);
-				ImGui::SliderFloat("Screen size", &Tool->pointScreenSize, 0.0f, 32.0f);
-				ImGui::SliderFloat("Screen blend", &Tool->pointScreenSpaceBlend, 0.0f, 1.0f);
-			}
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");

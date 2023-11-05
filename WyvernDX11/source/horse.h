@@ -239,10 +239,9 @@ ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int 
 ldiPlane horseGetScanPlane(ldiCalibrationJob* Job, ldiHorsePosition Position) {
 	ldiPlane result = {};
 
-	vec3 refToAxis = Job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+	vec3 refToAxis = Job->axisA.origin;
 	float axisAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
 	mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), Job->axisA.direction);
-
 
 	vec3 newPoint = vec4(Job->scanPlane.point - refToAxis, 1.0f);
 	newPoint = axisRot * vec4(newPoint, 1.0f);

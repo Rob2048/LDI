@@ -262,6 +262,19 @@ void pantherIssueCommand(ldiPanther* Panther, uint8_t* Data, int Size) {
 	serialPortWriteData(&Panther->serialPort, Data, Size);
 }
 
+ldiHorsePosition pantherGetHorsePosition(ldiPanther* Panther) {
+	std::unique_lock<std::mutex> lock(Panther->dataLockMutex);
+	
+	ldiHorsePosition result = {};
+
+	result.x = Panther->positionX;
+	result.y = Panther->positionY;
+	result.z = Panther->positionZ;
+	result.c = Panther->positionC;
+	result.a = Panther->positionA;
+
+	return result;
+}
 
 void pantherSendPingCommand(ldiPanther* Panther) {
 	uint8_t cmd[5];
