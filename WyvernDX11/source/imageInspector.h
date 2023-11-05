@@ -700,21 +700,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			//----------------------------------------------------------------------------------------------------
-			// Draw calib job results.
-			//----------------------------------------------------------------------------------------------------
-			if (Tool->imageMode == IIM_CALIBRATION_JOB) {
-				ldiCalibrationJob* calibJob = &Tool->appContext->calibrationContext->calibJob;
-
-				for (size_t i = 0; i < calibJob->massModelImagePoints[0].size(); ++i) {
-					ImVec2 uiPos = screenStartPos + (imgOffset + toImVec2(calibJob->massModelImagePoints[hawkIter][i])) * imgScale;
-					draw_list->AddCircle(uiPos, 2.0f, ImColor(224, 93, 11));
-
-					uiPos = screenStartPos + (imgOffset + toImVec2(calibJob->massModelUndistortedPoints[hawkIter][i])) * imgScale;
-					draw_list->AddCircle(uiPos, 2.0f, ImColor(65, 158, 14));
-				}
-			}
-
-			//----------------------------------------------------------------------------------------------------
 			// Draw scanner debug info.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->hawkScanProcessImage) {

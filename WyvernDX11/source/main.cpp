@@ -159,7 +159,7 @@ struct ldiApp {
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
-	bool						showModelInspector = false;
+	bool						showModelInspector = true;
 	bool						showSamplerTester = false;
 	bool						showModelEditor = false;
 	bool						showGalvoInspector = false;
@@ -201,18 +201,21 @@ void _initTiming() {
 //----------------------------------------------------------------------------------------------------
 // Primary systems.
 //----------------------------------------------------------------------------------------------------
+
 #include "computerVision.h"
 #include "serialPort.h"
 #include "graphics.h"
 #include "debugPrims.h"
+#include "spatialGrid.h"
 #include "physics.h"
 #include "hawk.h"
 #include "horse.h"
 #include "panther.h"
 #include "calibration.h"
 #include "scan.h"
-#include "platform.h"
+#include "project.h"
 #include "modelInspector.h"
+#include "platform.h"
 #include "samplerTester.h"
 #include "imageInspector.h"
 #include "modelEditor.h"

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <vector>
 #include "glm.h"
 
@@ -119,27 +120,17 @@ static void modelCreateFaceNormals(ldiModel* Model) {
 	}
 }
 
-// NOTE: https://iquilezles.org/articles/normals/
-//void Mesh_normalize(Mesh* myself) {
-//	Vert* vert = myself->vert;
-//	Triangle* face = myself->face;
-//
-//	for (int i = 0; i < myself->mNumVerts; i++) vert[i].normal = vec3(0.0f);
-//
-//	for (int i = 0; i < myself->mNumFaces; i++)
-//	{
-//		const int ia = face[i].v[0];
-//		const int ib = face[i].v[1];
-//		const int ic = face[i].v[2];
-//
-//		const vec3 e1 = vert[ia].pos - vert[ib].pos;
-//		const vec3 e2 = vert[ic].pos - vert[ib].pos;
-//		const vec3 no = cross(e1, e2);
-//
-//		vert[ia].normal += no;
-//		vert[ib].normal += no;
-//		vert[ic].normal += no;
-//	}
-//
-//	for (i = 0; i < myself->mNumVerts; i++) verts[i].normal = normalize(verts[i].normal);
-//}
+static ldiModel modelGetTransformed(ldiModel* Model, mat4 Transform) {
+	ldiModel result;
+	result.indices = Model->indices;
+	result.verts = Model->verts;
+
+	for (int i = 0; i < result.verts.size(); ++i) {
+		ldiMeshVertex* vert = &result.verts[i];
+
+		vert->pos = Transform * vec4(vert->pos, 1.0f);
+		vert->normal = glm::normalize(Transform * vec4(vert->normal, 0.0f));
+	}
+
+	return result;
+}

@@ -408,11 +408,6 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 			fwrite(&Job->stPoseToSampleIds[i], sizeof(int), 1, file);
 		}
 
-		serializeVectorPrep(file, Job->stCubePoints);
-		for (size_t i = 0; i < Job->stCubePoints.size(); ++i) {
-			fwrite(&Job->stCubePoints[i], sizeof(vec3), 1, file);
-		}
-
 		serializeVectorPrep(file, Job->stCubeWorlds);
 		for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
 			fwrite(&Job->stCubeWorlds[i], sizeof(mat4), 1, file);
@@ -564,11 +559,6 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 			fread(&Job->stPoseToSampleIds[i], sizeof(int), 1, file);
 		}
 
-		count = deserializeVectorPrep(file, Job->stCubePoints);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stCubePoints[i], sizeof(vec3), 1, file);
-		}
-
 		count = deserializeVectorPrep(file, Job->stCubeWorlds);
 		for (size_t i = 0; i < count; ++i) {
 			fread(&Job->stCubeWorlds[i], sizeof(mat4), 1, file);
@@ -676,170 +666,6 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 		Job->refinedCamMat[i] = Job->defaultCamMat[i].clone();
 		Job->refinedCamDist[i] = Job->defaultCamDist[i].clone();
 	}
-}
-
-// Calculate stereo camera intrinsics, extrinsics, and cube transforms.
-void _calibStereoCalibrate(ldiCalibrationJob* Job) {
-	std::cout << "Starting stereo calibration: " << getTime() << "\n";
-
-	Job->stereoCalibrated = false;
-	Job->stPoseToSampleIds.clear();
-	Job->stCubePoints.clear();
-	Job->stCubeWorlds.clear();
-
-	// NOTE: This cube has NOT been refined, should be done by previous bundle adjust steps.
-	ldiCalibCube refinedCube;
-	calibCubeInit(&refinedCube);
-	
-	//----------------------------------------------------------------------------------------------------
-	// Perform stereo calibration.
-	//----------------------------------------------------------------------------------------------------
-	std::vector<std::vector<cv::Point3f>> objectPoints;
-	std::vector<std::vector<cv::Point2f>> imagePoints[2];
-	
-	// Find matching points in both views.
-	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-	//for (size_t sampleIter = 0; sampleIter < 50; ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
-
-		std::vector<cv::Point2f> tempImagePoints[2];
-		std::vector<int> tempGlobalIds[2];
-
-		// Get image points from both views.
-		for (size_t hawkIter = 0; hawkIter < 2; ++hawkIter) {
-			std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkIter].boards;
-
-			for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
-				ldiCharucoBoard* board = &(*boards)[boardIter];
-
-				for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
-					ldiCharucoCorner* corner = &board->corners[cornerIter];
-
-					int cornerGlobalId = (board->id * 9) + corner->id;
-
-					tempImagePoints[hawkIter].push_back(cv::Point2f(corner->position.x, corner->position.y));
-					tempGlobalIds[hawkIter].push_back(cornerGlobalId);
-				}
-			}
-		}
-
-		std::vector<cv::Point3f> appendObjectPoints;
-		std::vector<cv::Point2f> appendImagePoints[2];
-
-		// Compare image points from both views.
-		for (size_t pointIter0 = 0; pointIter0 < tempImagePoints[0].size(); ++pointIter0) {
-			int point0Id = tempGlobalIds[0][pointIter0];
-
-			for (size_t pointIter1 = 0; pointIter1 < tempImagePoints[1].size(); ++pointIter1) {
-				int point1Id = tempGlobalIds[1][pointIter1];
-
-				if (point0Id == point1Id) {
-					appendObjectPoints.push_back(toPoint3f(refinedCube.points[point0Id]));
-					appendImagePoints[0].push_back(tempImagePoints[0][pointIter0]);
-					appendImagePoints[1].push_back(tempImagePoints[1][pointIter1]);
-
-					break;
-				}
-			}
-		}
-
-		if (appendObjectPoints.size() > 3) {
-			objectPoints.push_back(appendObjectPoints);
-			imagePoints[0].push_back(appendImagePoints[0]);
-			imagePoints[1].push_back(appendImagePoints[1]);
-			Job->stPoseToSampleIds.push_back(sampleIter);
-		}
-	}
-
-	cv::Mat camMat[2];
-	camMat[0] = Job->defaultCamMat[0].clone();
-	camMat[1] = Job->defaultCamMat[1].clone();
-
-	cv::Mat distMat[2];
-	distMat[0] = Job->defaultCamDist[0].clone();
-	distMat[1] = Job->defaultCamDist[1].clone();
-
-	int imgWidth = Job->samples[0].frames[0].width;
-	int imgHeight = Job->samples[0].frames[0].height;
-
-	cv::Mat r;
-	cv::Mat t;
-	cv::Mat e;
-	cv::Mat f;
-	std::vector<cv::Mat> rvecs;
-	std::vector<cv::Mat> tvecs;
-	cv::Mat perViewErrors;
-	cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, 1e-6); // 100
-
-	//cv::CALIB_FIX_INTRINSIC
-	//cv::CALIB_USE_INTRINSIC_GUESS
-	double error;
-	try {
-		error = cv::stereoCalibrate(objectPoints, imagePoints[0], imagePoints[1], camMat[0], distMat[0], camMat[1], distMat[1], cv::Size(imgWidth, imgHeight), r, t, e, f, rvecs, tvecs, perViewErrors, cv::CALIB_USE_INTRINSIC_GUESS, criteria);
-	} catch (cv::Exception e) {
-		std::cout << "Exception: " << e.what() << "\n" << std::flush;
-		return;
-	}
-
-	std::cout << "Done stereo calibration: " << getTime() << "\n";
-
-	std::cout << "Error: " << error << "\n";
-	std::cout << "Per view errors: " << perViewErrors << "\n\n";
-
-	mat4 camRt(1.0f);
-	camRt[0][0] = r.at<double>(0, 0);
-	camRt[0][1] = r.at<double>(1, 0);
-	camRt[0][2] = r.at<double>(2, 0);
-	camRt[1][0] = r.at<double>(0, 1);
-	camRt[1][1] = r.at<double>(1, 1);
-	camRt[1][2] = r.at<double>(2, 1);
-	camRt[2][0] = r.at<double>(0, 2);
-	camRt[2][1] = r.at<double>(1, 2);
-	camRt[2][2] = r.at<double>(2, 2);
-	camRt[3] = vec4(t.at<double>(0), t.at<double>(1), t.at<double>(2), 1.0f);
-
-	Job->stStereoCamWorld[0] = glm::identity<mat4>();
-	Job->stStereoCamWorld[1] = glm::inverse(camRt);
-
-	float dist = glm::distance(vec3(0, 0, 0.0f), vec3(t.at<double>(0), t.at<double>(1), t.at<double>(2)));
-	std::cout << "Dist: " << dist << "\n";
-
-	std::cout << "New cam 0 mats: \n";
-	std::cout << camMat[0] << "\n";
-	std::cout << distMat[0] << "\n";
-	std::cout << "New cam 1 mats: \n";
-	std::cout << camMat[1] << "\n";
-	std::cout << distMat[1] << "\n";;
-
-	Job->refinedCamMat[0] = camMat[0].clone();
-	Job->refinedCamDist[0] = distMat[0].clone();
-	Job->refinedCamMat[1] = camMat[1].clone();
-	Job->refinedCamDist[1] = distMat[1].clone();
-
-	for (size_t i = 0; i < refinedCube.points.size(); ++i) {
-		Job->stCubePoints.push_back(refinedCube.points[i]);
-	}
-
-	for (size_t i = 0; i < rvecs.size(); ++i) {
-		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rvecs[i], cvRotMat);
-
-		mat4 pose(1.0f);
-		pose[0][0] = cvRotMat.at<double>(0, 0);
-		pose[0][1] = cvRotMat.at<double>(1, 0);
-		pose[0][2] = cvRotMat.at<double>(2, 0);
-		pose[1][0] = cvRotMat.at<double>(0, 1);
-		pose[1][1] = cvRotMat.at<double>(1, 1);
-		pose[1][2] = cvRotMat.at<double>(2, 1);
-		pose[2][0] = cvRotMat.at<double>(0, 2);
-		pose[2][1] = cvRotMat.at<double>(1, 2);
-		pose[2][2] = cvRotMat.at<double>(2, 2);
-		pose[3] = vec4(tvecs[i].at<double>(0), tvecs[i].at<double>(1), tvecs[i].at<double>(2), 1.0f);
-
-		Job->stCubeWorlds.push_back(pose);
-	}
-
-	Job->stereoCalibrated = true;
 }
 
 // Determine metrics for the calibration volume.
@@ -1777,7 +1603,6 @@ void calibLoadFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 		worldMatD[3][2] = tVec.at<double>(2);
 	}
 
-	Job->stCubePoints.clear();
 	std::vector<vec3> cubePoints;
 
 	for (int i = 0; i < cubePointCount; ++i) {
@@ -1787,7 +1612,6 @@ void calibLoadFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 		std::cout << pointId << ": " << pos.x << ", " << pos.y << ", " << pos.z << "\n";
 
 		cubePoints.push_back(pos);
-		Job->stCubePoints.push_back(pos);
 	}
 
 	calibCubeInit(&Job->opCube);
@@ -1804,7 +1628,6 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 
 	Job->stereoCalibrated = false;
 	Job->stPoseToSampleIds.clear();
-	Job->stCubePoints.clear();
 	Job->stCubeWorlds.clear();
 
 	calibSaveFullBA(Job, "../cache/ba_input.txt");

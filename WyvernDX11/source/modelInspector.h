@@ -3,7 +3,6 @@
 #define max(a,b)            (((a) > (b)) ? (a) : (b))
 #define min(a,b)            (((a) < (b)) ? (a) : (b))
 
-#include "spatialGrid.h"
 #include "lcms2.h"
 #include "elipseCollision.h"
 
@@ -168,49 +167,6 @@ struct ldiModelInspector {
 	ldiPrintedDotDesc			dotDesc;
 
 	ldiElipseCollisionTester	elipseTester = {};
-};
-
-struct ldiProjectContext {
-	std::string					path;
-
-	bool						sourceModelLoaded = false;
-	ldiModel					sourceModel;
-	float						sourceModelScale = 1.0f;
-	vec3						sourceModelTranslate = vec3(0.0f, 0.0f, 0.0f);
-	ldiRenderModel				sourceRenderModel;
-	ldiPhysicsMesh				sourceCookedModel;
-
-	bool						sourceTextureLoaded = false;
-	ldiImage					sourceTextureRaw;
-	ID3D11Texture2D*			sourceTexture;
-	ID3D11ShaderResourceView*	sourceTextureSrv;
-	ldiImage					sourceTextureCmyk;
-	ldiImage					sourceTextureCmykChannels[4];
-	ID3D11Texture2D*			sourceTextureCmykTexture[4];
-	ID3D11ShaderResourceView*	sourceTextureCmykSrv[4];
-
-	bool						quadModelLoaded = false;
-	ldiQuadModel				quadModel;
-	ldiRenderModel				quadDebugModel;
-	ldiRenderModel				quadModelWhite;
-	ldiRenderLines				quadMeshWire;
-
-	bool						surfelsLoaded = false;
-	vec3						surfelsBoundsMin;
-	vec3						surfelsBoundsMax;
-	std::vector<ldiSurfel>		surfelsLow;
-	std::vector<ldiSurfel>		surfelsHigh;
-	ldiSpatialGrid				surfelLowSpatialGrid = {};
-	ldiRenderModel				surfelLowRenderModel;
-	ldiRenderModel				surfelHighRenderModel;
-	ldiRenderModel				coveragePointModel;
-
-	bool						poissonSamplesLoaded = false;
-	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
-	ldiRenderModel				poissonSamplesRenderModel;
-	ldiRenderModel				poissonSamplesCmykRenderModel[4];
-
-	ldiRenderPointCloud			pointCloudRenderModel;
 };
 
 vec3 getColorFromMap(float CosAngle) {
@@ -1820,34 +1776,6 @@ void modelInspectorRenderLaserView(ldiApp* AppContext, ldiModelInspector* ModelI
 	AppContext->d3dDeviceContext->Unmap(ModelInspector->coverageAreaStagingBuffer, 0);
 }
 
-void projectInvalidateModelData(ldiApp* AppContext, ldiProjectContext* Project) {
-	// TODO: Change to a general clear?
-
-	if (Project->sourceModelLoaded) {
-		Project->sourceModelLoaded = false;
-		//sourceRenderModel
-	}
-
-	if (Project->quadModelLoaded) {
-		Project->quadModelLoaded = false;
-		//quadModel
-	}
-}
-
-void projectInvalidateTextureData(ldiApp* AppContext, ldiProjectContext* Project) {
-	// TODO: Destroy other texture resources.
-
-	if (Project->sourceTextureLoaded) {
-		Project->sourceTextureLoaded = false;
-	}
-}
-
-void projectInit(ldiApp* AppContext, ldiProjectContext* Project) {
-	projectInvalidateModelData(AppContext, Project);
-	projectInvalidateTextureData(AppContext, Project);
-	*Project = {};
-}
-
 bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
 	projectInvalidateModelData(AppContext, Project);
 	std::cout << "Project source mesh path: " << Path << "\n";
@@ -1861,13 +1789,6 @@ bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const st
 	}
 
 	Project->sourceModel = objLoadModel(sourceModelFile, sourceModelFileSize);
-
-	// Scale and translate model.
-	for (int i = 0; i < Project->sourceModel.verts.size(); ++i) {
-		ldiMeshVertex* vert = &Project->sourceModel.verts[i];
-		vert->pos = vert->pos * Project->sourceModelScale + Project->sourceModelTranslate;
-	}
-
 	Project->sourceRenderModel = gfxCreateRenderModel(AppContext, &Project->sourceModel);
 	Project->sourceModelLoaded = true;
 
@@ -1993,10 +1914,12 @@ bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 
 	Project->quadModelLoaded = false;
 
-	//std::string quadMeshPath = AppContext->currentWorkingDir + "\\" + Project->path + "quad_mesh.ply";
 	std::string quadMeshPath = "../../bin/cache/quad_mesh.ply";
 
-	if (!modelInspectorCreateVoxelMesh(AppContext, &Project->sourceModel)) {
+	mat4 worldMat = projectGetSourceTransformMat(Project);
+	ldiModel transModel = modelGetTransformed(&Project->sourceModel, worldMat);
+
+	if (!modelInspectorCreateVoxelMesh(AppContext, &transModel)) {
 		return false;
 	}
 
@@ -2130,69 +2053,6 @@ bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project,
 	Project->poissonSamplesLoaded = true;
 
 	return true;
-}
-
-bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
-	std::cout << "Loading project: " << Project->path << "\n";
-
-	projectInit(AppContext, Project);
-	Project->path = Path;
-
-	FILE* file;
-	fopen_s(&file, Path.c_str(), "rb");
-
-	fclose(file);
-
-	//char pathStr[1024];
-	//sprintf_s(pathStr, "%ssource_mesh.obj", Project->dir.c_str());
-	//projectLoadModel(AppContext, Project, pathStr);
-
-	//// TODO: Check if processed model exists.
-	//sprintf_s(pathStr, "%squad.ply", Project->dir.c_str());
-	//if (!plyLoadQuadMesh(pathStr, &Project->quadModel)) {
-	//	return 1;
-	//}
-
-	//geoPrintQuadModelInfo(&Project->quadModel);
-
-	return true;
-}
-
-void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
-	if (Project->path.empty()) {
-		std::cout << "Project does not have a file path\n";
-		return;
-	}
-
-	std::cout << "Saving project: " << Project->path << "\n";
-
-	FILE* file;
-	fopen_s(&file, Project->path.c_str(), "wb");
-
-	fwrite(&Project->sourceModelLoaded, sizeof(bool), 1, file);
-	if (Project->sourceModelLoaded) {
-		serialize(file, &Project->sourceModel);
-		fwrite(&Project->sourceModelScale, sizeof(float), 1, file);
-		fwrite(&Project->sourceModelTranslate, sizeof(vec3), 1, file);
-	}
-
-	fwrite(&Project->sourceTextureLoaded, sizeof(bool), 1, file);
-	if (Project->sourceTextureLoaded) {
-		serialize(file, &Project->sourceTextureRaw, 4);
-		serialize(file, &Project->sourceTextureCmyk, 4);
-	}
-
-	fwrite(&Project->quadModelLoaded, sizeof(bool), 1, file);
-	if (Project->quadModelLoaded) {
-
-	}
-
-	fwrite(&Project->surfelsLoaded, sizeof(bool), 1, file);
-	if (Project->surfelsLoaded) {
-
-	}
-
-	fclose(file);
 }
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
@@ -2722,10 +2582,6 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 
 	return 0;
 }
-
-
-
-
 
 void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Height, std::vector<ldiTextInfo>* TextBuffer) {
 	ldiApp* appContext = ModelInspector->appContext;
@@ -3304,6 +3160,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 		ImGui::Text("Source model");
 		
 		ImGui::SliderFloat("Scale", &project->sourceModelScale, 0.001f, 100.0f);
+		ImGui::DragFloat3("Rotation", (float*)&project->sourceModelRotate, 0.1f);
 		ImGui::DragFloat3("Translation", (float*)&project->sourceModelTranslate, 0.1f, -100.0f, 100.0f);
 		if (ImGui::Button("Import model")) {
 			std::string filePath;
@@ -3382,6 +3239,21 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 			ImGui::ColorEdit3("Canvas", (float*)&tool->modelCanvasColor);
 			ImGui::Checkbox("Area debug", &tool->quadMeshShowDebug);
 			ImGui::Checkbox("Quad wireframe", &tool->quadMeshShowWireframe);
+
+			if (ImGui::Button("Save point cloud")) {
+				std::string filePath;
+				if (showSaveFileDialog(tool->appContext->hWnd, tool->appContext->currentWorkingDir, filePath, L"Polygon", L"*.ply", L"ply")) {
+					ldiQuadModel* quadModel = &tool->appContext->projectContext->quadModel;
+					ldiPointCloud pcl = {};
+					pcl.points.resize(quadModel->verts.size());
+
+					for (size_t i = 0; i < quadModel->verts.size(); ++i) {
+						pcl.points[i].position = quadModel->verts[i];
+					}
+
+					plySavePoints(filePath.c_str(), &pcl);
+				}
+			}
 		}
 	}
 

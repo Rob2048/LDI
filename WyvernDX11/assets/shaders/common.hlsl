@@ -42,10 +42,18 @@ float GammaToLinear(float In) {
 	return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
 }
 
+float3 GammaToLinear(float3 In) {
+	return float3(GammaToLinear(In.r), GammaToLinear(In.g), GammaToLinear(In.b));
+}
+
 float LinearToGamma(float In) {
 	float sRGBLo = In * 12.92f;
 	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
+}
+
+float3 LinearToGamma(float3 In) {
+	return float3(LinearToGamma(In.r), LinearToGamma(In.g), LinearToGamma(In.b));
 }
 
 //---------------------------------------------------------------------------------------------------------------

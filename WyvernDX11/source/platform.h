@@ -80,11 +80,21 @@ struct ldiPlatform {
 
 	ldiRenderModel				cubeModel;
 
+	bool						showDefaultCube = false;
 	bool						showMachineFrame = false;
+	bool						showCalibCube = true;
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = false;
-	bool						liveAxisUpdate = false;
+	bool						showScanPlane = false;
+	bool						liveAxisUpdate = true;
+
+	bool						showSourceModelShaded = true;
+	bool						showSourceModelWireframe = false;
+	bool						showQuadMeshDebug = true;
+	bool						showQuadMeshWireframe = false;
+	bool						showQuadMeshWhite = false;
+	vec4						quadMeshCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
 
 	std::mutex					liveScanPointsMutex;
 	bool						liveScanPointsUpdated;
@@ -102,183 +112,6 @@ struct ldiPlatform {
 	vec3						scanBoundsMin = vec3(-5, -5, -5);
 	vec3						scanBoundsMax = vec3(5, 5, 5);
 };
-
-void platformCalculateStereoExtrinsics(ldiApp* AppContext, ldiCalibrationJob* Job) {
-	std::vector<cv::Point2f> camImagePoints[2];
-	std::vector<cv::Point2f> camUndistortedPoints[2];
-
-	std::cout << "Creating massive model\n";
-
-	Job->massModelPointIds.clear();
-
-	//----------------------------------------------------------------------------------------------------
-	// Find matching image points in each cam pair for each calib sample.
-	//----------------------------------------------------------------------------------------------------
-	for (int sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
-		int matchedPoints = 0;
-
-		for (int c0BoardIter = 0; c0BoardIter < sample->cubes[0].boards.size(); ++c0BoardIter) {
-			for (int c0CornerIter = 0; c0CornerIter < sample->cubes[0].boards[c0BoardIter].corners.size(); ++c0CornerIter) {
-				ldiCharucoCorner* corner0 = &sample->cubes[0].boards[c0BoardIter].corners[c0CornerIter];
-				ldiCharucoCorner* corner1 = nullptr;
-
-				bool foundCornerMatch = false;
-
-				for (int c1BoardIter = 0; c1BoardIter < sample->cubes[1].boards.size(); ++c1BoardIter) {
-					if (foundCornerMatch) {
-						break;
-					}
-
-					for (int c1CornerIter = 0; c1CornerIter < sample->cubes[1].boards[c1BoardIter].corners.size(); ++c1CornerIter) {
-						corner1 = &sample->cubes[1].boards[c1BoardIter].corners[c1CornerIter];
-
-						if (corner0->globalId == corner1->globalId) {
-							foundCornerMatch = true;
-							break;
-						}
-					}
-				}
-
-				if (foundCornerMatch) {
-					// TODO: Add to mass model.
-					++matchedPoints;
-					camImagePoints[0].push_back(cv::Point2f(corner0->position.x, corner0->position.y));
-					camImagePoints[1].push_back(cv::Point2f(corner1->position.x, corner1->position.y));
-					Job->massModelPointIds.push_back(sampleIter * (9 * 6) + corner0->globalId);
-				}
-			}
-		}
-
-		std::cout << "Sample: " << sampleIter << " Matches: " << matchedPoints << "\n";
-	}
-
-	std::cout << "Total matched points: " << camImagePoints[0].size() << "\n";
-	
-	//----------------------------------------------------------------------------------------------------
-	// Undistort matched points.
-	//----------------------------------------------------------------------------------------------------
-	cv::Mat camDefaultMat[2];
-	camDefaultMat[0] = AppContext->platform->hawks[0].defaultCameraMat;
-	camDefaultMat[1] = AppContext->platform->hawks[1].defaultCameraMat;
-
-	cv::Mat distDefaultMat[2];
-	distDefaultMat[0] = AppContext->platform->hawks[0].defaultDistMat;
-	distDefaultMat[1] = AppContext->platform->hawks[1].defaultDistMat;
-
-	cv::undistortPoints(camImagePoints[0], camUndistortedPoints[0], camDefaultMat[0], distDefaultMat[0], cv::noArray(), camDefaultMat[0]);
-	cv::undistortPoints(camImagePoints[1], camUndistortedPoints[1], camDefaultMat[1], distDefaultMat[1], cv::noArray(), camDefaultMat[1]);
-
-	Job->massModelImagePoints[0].clear();
-	Job->massModelImagePoints[1].clear();
-
-	Job->massModelUndistortedPoints[0].clear();
-	Job->massModelUndistortedPoints[1].clear();
-
-	for (size_t i = 0; i < camImagePoints[0].size(); ++i) {
-		Job->massModelImagePoints[0].push_back(vec2(camImagePoints[0][i].x, camImagePoints[0][i].y));
-		Job->massModelUndistortedPoints[0].push_back(vec2(camUndistortedPoints[0][i].x, camUndistortedPoints[0][i].y));
-
-		Job->massModelImagePoints[1].push_back(vec2(camImagePoints[1][i].x, camImagePoints[1][i].y));
-		Job->massModelUndistortedPoints[1].push_back(vec2(camUndistortedPoints[1][i].x, camUndistortedPoints[1][i].y));
-	}
-
-	////----------------------------------------------------------------------------------------------------
-	//// Build fundamental matrix.
-	////----------------------------------------------------------------------------------------------------
-	//cv::Mat fMats;
-	//try {
-	//	fMats = cv::findFundamentalMat(camUndistortedPoints[0], camUndistortedPoints[1], cv::FM_LMEDS, 3.0, 0.99);
-	//	//fMats = cv::findFundamentalMat(trackerPoints[0], trackerPoints[1], CV_FM_RANSAC, 3.0, 0.99);
-	//} catch (cv::Exception& e) {
-	//	const char* err_msg = e.what();
-	//	std::cout << "Fundamental Mat Failed: " << err_msg;
-	//	return;
-	//}
-
-	//std::cout << "FMat: " << fMats << "\n";
-	//cv::Mat essentialMat(3, 3, CV_64F);
-	// NOTE: Second camera K first.
-	//essentialMat = calibCameraMatrix.t() * fMats * calibCameraMatrix;
-
-	cv::Mat essentialMat;
-	try {
-		essentialMat = cv::findEssentialMat(camUndistortedPoints[0], camUndistortedPoints[1], camDefaultMat[0], distDefaultMat[0], camDefaultMat[1], distDefaultMat[1]);
-		std::cout << "Essential mat: " << essentialMat << "\n";
-	} catch (cv::Exception& e) {
-		const char* err_msg = e.what();
-		std::cout << "Fundamental Mat failed: " << err_msg;
-		return;
-	}
-
-	//---------------------------------------------------------------------------------------------------
-	// Recover camera poses.
-	//---------------------------------------------------------------------------------------------------
-	cv::Mat r;
-	cv::Mat t;
-	
-	try {
-		cv::recoverPose(essentialMat, camUndistortedPoints[0], camUndistortedPoints[1], r, t, 2660, cv::Point2d(3280 / 2, 2464 / 2));
-		//cv::recoverPose(essentialMat, camUndistortedPoints[0], camUndistortedPoints[1], calibCameraMatrix, r, t, 100.0, cv::noArray(), triPoints);
-		//cv::recoverPose(camUndistortedPoints[0], camUndistortedPoints[1], camDefaultMat[0], distDefaultMat[0], camDefaultMat[1], distDefaultMat[1], essentialMat, r, t);
-	} catch (cv::Exception& e) {
-		const char* err_msg = e.what();
-		std::cout << "Recover pose failed: " << err_msg;
-		return;
-	}
-
-	//cv::Mat trueT = -(r).t() * t;
-
-	cv::Mat pose0 = cv::Mat::eye(3, 4, r.type());
-	cv::Mat pose1(3, 4, r.type());
-	pose1(cv::Range::all(), cv::Range(0, 3)) = r * 1.0;
-	pose1.col(3) = t * 1.0;
-	//Pose = pose1.clone();
-
-	Job->rtMat[0] = pose0.clone();
-	Job->rtMat[1] = pose1.clone();
-
-	cv::Mat proj0 = camDefaultMat[0] * pose0;
-	cv::Mat proj1 = camDefaultMat[1] * pose1;
-
-	std::cout << "Pose0: " << pose0 << "\n";
-	std::cout << "Pose1: " << pose1 << "\n";
-
-	//---------------------------------------------------------------------------------------------------
-	// Triangulate points.
-	//---------------------------------------------------------------------------------------------------
-	cv::Mat Q;
-	cv::triangulatePoints(proj0, proj1, camUndistortedPoints[0], camUndistortedPoints[1], Q);
-
-	Job->massModelTriangulatedPoints.clear();
-	for (int i = 0; i < Q.size().width; ++i) {
-		float w = Q.at<float>(3, i);
-		float x = Q.at<float>(0, i) / w;
-		float y = Q.at<float>(1, i) / w;
-		float z = Q.at<float>(2, i) / w;
-
-		Job->massModelTriangulatedPoints.push_back(vec3(x, y, z));
-
-		//std::cout << i << ": " << x << "," << y << "," << z << "," << w << "\n";
-	}
-
-	//for (size_t i = 0; i < triPoints.size(); ++i) {
-		//Job->triangulatedCalibModelPoints.push_back(vec3(triPoints[i].x, triPoints[i].y, triPoints[i].z));
-	//}
-
-	//std::cout << triPoints.size() << "\n";
-
-	/*for (int i = 0; i < triPoints.size().width; ++i) {
-		float w = triPoints.at<float>(3, i);
-		float x = triPoints.at<float>(0, i);
-		float y = triPoints.at<float>(1, i);
-		float z = triPoints.at<float>(2, i);
-
-		Job->massModelTriangulatedPoints.push_back(vec3(x, y, z));
-
-		std::cout << i << ": " << x << "," << y << "," << z << "," << w << "\n";
-	}*/
-}
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
 	delete Platform->job;
@@ -1335,117 +1168,37 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
-	if (false) {
+	if (Tool->showDefaultCube) {
 		for (size_t i = 0; i < Tool->defaultCube.points.size(); ++i) {
 			pushDebugSphere(&appContext->defaultDebug, Tool->defaultCube.points[i], 0.02, vec3(1, 0, 0), 8);
 			displayTextAtPoint(Camera, Tool->defaultCube.points[i], std::to_string(i), vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
 		}
 	}
 
+	ldiCalibrationContext* calibContext = appContext->calibrationContext;
+	ldiCalibrationJob* job = &calibContext->calibJob;
+	mat4 workTrans = glm::identity<mat4>();
+	mat4 workWorldMat = glm::identity<mat4>();
+
+	ldiHorsePosition horsePos = {};
+	horsePos.x = Tool->testPosX;
+	horsePos.y = Tool->testPosY;
+	horsePos.z = Tool->testPosZ;
+	horsePos.c = Tool->testPosC;
+	horsePos.a = Tool->testPosA;
+
+	if (job->metricsCalculated) {
+		workTrans = horseGetWorkTransform(job, horsePos);
+	}
+
+	if (Tool->scanUseWorkTrans) {
+		workWorldMat = workTrans;
+	}
+
 	//----------------------------------------------------------------------------------------------------
 	// Calibration job stuff.
 	//----------------------------------------------------------------------------------------------------
-	{
-		ldiCalibrationContext* calibContext = appContext->calibrationContext;
-		ldiCalibrationJob* job = &calibContext->calibJob;
-
-		//----------------------------------------------------------------------------------------------------
-		// Other.
-		//----------------------------------------------------------------------------------------------------
-		std::vector<vec3>* modelPoints = &calibContext->calibJob.massModelTriangulatedPoints;
-
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i] * 10.0f;
-			pushDebugSphere(&appContext->defaultDebug, point, 0.01, vec3(1, 0, 0), 8);
-
-			//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
-		}
-
-		modelPoints = &calibContext->calibJob.massModelTriangulatedPointsBundleAdjust;
-
-		for (size_t i = 0; i < modelPoints->size(); ++i) {
-			vec3 point = (*modelPoints)[i];// * 10.0f;
-
-			int id = calibContext->calibJob.massModelBundleAdjustPointIds[i];
-			int sampleId = id / (9 * 6);
-			int boardId = (id % (9 * 6)) / 9;
-			int pointId = id % (9);
-
-			vec3 col(0, 0.5, 0);
-			srand(sampleId);
-			rand();
-			col = getRandomColorHighSaturation();
-
-			pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-
-			//displayTextAtPoint(Camera, point, std::to_string(sampleId), vec4(1, 1, 1, 0.5), TextBuffer);
-		}
-
-		/*for (size_t i = 0; i < calibContext->calibJob.centeredPointGroups.size(); ++i) {
-			vec3 col(0, 0.5, 0);
-			srand(i);
-			rand();
-			col = getRandomColorHighSaturation();
-
-			for (size_t j = 0; j < calibContext->calibJob.centeredPointGroups[i].size(); ++j) {
-				vec3 point = calibContext->calibJob.centeredPointGroups[i][j] * 10.0f;
-
-				pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-			}
-		}*/
-		
-		{
-			std::vector<vec3>* modelPoints = &calibContext->calibJob.baIndvCubePoints;
-
-			for (size_t i = 0; i < modelPoints->size(); ++i) {
-				vec3 point = (*modelPoints)[i];
-
-				pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-				displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
-			}
-
-			for (size_t i = 0; i < job->baCubePlanes.size(); ++i) {
-				ldiPlane plane = job->baCubePlanes[i];
-
-				pushDebugLine(&appContext->defaultDebug, plane.point, plane.point + plane.normal, vec3(1, 0, 0));
-			}
-
-			//for (size_t i = 0; i < job->baViews.size(); ++i) {
-			//	ldiTransform boardTransform = {};
-			//	boardTransform.world = glm::inverse(job->baViews[i]);
-
-			//	int viewId = job->baViewIds[i] % 1000;
-
-			//	float dist = job->baViewDist[viewId];
-
-			//	if (dist == 0.0f) {
-			//		continue;
-			//	}
-
-			//	if (job->baViewIds[i] < 1000) {
-			//		boardTransform.world[3] = vec4(10, 0, 0, 1.0);
-			//		renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "0", TextBuffer);
-			//	} else {
-			//		boardTransform.world[3] = vec4(10, 0, dist, 1.0);
-			//		renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "1", TextBuffer);
-			//	}
-
-			//	//pushDebugBox(&appContext->defaultDebug, worldOrigin, vec3(0.05f, 0.05f, 0.05f), targetFaceColor[point->boardId]);
-			//}
-
-			/*{
-				ldiTransform boardTransform = {};
-				boardTransform.world = job->stStereoCamWorld[0];
-				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 0", TextBuffer);
-				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(1, 0, 1), 8);
-
-				boardTransform.world = job->stStereoCamWorld[1];
-				renderTransformOrigin(Tool->appContext, Camera, &boardTransform, "Hawk 1", TextBuffer);
-				pushDebugSphere(&appContext->defaultDebug, boardTransform.world[3], 0.1, vec3(0, 0, 1), 8);
-
-			}*/
-		}
-
+	{	
 		if (job->metricsCalculated) {
 			//----------------------------------------------------------------------------------------------------
 			// Camera positions.
@@ -1470,14 +1223,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			//----------------------------------------------------------------------------------------------------
 			// Estimated cube position.
 			//----------------------------------------------------------------------------------------------------
-			if (job->metricsCalculated) {
-				ldiHorsePosition horsePos = {};
-				horsePos.x = Tool->testPosX;
-				horsePos.y = Tool->testPosY;
-				horsePos.z = Tool->testPosZ;
-				horsePos.c = Tool->testPosC;
-				horsePos.a = Tool->testPosA;
-
+			if (job->metricsCalculated && Tool->showCalibCube) {
 				std::vector<vec3> cubePoints;
 				std::vector<ldiCalibCubeSide> cubeSides;
 				std::vector<vec3> cubeCorners;
@@ -1521,54 +1267,36 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					displayTextAtPoint(Camera, cubeCorners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 				}
 			}
+			
+			//----------------------------------------------------------------------------------------------------
+			// Scan calibration.
+			//----------------------------------------------------------------------------------------------------
 			if (job->metricsCalculated) {
-				// Scan plane
-				{
-					/*vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
-					float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
-					mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
+				if (Tool->showScanPlane) {
+					{
+						ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
+						pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
+					}
 
+					for (size_t i = 0; i < job->scanWorldPoints[0].size(); ++i) {
+						vec3 point = job->scanWorldPoints[0][i];
+						pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
+					}
 
-					vec3 newPoint = vec4(job->scanPlane.point - refToAxis, 1.0f);
-					newPoint = axisRot * vec4(newPoint, 1.0f);
-					newPoint = vec4(newPoint + refToAxis, 1.0f);
+					for (size_t i = 0; i < job->scanWorldPoints[1].size(); ++i) {
+						vec3 point = job->scanWorldPoints[1][i];
+						pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(0.4, 1, 1), 6);
+					}
 
-					vec3 newNormal = axisRot * vec4(job->scanPlane.normal, 0.0f);*/
+					for (size_t i = 0; i < job->scanRays[0].size(); ++i) {
+						ldiLine line = job->scanRays[0][i];
+						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
+					}
 
-					ldiHorsePosition horsePos = {};
-					horsePos.x = Tool->testPosX;
-					horsePos.y = Tool->testPosY;
-					horsePos.z = Tool->testPosZ;
-					horsePos.c = Tool->testPosC;
-					horsePos.a = Tool->testPosA;
-
-					ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
-
-					pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
-				}
-
-				for (size_t i = 0; i < job->scanWorldPoints[0].size(); ++i) {
-					vec3 point = job->scanWorldPoints[0][i];
-
-					pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
-				}
-
-				for (size_t i = 0; i < job->scanWorldPoints[1].size(); ++i) {
-					vec3 point = job->scanWorldPoints[1][i];
-
-					pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(0.4, 1, 1), 6);
-				}
-
-				for (size_t i = 0; i < job->scanRays[0].size(); ++i) {
-					ldiLine line = job->scanRays[0][i];
-
-					pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
-				}
-
-				for (size_t i = 0; i < job->scanRays[1].size(); ++i) {
-					ldiLine line = job->scanRays[1][i];
-
-					pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(0.1f, 0.4f, 1.0f));
+					for (size_t i = 0; i < job->scanRays[1].size(); ++i) {
+						ldiLine line = job->scanRays[1][i];
+						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(0.1f, 0.4f, 1.0f));
+					}
 				}
 			}
 			
@@ -1576,9 +1304,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Calibration volume.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibCubeVolume) {
-				std::vector<vec3>* modelPoints = &job->stCubePoints;
-				//for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
-				for (size_t cubeIter = 0; cubeIter < 340; ++cubeIter) {
+				std::vector<vec3>* modelPoints = &job->opCube.points;
+				for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
 					srand(cubeIter);
 					rand();
 					vec3 col = getRandomColorHighSaturation();
@@ -1691,94 +1418,9 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		}
 
 		//----------------------------------------------------------------------------------------------------
-		// Optimization results.
-		//----------------------------------------------------------------------------------------------------
-		if (false) {
-			// Render refined cube.
-			if (false) {
-				ldiCalibCube* cube = &calibContext->calibJob.opCube;
-				std::vector<vec3>* modelPoints = &cube->points;
-
-				for (size_t i = 0; i < modelPoints->size(); ++i) {
-					vec3 point = (*modelPoints)[i];
-
-					pushDebugSphere(&appContext->defaultDebug, point, 0.02, vec3(0, 1, 1), 8);
-					displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
-				}
-
-				{
-					for (size_t i = 0; i < cube->sides.size(); ++i) {
-						const vec3 sideCol[6] = {
-							vec3(1, 0, 0),
-							vec3(0, 1, 0),
-							vec3(0, 0, 1),
-							vec3(1, 1, 0),
-							vec3(1, 0, 1),
-							vec3(0, 1, 1),
-						};
-
-						pushDebugTri(&appContext->defaultDebug, cube->sides[i].corners[0], cube->sides[i].corners[1], cube->sides[i].corners[2], sideCol[i] * 0.5f);
-						pushDebugTri(&appContext->defaultDebug, cube->sides[i].corners[2], cube->sides[i].corners[3], cube->sides[i].corners[0], sideCol[i] * 0.5f);
-					}
-				}
-
-				for (int i = 0; i < 8; ++i) {
-					pushDebugSphere(&appContext->defaultDebug, cube->corners[i], 0.001, vec3(0, 1, 1), 8);
-					displayTextAtPoint(Camera, cube->corners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
-				}
-
-				for (int i = 0; i < 6; ++i) {
-					pushDebugPlane(&appContext->defaultDebug, cube->sides[i].plane.point, cube->sides[i].plane.normal, 3.5f, vec3(1, 0, 0));
-				}
-			}
-
-			//for (size_t i = 0; i < job->opCubeWorlds.size(); ++i) {
-			//	mat4 world = job->opCubeWorlds[i];
-
-			//	pushDebugSphere(&appContext->defaultDebug, world[3], 0.02, vec3(1, 0, 1), 8);
-			//	//displayTextAtPoint(Camera, world[3], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
-
-			//	std::vector<vec3>* modelPoints = &job->opCube.points;
-
-			//	srand(i);
-			//	rand();
-			//	vec3 col = getRandomColorHighSaturation();
-
-			//	for (size_t i = 0; i < modelPoints->size(); ++i) {
-			//		vec3 point = world * vec4((*modelPoints)[i], 1.0f);
-
-			//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 4);
-			//		//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
-			//	}
-			//}
-			//
-
-			//{
-			//	ldiTransform trans = {};
-			//	trans.world = job->opInitialCamWorld[0];
-			//	renderTransformOrigin(Tool->appContext, Camera, &trans, "Hawk I0", TextBuffer);
-			//	pushDebugSphere(&appContext->defaultDebug, trans.world[3], 0.1, vec3(1, 0, 1), 8);
-
-			//	trans.world = job->opInitialCamWorld[1];
-			//	renderTransformOrigin(Tool->appContext, Camera, &trans, "Hawk I1", TextBuffer);
-			//	pushDebugSphere(&appContext->defaultDebug, trans.world[3], 0.1, vec3(0, 0, 1), 8);
-
-			//}
-		}
-
-		//----------------------------------------------------------------------------------------------------
 		// Live scan points.
 		//----------------------------------------------------------------------------------------------------
 		if (job->scannerCalibrated) {
-			ldiHorsePosition horsePos = {};
-			horsePos.x = Tool->testPosX;
-			horsePos.y = Tool->testPosY;
-			horsePos.z = Tool->testPosZ;
-			horsePos.c = Tool->testPosC;
-			horsePos.a = Tool->testPosA;
-
-			mat4 workTrans = horseGetWorkTransform(job, horsePos);
-
 			pushDebugSphere(&appContext->defaultDebug, workTrans * vec4(0, 0, 0, 1.0f), 0.1, vec3(0, 1, 0), 6);
 			pushDebugSphere(&appContext->defaultDebug, workTrans * vec4(1, 0, 0, 1.0f), 0.1, vec3(0, 0.5f, 0), 6);
 
@@ -1810,16 +1452,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		//----------------------------------------------------------------------------------------------------
 		// Scan tools.
 		//----------------------------------------------------------------------------------------------------
-		{
-			ldiHorsePosition horsePos = {};
-			horsePos.x = Tool->testPosX;
-			horsePos.y = Tool->testPosY;
-			horsePos.z = Tool->testPosZ;
-			horsePos.c = Tool->testPosC;
-			horsePos.a = Tool->testPosA;
-
-			mat4 workTrans = horseGetWorkTransform(job, horsePos);
-
+		if (Tool->scanShowPointCloud) {
 			if (Tool->scan.pointCloudRenderModel.indexCount > 0) {
 				{
 					D3D11_MAPPED_SUBRESOURCE ms;
@@ -1828,13 +1461,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					constantBuffer->screenSize = vec4(Camera->viewWidth, Camera->viewHeight, 0, 0);
 					constantBuffer->mvp = Camera->projViewMat;
 					constantBuffer->color = vec4(0, 0, 0, 1);
-
-					if (Tool->scanUseWorkTrans) {
-						constantBuffer->view = Camera->viewMat * workTrans;
-					} else {
-						constantBuffer->view = Camera->viewMat;
-					}
-
+					constantBuffer->view = Camera->viewMat * workWorldMat;
 					constantBuffer->proj = Camera->projMat;
 					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 				}
@@ -1970,6 +1597,112 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	}
 
 	//----------------------------------------------------------------------------------------------------
+	// Project models.
+	//----------------------------------------------------------------------------------------------------
+	{
+		ldiProjectContext* project = Tool->appContext->projectContext;
+
+		if (project->sourceModelLoaded) {
+			if (Tool->showSourceModelShaded) {
+
+				/*[-0.55525757  0.05451943  0.85529738 - 0.07826866]
+				[-0.02091123  1.01795051 - 0.078463    1.97768689]
+				[-0.85677809 - 0.06017768 - 0.55238293  0.10937812]
+				[0.          0.          0.          1.]*/
+
+				mat4 tempMat = glm::identity<mat4>();
+				tempMat[0][0] = -0.55525757;
+				tempMat[0][1] = -0.02091123;
+				tempMat[0][2] = -0.85677809;
+
+				tempMat[1][0] = 0.05451943;
+				tempMat[1][1] = 1.01795051;
+				tempMat[1][2] = -0.06017768;
+
+				tempMat[2][0] = 0.85529738;
+				tempMat[2][1] = -0.078463;
+				tempMat[2][2] = -0.55238293;
+
+				tempMat[3][0] = -0.07826866;
+				tempMat[3][1] = 1.97768689;
+				tempMat[3][2] = 0.10937812;
+
+				tempMat = glm::scale(tempMat, vec3(0.5, 0.5, 0.5));
+
+				if (project->sourceTextureLoaded) {
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+					constantBuffer->mvp = Camera->projViewMat * projectGetSourceTransformMat(project);
+					constantBuffer->color = vec4(1, 1, 1, 1);
+					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+					gfxRenderModel(appContext, &project->sourceRenderModel, false, project->sourceTextureSrv, appContext->defaultPointSamplerState);
+				} else {
+					D3D11_MAPPED_SUBRESOURCE ms;
+					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+					mat4 worldMat = projectGetSourceTransformMat(project);
+					//constantBuffer->mvp = Camera->projViewMat * worldMat;
+					constantBuffer->mvp = Camera->projViewMat * tempMat;
+					//constantBuffer->world = worldMat;
+					constantBuffer->world = tempMat;
+					constantBuffer->color = vec4(0.7f, 0.7f, 0.7f, 1.0f);
+					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+					gfxRenderModel(appContext, &project->sourceRenderModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+				}
+			}
+
+			if (Tool->showSourceModelWireframe) {
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * projectGetSourceTransformMat(project);
+				constantBuffer->color = vec4(0, 0, 0, 1);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				gfxRenderModel(appContext, &project->sourceRenderModel, true);
+			}
+		}
+
+		if (project->quadModelLoaded) {
+			if (Tool->showQuadMeshDebug) {
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * workWorldMat;
+				constantBuffer->color = vec4(0, 0, 0, 1);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				gfxRenderDebugModel(appContext, &project->quadDebugModel);
+			}
+
+			if (Tool->showQuadMeshWireframe) {
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * workWorldMat;
+				constantBuffer->color = vec4(0, 0, 0, 1);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				gfxRenderWireModel(appContext, &project->quadMeshWire);
+			}
+
+			if (Tool->showQuadMeshWhite) {
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat * workWorldMat;
+				constantBuffer->color = Tool->quadMeshCanvasColor;
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				gfxRenderDebugModel(appContext, &project->quadModelWhite);
+			}
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
 	// Render debug primitives.
 	//----------------------------------------------------------------------------------------------------
 	{
@@ -2095,10 +1828,22 @@ void platformShowUi(ldiPlatform* Tool) {
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");
+			ImGui::Checkbox("Show default cube", &Tool->showDefaultCube);
 			ImGui::Checkbox("Show machine frame", &Tool->showMachineFrame);
+			ImGui::Checkbox("Show calib cube", &Tool->showCalibCube);
 			ImGui::Checkbox("Show calib cube faces", &Tool->showCalibCubeFaces);
 			ImGui::Checkbox("Show calib cube volume", &Tool->showCalibCubeVolume);
 			ImGui::Checkbox("Show calib basis", &Tool->showCalibVolumeBasis);
+			ImGui::Checkbox("Show scan plane", &Tool->showScanPlane);
+
+			ImGui::Separator();
+			ImGui::Checkbox("Show source model shaded", &Tool->showSourceModelShaded);
+			ImGui::Checkbox("Show source model wireframe", &Tool->showSourceModelWireframe);
+
+			ImGui::Separator();
+			ImGui::Checkbox("Show quad mesh debug", &Tool->showQuadMeshDebug);
+			ImGui::Checkbox("Show quad mesh wireframe", &Tool->showQuadMeshWireframe);
+			ImGui::Checkbox("Show quad mesh canvas", &Tool->showQuadMeshWhite);
 
 			ImGui::Separator();
 			ImGui::Text("Simulated position");

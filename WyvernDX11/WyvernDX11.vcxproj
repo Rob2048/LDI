@@ -183,6 +183,7 @@
     <ClInclude Include="source\modelEditor.h" />
     <ClInclude Include="source\hawk.h" />
     <ClInclude Include="source\panther.h" />
+    <ClInclude Include="source\project.h" />
     <ClInclude Include="source\rotaryMeasurement.h" />
     <ClInclude Include="source\scan.h" />
     <ClInclude Include="source\spatialGrid.h" />

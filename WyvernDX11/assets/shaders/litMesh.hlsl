@@ -29,7 +29,7 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 	float3 i0 = lightColor0 * saturate(dot(lightDir0, normalize(input.normal.xyz)));
 
 	float3 lightPos1 = float3(-50, -80, 0);
-	float3 lightColor1 = float3(0.8, 0.95, 1.0);
+	float3 lightColor1 = float3(0.8, 0.95, 1.0) * 0.5;
 	float3 lightDir1 = normalize(lightPos1 - input.world.xyz);
 	float3 i1 = lightColor1 * saturate(dot(lightDir1, normalize(input.normal.xyz)));
 	
@@ -38,9 +38,11 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 	// Ambient light
 	i += float3(0.2, 0.2, 0.2);
 
+	i *= GammaToLinear(ObjectColor.rgb);
+	i = LinearToGamma(i);
 	i = saturate(i);
 
-	return float4(i, 1) * ObjectColor;
+	return float4(i, 1);
 
 	// return texture0.Sample(sampler0, float2(input.uv.x, 1.0 - input.uv.y)) * ObjectColor;
 	// return float4(input.uv.x, input.uv.y, 0, 1);

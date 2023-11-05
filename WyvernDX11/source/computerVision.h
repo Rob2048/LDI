@@ -88,7 +88,6 @@ struct ldiCalibrationJob {
 	//----------------------------------------------------------------------------------------------------
 	bool stereoCalibrated;
 	std::vector<int> stPoseToSampleIds;
-	std::vector<vec3> stCubePoints;
 	std::vector<mat4> stCubeWorlds;
 	mat4 stStereoCamWorld[2];
 
@@ -132,28 +131,8 @@ struct ldiCalibrationJob {
 	bool galvoCalibrated;
 
 	//----------------------------------------------------------------------------------------------------
-	// Other data (Caluclate stereo extrinsics, bundle adjust, etc). Not saved.
+	// Other data - not serialized.
 	//----------------------------------------------------------------------------------------------------
-	cv::Mat rtMat[2];
-
-	std::vector<int> massModelPointIds;
-	std::vector<vec3> massModelTriangulatedPoints;
-	std::vector<vec3> massModelTriangulatedPointsBundleAdjust;
-	std::vector<int> massModelBundleAdjustPointIds;
-	std::vector<vec2> massModelImagePoints[2];
-	std::vector<vec2> massModelUndistortedPoints[2];
-
-	std::vector<std::vector<vec3>> centeredPointGroups;
-
-	std::vector<vec3> cubePointCentroids;
-	std::vector<int> cubePointCounts;
-
-	std::vector<ldiPlane> baCubePlanes;
-	std::vector<vec3> baIndvCubePoints;
-	std::vector<mat4> baViews;
-	std::vector<int> baViewIds;
-	mat4 baStereoCamWorld[2];
-
 	std::vector<vec3> axisCPoints;
 	std::vector<vec3> axisAPoints;
 	

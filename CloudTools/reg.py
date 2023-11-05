@@ -16,11 +16,6 @@ def display_inlier_outlier(cloud, ind):
 	inlier_cloud.paint_uniform_color([0.8, 0.8, 0.8])
 	o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud])
 
-def apply_registration_result(source, target, transformation):
-	source.paint_uniform_color([0.07058821, 0.7273544, 1.0])
-	target.paint_uniform_color([0.6, 0.2, 0.65])
-	source.transform(transformation)
-
 def draw_registration_result_temp(source, target, transformation):
 	source_temp = copy.deepcopy(source)
 	target_temp = copy.deepcopy(target)
@@ -92,14 +87,16 @@ def execute_global_registration(source_down, target_down, source_fpfh,
 print("Point cloud test")
 
 # Source mesh.
-mesh = o3d.io.read_triangle_mesh("modelFull.stl")
-mesh.compute_vertex_normals()
-mesh.paint_uniform_color([0.07058821, 0.7273544, 1.0])
+# mesh = o3d.io.read_triangle_mesh("modelFull.stl")
+# mesh = o3d.io.read_triangle_mesh("quad_mesh.ply")
+# mesh.compute_vertex_normals()
+# mesh.paint_uniform_color([0.07058821, 0.7273544, 1.0])
 
-R = mesh.get_rotation_matrix_from_xyz((-np.pi / 2, 0, np.pi * 0))
-mesh.rotate(R, center=(0, 0, 0))
-mesh.scale(0.0468, center=(0, 0, 0))
-# mesh.scale(0.049, center=(0, 0, 0))
+# R = mesh.get_rotation_matrix_from_xyz((-np.pi / 2, 0, np.pi * 0))
+# mesh.rotate(R, center=(0, 0, 0))
+# mesh.scale(0.0468, center=(0, 0, 0))
+
+# meshCloud = mesh.sample_points_poisson_disk(number_of_points=20000, init_factor=5)
 
 # o3d.visualization.draw_geometries([mesh])
 
@@ -113,7 +110,7 @@ mesh.scale(0.0468, center=(0, 0, 0))
 
 # # o3d.visualization.draw_geometries([mesh, mesh_segment])
 
-meshCloud = mesh.sample_points_poisson_disk(number_of_points=20000, init_factor=5)
+
 # mesh_segment_cloud = mesh_segment.sample_points_poisson_disk(number_of_points=3000, init_factor=5)
 # mesh_segment_cloud.paint_uniform_color([0.6, 0.2, 0.1])
 
@@ -121,14 +118,18 @@ meshCloud = mesh.sample_points_poisson_disk(number_of_points=20000, init_factor=
 # o3d.visualization.draw_geometries([meshCloud])
 # exit()
 
+meshCloud = o3d.io.read_point_cloud("quad_derg.ply")
+
 # Target mesh (scan).
 pcd = o3d.io.read_point_cloud("dwag_clipped.ply")
 # pcd = o3d.io.read_point_cloud("scanPoints.ply")
 # print(pcd)
 
+# o3d.visualization.draw_geometries([meshCloud, pcd])
+
 # cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 # inlier_cloud = pcd.select_by_index(ind)
-#display_inlier_outlier(pcd, ind)
+# display_inlier_outlier(pcd, ind)
 
 # scan_down_pcd = inlier_cloud.voxel_down_sample(voxel_size=0.01)
 scan_down_pcd = pcd.voxel_down_sample(voxel_size=0.01)
@@ -154,8 +155,10 @@ result_ransac = execute_global_registration(source_down, target_down,
 
 # o3d.visualization.draw_geometries([scan_down_pcd, meshCloud])
 
-#apply_registration_result(source_down, target_down, result_ransac.transformation)
-#o3d.visualization.draw_geometries([source_down, target_down])
+# source_down.paint_uniform_color([0.07, 0.73, 1.0])
+# target_down.paint_uniform_color([0.6, 0.2, 0.65])
+# source_down.transform(result_ransac.transformation)
+# o3d.visualization.draw_geometries([source_down, target_down])
 
 #----------------------------------------------------------------------------------------------------------------------------------
 # Local registration.
