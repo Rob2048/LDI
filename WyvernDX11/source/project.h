@@ -3,6 +3,9 @@
 struct ldiProjectContext {
 	std::string					path;
 
+	bool						scanLoaded = false;
+	ldiScan						scan = {};
+
 	bool						sourceModelLoaded = false;
 	ldiModel					sourceModel;
 	float						sourceModelScale = 1.0f;
@@ -25,6 +28,10 @@ struct ldiProjectContext {
 	ldiRenderModel				quadDebugModel;
 	ldiRenderModel				quadModelWhite;
 	ldiRenderLines				quadMeshWire;
+
+	bool						registeredModelLoaded = false;
+	ldiQuadModel				registeredModel;
+	ldiRenderModel				registeredRenderModel;
 
 	bool						surfelsLoaded = false;
 	vec3						surfelsBoundsMin;
@@ -66,6 +73,13 @@ void projectInvalidateModelData(ldiApp* AppContext, ldiProjectContext* Project) 
 		Project->quadModelLoaded = false;
 		//quadModel
 	}
+
+	if (Project->registeredModelLoaded) {
+		Project->registeredModelLoaded = false;
+	}
+
+	// TODO: Clear surfels.
+	// TODO: Clear poisson samples?
 }
 
 void projectInvalidateTextureData(ldiApp* AppContext, ldiProjectContext* Project) {
@@ -144,4 +158,19 @@ bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::stri
 	//geoPrintQuadModelInfo(&Project->quadModel);
 
 	return true;
+}
+
+void projectShowUi(ldiApp* AppContedxt, ldiProjectContext* Project) {
+	if (ImGui::Begin("Project inspector")) {
+		if (ImGui::CollapsingHeader("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::Text("File path: %s", Project->path.empty() ? "(not saved)" : Project->path.c_str());
+			ImGui::Text("Scan: %s", Project->scanLoaded ? "Yes" : "No");
+			ImGui::Text("Source model: %s", Project->sourceModelLoaded ? "Yes" : "No");
+			ImGui::Text("Source texture: %s", Project->sourceTextureLoaded ? "Yes" : "No");
+			ImGui::Text("Quad model: %s", Project->quadModelLoaded ? "Yes" : "No");
+			ImGui::Text("Registered model: %s", Project->registeredModelLoaded ? "Yes" : "No");
+			ImGui::Text("Surfels: %s", Project->surfelsLoaded ? "Yes" : "No");
+		}
+	}
+	ImGui::End();
 }

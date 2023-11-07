@@ -641,11 +641,12 @@ ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* M
 		float dist2 = glm::length(p2 - centerPoint);
 		float dist3 = glm::length(p3 - centerPoint);
 
-		if (dist0 > maxDist || dist1 > maxDist || dist2 > maxDist || dist3 > maxDist) {
+		// Out of bounds.
+		/*if (dist0 > maxDist || dist1 > maxDist || dist2 > maxDist || dist3 > maxDist) {
 			color.x = 1.0f;
 			color.y = 0;
 			color.z = 0;
-		}
+		}*/
 
 		//color.x *= colErr;
 		//color.y *= colErr;

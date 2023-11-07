@@ -1907,14 +1907,71 @@ bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const 
 	return true;
 }
 
+bool projectRegisterModel(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (!Project->quadModelLoaded || !Project->scanLoaded) {
+		return false;
+	}
+
+	Project->registeredModelLoaded = false;
+
+	if (!plySaveQuadMesh("../cache/reg_input_mesh.ply", &Project->quadModel)) {
+		return false;
+	}
+
+	if (!plySavePoints("../cache/reg_input_scan.ply", &Project->scan.pointCloud)) {
+		return false;
+	}
+
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	char args[2048];
+	sprintf_s(args, "python registerMesh.py ../../bin/cache/reg_input_mesh.ply ../../bin/cache/reg_input_scan.ply ../../bin/cache/reg_output.ply");
+
+	CreateProcessA(
+		NULL,
+		args,
+		NULL,
+		NULL,
+		FALSE,
+		0, //CREATE_NEW_CONSOLE,
+		NULL,
+		"../../assets/bin",
+		&si,
+		&pi
+	);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	// TODO: How to check if process failed?
+
+	ldiModel warpedModel;
+	if (!plyLoadModel("../cache/reg_output.ply", &warpedModel, true)) {
+		return false;
+	}
+
+	Project->registeredModel = Project->quadModel;
+
+	for (size_t i = 0; i < Project->registeredModel.verts.size(); ++i) {
+		Project->registeredModel.verts[i] = warpedModel.verts[i].pos;
+	}
+	
+	Project->registeredRenderModel = gfxCreateRenderQuadModelDebug(AppContext, &Project->registeredModel);
+	Project->registeredModelLoaded = true;
+
+	return true;
+}
+
 bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 	if (!Project->sourceModelLoaded) {
 		return false;
 	}
 
 	Project->quadModelLoaded = false;
-
-	std::string quadMeshPath = "../../bin/cache/quad_mesh.ply";
 
 	mat4 worldMat = projectGetSourceTransformMat(Project);
 	ldiModel transModel = modelGetTransformed(&Project->sourceModel, worldMat);
@@ -1923,11 +1980,11 @@ bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 		return false;
 	}
 
-	if (!modelInspectorCreateQuadMesh(AppContext, quadMeshPath)) {
+	if (!modelInspectorCreateQuadMesh(AppContext, "../../bin/cache/quad_mesh.ply")) {
 		return false;
 	}
 
-	if (!projectLoadQuadModel(AppContext, Project, quadMeshPath)) {
+	if (!projectLoadQuadModel(AppContext, Project, "../cache/quad_mesh.ply")) {
 		return false;
 	}
 
@@ -3127,19 +3184,6 @@ void _renderSurfelViewCallback(const ImDrawList* parent_list, const ImDrawCmd* c
 	renderDebugPrimitives(appContext, &tool->surfelViewDebug);
 }
 
-void projectShowUi(ldiApp* AppContedxt, ldiProjectContext* Project) {
-	if (ImGui::Begin("Project inspector")) {
-		if (ImGui::CollapsingHeader("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
-			ImGui::Text("Directory: %s", Project->path.c_str());
-			ImGui::Text("Source model: %s", Project->sourceModelLoaded ? "Yes" : "No");
-			ImGui::Text("Source texture: %s", Project->sourceTextureLoaded ? "Yes" : "No");
-			ImGui::Text("Quad model: %s", Project->quadModelLoaded ? "Yes" : "No");
-			ImGui::Text("Surfels: %s", Project->surfelsLoaded ? "Yes" : "No");
-		}
-	}
-	ImGui::End();
-}
-
 void modelInspectorShowUi(ldiModelInspector* tool) {
 	ldiApp* appContext = tool->appContext;
 	ldiProjectContext* project = appContext->projectContext;
@@ -3255,6 +3299,10 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 				}
 			}
 		}
+
+		if (ImGui::Button("Register quad model")) {
+			projectRegisterModel(appContext, project);
+		}
 	}
 
 	if (ImGui::CollapsingHeader("Scan")) {
@@ -3327,286 +3375,289 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	ImGui::End();
 	ImGui::PopStyleVar();*/
 
-	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-	if (ImGui::Begin("Surfel view", 0, ImGuiWindowFlags_NoCollapse)) {
-		ImVec2 viewSize = ImGui::GetContentRegionAvail();
-		ImVec2 startPos = ImGui::GetCursorPos();
-		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+	if (false) {
+		ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+		if (ImGui::Begin("Surfel view", 0, ImGuiWindowFlags_NoCollapse)) {
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
-		ImVec2 viewportPos = ImGui::GetWindowViewport()->Pos;
-		ImVec2 windowPos;
-		windowPos.x = screenStartPos.x - viewportPos.x;
-		windowPos.y = screenStartPos.y - viewportPos.y;
+			ImVec2 viewportPos = ImGui::GetWindowViewport()->Pos;
+			ImVec2 windowPos;
+			windowPos.x = screenStartPos.x - viewportPos.x;
+			windowPos.y = screenStartPos.y - viewportPos.y;
 		
-		// This will catch our interactions.
-		ImGui::InvisibleButton("__imgInspecViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-		const bool isHovered = ImGui::IsItemHovered(); // Hovered
-		const bool isActive = ImGui::IsItemActive();   // Held
-		ImVec2 mousePos = ImGui::GetIO().MousePos;
-		const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
+			// This will catch our interactions.
+			ImGui::InvisibleButton("__imgInspecViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			ImVec2 mousePos = ImGui::GetIO().MousePos;
+			const ImVec2 mouseCanvasPos(mousePos.x - screenStartPos.x, mousePos.y - screenStartPos.y);
 
-		//static float imgScale = 1.0f;
-		//static vec2 imgOffset(0.0f, 0.0f);
+			//static float imgScale = 1.0f;
+			//static vec2 imgOffset(0.0f, 0.0f);
 
-		// Convert canvas pos to world pos.
-		vec2 worldPos;
-		worldPos.x = mouseCanvasPos.x;
-		worldPos.y = mouseCanvasPos.y;
-		worldPos *= (1.0 / tool->surfelViewScale);
-		worldPos -= tool->surfelViewImgOffset;
+			// Convert canvas pos to world pos.
+			vec2 worldPos;
+			worldPos.x = mouseCanvasPos.x;
+			worldPos.y = mouseCanvasPos.y;
+			worldPos *= (1.0 / tool->surfelViewScale);
+			worldPos -= tool->surfelViewImgOffset;
 
-		if (isHovered) {
-			float wheel = ImGui::GetIO().MouseWheel;
+			if (isHovered) {
+				float wheel = ImGui::GetIO().MouseWheel;
 
-			if (wheel) {
-				tool->surfelViewScale += wheel * 0.2f * tool->surfelViewScale;
+				if (wheel) {
+					tool->surfelViewScale += wheel * 0.2f * tool->surfelViewScale;
 
-				vec2 newWorldPos;
-				newWorldPos.x = mouseCanvasPos.x;
-				newWorldPos.y = mouseCanvasPos.y;
-				newWorldPos *= (1.0 / tool->surfelViewScale);
-				newWorldPos -= tool->surfelViewImgOffset;
+					vec2 newWorldPos;
+					newWorldPos.x = mouseCanvasPos.x;
+					newWorldPos.y = mouseCanvasPos.y;
+					newWorldPos *= (1.0 / tool->surfelViewScale);
+					newWorldPos -= tool->surfelViewImgOffset;
 
-				vec2 deltaWorldPos = newWorldPos - worldPos;
+					vec2 deltaWorldPos = newWorldPos - worldPos;
 
-				tool->surfelViewImgOffset.x += deltaWorldPos.x;
-				tool->surfelViewImgOffset.y += deltaWorldPos.y;
+					tool->surfelViewImgOffset.x += deltaWorldPos.x;
+					tool->surfelViewImgOffset.y += deltaWorldPos.y;
+				}
 			}
-		}
 
-		if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
-			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-			mouseDelta *= (1.0 / tool->surfelViewScale);
+			if (isActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= (1.0 / tool->surfelViewScale);
 
-			tool->surfelViewImgOffset += vec2(mouseDelta.x, mouseDelta.y);
-		}
+				tool->surfelViewImgOffset += vec2(mouseDelta.x, mouseDelta.y);
+			}
 
-		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-		tool->surfelViewPos = vec2(windowPos.x, windowPos.y);
-		tool->surfelViewSize = vec2(viewSize.x, viewSize.y);
+			tool->surfelViewPos = vec2(windowPos.x, windowPos.y);
+			tool->surfelViewSize = vec2(viewSize.x, viewSize.y);
 
-		ImVec2 imgMin;
-		imgMin.x = screenStartPos.x + tool->surfelViewImgOffset.x * tool->surfelViewScale;
-		imgMin.y = screenStartPos.y + tool->surfelViewImgOffset.y * tool->surfelViewScale;
+			ImVec2 imgMin;
+			imgMin.x = screenStartPos.x + tool->surfelViewImgOffset.x * tool->surfelViewScale;
+			imgMin.y = screenStartPos.y + tool->surfelViewImgOffset.y * tool->surfelViewScale;
 
-		ImVec2 imgMax;
-		imgMax.x = imgMin.x + 1024 * tool->surfelViewScale;
-		imgMax.y = imgMin.y + 1024 * tool->surfelViewScale;
+			ImVec2 imgMax;
+			imgMax.x = imgMin.x + 1024 * tool->surfelViewScale;
+			imgMax.y = imgMin.y + 1024 * tool->surfelViewScale;
 
-		draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
+			draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
 
-		if (tool->laserViewShowBackground) {
-			draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
-			draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+			if (tool->laserViewShowBackground) {
+				draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
+				draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+				draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+			}
+
+			draw_list->AddCallback(_renderSurfelViewCallback, tool);
 			draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+
+			//int laserViewSurfelCount = 0;
+
+			//if (tool->laserViewPathPositions.size() > 0) {
+			//	if (tool->laserViewShowBackground) {
+			//		draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
+			//		draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
+			//		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
+			//	} else {
+			//		draw_list->AddRectFilled(imgMin, imgMax, ImColor(0.5f, 0.5f, 0.5f, 1.0f));
+			//	}
+
+			//	draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
+
+			//	ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
+
+			//	laserViewSurfelCount = laserView->surfels.size();
+
+			//	float umToPixel = 1.0f / 40.96f;
+
+			//	for (size_t i = 0; i < laserView->surfels.size(); ++i) {
+			//		vec2 surfelPos = laserView->surfels[i].screenPos;
+			//		float angle = laserView->surfels[i].angle;
+
+			//		float surfelSize = (laserView->surfels[i].scale * 10000.0f) * umToPixel;
+			//		float surfelHalfSize = surfelSize * 0.5f;
+
+			//		ImVec2 rMin;
+			//		rMin.x = screenStartPos.x + (imgOffset.x + surfelPos.x - surfelHalfSize) * imgScale;
+			//		rMin.y = screenStartPos.y + (imgOffset.y + surfelPos.y - surfelHalfSize) * imgScale;
+
+			//		ImVec2 rMax;
+			//		rMax.x = rMin.x + (surfelSize * imgScale);
+			//		rMax.y = rMin.y + (surfelSize * imgScale);
+
+			//		ImVec2 center;
+			//		center.x = screenStartPos.x + (imgOffset.x + surfelPos.x) * imgScale;
+			//		center.y = screenStartPos.y + (imgOffset.y + surfelPos.y) * imgScale;
+
+			//		ImColor col(255, 255, 255);
+
+			//		//draw_list->AddCircle(center, surfelHalfSize* imgScale, ImColor((int)(62 * angle), (int)(101 * angle), (int)(156 * angle)), 8);
+
+			//		if (angle >= 0.9) {
+			//			// 30
+			//			col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
+			//		}
+			//		else if (angle >= 0.8) {
+			//			// 45
+			//			col = ImColor(0.0f, 0.75f, 0.0f, 1.0f);
+			//		}
+			//		else if (angle >= 0.75) {
+			//			// 60
+			//			col = ImColor(0.0f, 0.5f, 0.0f, 1.0f);
+			//		}
+			//		else if (angle >= 0.7) {
+			//			// 70
+			//			col = ImColor(1.0f, 0.5f, 0.0f, 1.0f);
+			//		}
+			//	
+			//		draw_list->AddCircle(center, surfelHalfSize * imgScale, col, 16);
+			//		//draw_list->AddRectFilled(rMin, rMax, col);
+			//	}
+			//}
+
+			if (isHovered) {
+				vec2 pixelPos;
+				pixelPos.x = (int)(worldPos.x * 4.0f) / 4.0f;
+				pixelPos.y = (int)(worldPos.y * 4.0f) / 4.0f;
+
+				ImVec2 rMin;
+				rMin.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x) * tool->surfelViewScale;
+				rMin.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y) * tool->surfelViewScale;
+
+				ImVec2 rMax = rMin;
+				rMax.x += 0.25f * tool->surfelViewScale;
+				rMax.y += 0.25f * tool->surfelViewScale;
+
+				ImVec2 center;
+				center.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x + 0.125f) * tool->surfelViewScale;
+				center.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y + 0.125f) * tool->surfelViewScale;
+
+				float umToPixel = 1.0f / 40.96f;
+				float surfelSize = 75 * umToPixel;
+				float surfelHalfSize = surfelSize * 0.5f;
+
+				draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
+				draw_list->AddCircle(center, surfelHalfSize * tool->surfelViewScale, ImColor(255, 0, 255), 24);
+			}
+
+			// Viewport overlay.
+			{
+				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+				ImGui::BeginChild("_surfelViewOverlay", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
+
+				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+				ImGui::Text("%.3f %.3f - %.3f", tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, tool->surfelViewScale);
+				ImGui::Text("%.3f %.3f", worldPos.x, worldPos.y);
+				//ImGui::Text("Surfels: %d", laserViewSurfelCount);
+
+				ImGui::EndChild();
+			}
 		}
-
-		draw_list->AddCallback(_renderSurfelViewCallback, tool);
-		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
-
-		//int laserViewSurfelCount = 0;
-
-		//if (tool->laserViewPathPositions.size() > 0) {
-		//	if (tool->laserViewShowBackground) {
-		//		draw_list->AddCallback(_guiPointFilterCallback, tool->appContext);
-		//		draw_list->AddImage(tool->laserViewTexView, imgMin, imgMax);
-		//		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
-		//	} else {
-		//		draw_list->AddRectFilled(imgMin, imgMax, ImColor(0.5f, 0.5f, 0.5f, 1.0f));
-		//	}
-
-		//	draw_list->AddRect(imgMin, imgMax, ImColor(1.0f, 0.0f, 0.0f, 1.0f));
-
-		//	ldiLaserViewPathPos* laserView = &tool->laserViewPathPositions[tool->selectedLaserView];
-
-		//	laserViewSurfelCount = laserView->surfels.size();
-
-		//	float umToPixel = 1.0f / 40.96f;
-
-		//	for (size_t i = 0; i < laserView->surfels.size(); ++i) {
-		//		vec2 surfelPos = laserView->surfels[i].screenPos;
-		//		float angle = laserView->surfels[i].angle;
-
-		//		float surfelSize = (laserView->surfels[i].scale * 10000.0f) * umToPixel;
-		//		float surfelHalfSize = surfelSize * 0.5f;
-
-		//		ImVec2 rMin;
-		//		rMin.x = screenStartPos.x + (imgOffset.x + surfelPos.x - surfelHalfSize) * imgScale;
-		//		rMin.y = screenStartPos.y + (imgOffset.y + surfelPos.y - surfelHalfSize) * imgScale;
-
-		//		ImVec2 rMax;
-		//		rMax.x = rMin.x + (surfelSize * imgScale);
-		//		rMax.y = rMin.y + (surfelSize * imgScale);
-
-		//		ImVec2 center;
-		//		center.x = screenStartPos.x + (imgOffset.x + surfelPos.x) * imgScale;
-		//		center.y = screenStartPos.y + (imgOffset.y + surfelPos.y) * imgScale;
-
-		//		ImColor col(255, 255, 255);
-
-		//		//draw_list->AddCircle(center, surfelHalfSize* imgScale, ImColor((int)(62 * angle), (int)(101 * angle), (int)(156 * angle)), 8);
-
-		//		if (angle >= 0.9) {
-		//			// 30
-		//			col = ImColor(0.0f, 1.0f, 0.0f, 1.0f);
-		//		}
-		//		else if (angle >= 0.8) {
-		//			// 45
-		//			col = ImColor(0.0f, 0.75f, 0.0f, 1.0f);
-		//		}
-		//		else if (angle >= 0.75) {
-		//			// 60
-		//			col = ImColor(0.0f, 0.5f, 0.0f, 1.0f);
-		//		}
-		//		else if (angle >= 0.7) {
-		//			// 70
-		//			col = ImColor(1.0f, 0.5f, 0.0f, 1.0f);
-		//		}
-		//	
-		//		draw_list->AddCircle(center, surfelHalfSize * imgScale, col, 16);
-		//		//draw_list->AddRectFilled(rMin, rMax, col);
-		//	}
-		//}
-
-		if (isHovered) {
-			vec2 pixelPos;
-			pixelPos.x = (int)(worldPos.x * 4.0f) / 4.0f;
-			pixelPos.y = (int)(worldPos.y * 4.0f) / 4.0f;
-
-			ImVec2 rMin;
-			rMin.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x) * tool->surfelViewScale;
-			rMin.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y) * tool->surfelViewScale;
-
-			ImVec2 rMax = rMin;
-			rMax.x += 0.25f * tool->surfelViewScale;
-			rMax.y += 0.25f * tool->surfelViewScale;
-
-			ImVec2 center;
-			center.x = screenStartPos.x + (tool->surfelViewImgOffset.x + pixelPos.x + 0.125f) * tool->surfelViewScale;
-			center.y = screenStartPos.y + (tool->surfelViewImgOffset.y + pixelPos.y + 0.125f) * tool->surfelViewScale;
-
-			float umToPixel = 1.0f / 40.96f;
-			float surfelSize = 75 * umToPixel;
-			float surfelHalfSize = surfelSize * 0.5f;
-
-			draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));
-			draw_list->AddCircle(center, surfelHalfSize * tool->surfelViewScale, ImColor(255, 0, 255), 24);
-		}
-
-		// Viewport overlay.
-		{
-			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			ImGui::BeginChild("_surfelViewOverlay", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
-
-			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-			ImGui::Text("%.3f %.3f - %.3f", tool->surfelViewImgOffset.x, tool->surfelViewImgOffset.y, tool->surfelViewScale);
-			ImGui::Text("%.3f %.3f", worldPos.x, worldPos.y);
-			//ImGui::Text("Surfels: %d", laserViewSurfelCount);
-
-			ImGui::EndChild();
-		}
+		ImGui::End();
+		ImGui::PopStyleVar();
 	}
-	ImGui::End();
-	ImGui::PopStyleVar();
 
+	if (false) {
+		ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+		if (ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse)) {
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 
-	ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_Once);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-	if (ImGui::Begin("Model inspector", 0, ImGuiWindowFlags_NoCollapse)) {
-		ImVec2 viewSize = ImGui::GetContentRegionAvail();
-		ImVec2 startPos = ImGui::GetCursorPos();
-		ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+			// NOTE: ImDrawList API uses screen coordinates!
+			/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+			draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
 
-		// NOTE: ImDrawList API uses screen coordinates!
-		/*ImVec2 tempStartPos = ImGui::GetCursorScreenPos();
-		ImDrawList* draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(tempStartPos, ImVec2(tempStartPos.x + 500, tempStartPos.y + 500), IM_COL32(200, 200, 200, 255));*/
+			// This will catch our interactions.
+			ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+			const bool isHovered = ImGui::IsItemHovered(); // Hovered
+			const bool isActive = ImGui::IsItemActive();   // Held
+			//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
+			//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
 
-		// This will catch our interactions.
-		ImGui::InvisibleButton("__mainViewButton", viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-		const bool isHovered = ImGui::IsItemHovered(); // Hovered
-		const bool isActive = ImGui::IsItemActive();   // Held
-		//const ImVec2 origin(canvas_p0.x + scrolling.x, canvas_p0.y + scrolling.y); // Lock scrolled origin
-		//const ImVec2 mouse_pos_in_canvas(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+			{
+				vec3 camMove(0, 0, 0);
+				ldiCamera* camera = &tool->camera;
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
 
-		{
-			vec3 camMove(0, 0, 0);
-			ldiCamera* camera = &tool->camera;
-			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-			viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+				if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 
-			if (isActive && (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
-				ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+					if (ImGui::IsKeyDown(ImGuiKey_W)) {
+						camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
 
-				if (ImGui::IsKeyDown(ImGuiKey_W)) {
-					camMove += vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					if (ImGui::IsKeyDown(ImGuiKey_S)) {
+						camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_A)) {
+						camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
+
+					if (ImGui::IsKeyDown(ImGuiKey_D)) {
+						camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+					}
 				}
 
-				if (ImGui::IsKeyDown(ImGuiKey_S)) {
-					camMove -= vec3(vec4(vec3Forward, 0.0f) * viewRotMat);
-				}
-
-				if (ImGui::IsKeyDown(ImGuiKey_A)) {
-					camMove -= vec3(vec4(vec3Right, 0.0f) * viewRotMat);
-				}
-
-				if (ImGui::IsKeyDown(ImGuiKey_D)) {
-					camMove += vec3(vec4(vec3Right, 0.0f) * viewRotMat);
+				if (glm::length(camMove) > 0.0f) {
+					camMove = glm::normalize(camMove);
+					float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime * tool->cameraSpeed;
+					camera->position += camMove * cameraSpeed;
 				}
 			}
 
-			if (glm::length(camMove) > 0.0f) {
-				camMove = glm::normalize(camMove);
-				float cameraSpeed = 10.0f * ImGui::GetIO().DeltaTime * tool->cameraSpeed;
-				camera->position += camMove * cameraSpeed;
+			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= 0.15f;
+				tool->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
 			}
-		}
 
-		if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-			mouseDelta *= 0.15f;
-			tool->camera.rotation += vec3(mouseDelta.x, mouseDelta.y, 0);
-		}
+			if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+				vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+				mouseDelta *= 0.025f;
 
-		if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-			vec2 mouseDelta = vec2(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
-			mouseDelta *= 0.025f;
+				ldiCamera* camera = &tool->camera;
+				mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
+				viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
 
-			ldiCamera* camera = &tool->camera;
-			mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(camera->rotation.y), vec3Right);
-			viewRotMat = glm::rotate(viewRotMat, glm::radians(camera->rotation.x), vec3Up);
+				camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
+				camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
+			}
 
-			camera->position += vec3(vec4(vec3Right, 0.0f) * viewRotMat) * -mouseDelta.x;
-			camera->position += vec3(vec4(vec3Up, 0.0f) * viewRotMat) * mouseDelta.y;
-		}
+			ImGui::SetCursorPos(startPos);
+			std::vector<ldiTextInfo> textBuffer;
+			modelInspectorRender(tool, viewSize.x, viewSize.y, &textBuffer);
+			ImGui::Image(tool->renderViewBuffers.mainViewResourceView, viewSize);
 
-		ImGui::SetCursorPos(startPos);
-		std::vector<ldiTextInfo> textBuffer;
-		modelInspectorRender(tool, viewSize.x, viewSize.y, &textBuffer);
-		ImGui::Image(tool->renderViewBuffers.mainViewResourceView, viewSize);
+			// NOTE: ImDrawList API uses screen coordinates!
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			for (int i = 0; i < textBuffer.size(); ++i) {
+				ldiTextInfo* info = &textBuffer[i];
+				drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), ImColor(info->color.r, info->color.g, info->color.b, info->color.a), info->text.c_str());
+			}
 
-		// NOTE: ImDrawList API uses screen coordinates!
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		for (int i = 0; i < textBuffer.size(); ++i) {
-			ldiTextInfo* info = &textBuffer[i];
-			drawList->AddText(ImVec2(screenStartPos.x + info->position.x, screenStartPos.y + info->position.y), ImColor(info->color.r, info->color.g, info->color.b, info->color.a), info->text.c_str());
-		}
+			// Viewport overlay widgets.
+			{
+				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+				ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
 
-		// Viewport overlay widgets.
-		{
-			ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
-			ImGui::BeginChild("_simpleOverlayMainView", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
-
-			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-			ImGui::Text("%.3f %.3f %.3f", tool->camera.position.x, tool->camera.position.y, tool->camera.position.z);
-			ImGui::Text("%.3f %.3f %.3f", tool->camera.rotation.x, tool->camera.rotation.y, tool->camera.rotation.z);
+				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+				ImGui::Text("%.3f %.3f %.3f", tool->camera.position.x, tool->camera.position.y, tool->camera.position.z);
+				ImGui::Text("%.3f %.3f %.3f", tool->camera.rotation.x, tool->camera.rotation.y, tool->camera.rotation.z);
 			
-			ImGui::EndChild();
+				ImGui::EndChild();
+			}
 		}
-	}
 
-	ImGui::End();
-	ImGui::PopStyleVar();
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
 }

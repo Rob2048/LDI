@@ -101,8 +101,6 @@ struct ldiPlatform {
 	std::vector<vec3>			liveScanPoints;
 	std::vector<vec3>			copyOfLiveScanPoints;
 
-	ldiScan						scan = {};
-
 	bool						scanShowPointCloud = true;
 	bool						scanUseWorkTrans = true;
 	float						pointWorldSize = 0.01f;
@@ -1177,6 +1175,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 	ldiCalibrationContext* calibContext = appContext->calibrationContext;
 	ldiCalibrationJob* job = &calibContext->calibJob;
+	ldiProjectContext* project = Tool->appContext->projectContext;
 	mat4 workTrans = glm::identity<mat4>();
 	mat4 workWorldMat = glm::identity<mat4>();
 
@@ -1444,7 +1443,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 				if (update) {
 					std::cout << "Updating point cloud - Size: " << Tool->copyOfLiveScanPoints.size() << "\n";
-					scanUpdatePoints(Tool->appContext, &Tool->scan, Tool->copyOfLiveScanPoints);
+					scanUpdatePoints(Tool->appContext, &project->scan, Tool->copyOfLiveScanPoints);
 				}
 			}
 		}
@@ -1452,8 +1451,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		//----------------------------------------------------------------------------------------------------
 		// Scan tools.
 		//----------------------------------------------------------------------------------------------------
-		if (Tool->scanShowPointCloud) {
-			if (Tool->scan.pointCloudRenderModel.indexCount > 0) {
+		if (Tool->scanShowPointCloud && project->scanLoaded) {
+			if (project->scan.pointCloudRenderModel.indexCount > 0) {
 				{
 					D3D11_MAPPED_SUBRESOURCE ms;
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -1475,7 +1474,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
 				}
 
-				gfxRenderPointCloud(appContext, &Tool->scan.pointCloudRenderModel);
+				gfxRenderPointCloud(appContext, &project->scan.pointCloudRenderModel);
 			}
 
 			pushDebugBoxMinMax(&appContext->defaultDebug, Tool->scanBoundsMin, Tool->scanBoundsMax, vec3(0, 1, 0));
@@ -1600,35 +1599,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	// Project models.
 	//----------------------------------------------------------------------------------------------------
 	{
-		ldiProjectContext* project = Tool->appContext->projectContext;
-
 		if (project->sourceModelLoaded) {
 			if (Tool->showSourceModelShaded) {
-
-				/*[-0.55525757  0.05451943  0.85529738 - 0.07826866]
-				[-0.02091123  1.01795051 - 0.078463    1.97768689]
-				[-0.85677809 - 0.06017768 - 0.55238293  0.10937812]
-				[0.          0.          0.          1.]*/
-
-				mat4 tempMat = glm::identity<mat4>();
-				tempMat[0][0] = -0.55525757;
-				tempMat[0][1] = -0.02091123;
-				tempMat[0][2] = -0.85677809;
-
-				tempMat[1][0] = 0.05451943;
-				tempMat[1][1] = 1.01795051;
-				tempMat[1][2] = -0.06017768;
-
-				tempMat[2][0] = 0.85529738;
-				tempMat[2][1] = -0.078463;
-				tempMat[2][2] = -0.55238293;
-
-				tempMat[3][0] = -0.07826866;
-				tempMat[3][1] = 1.97768689;
-				tempMat[3][2] = 0.10937812;
-
-				tempMat = glm::scale(tempMat, vec3(0.5, 0.5, 0.5));
-
 				if (project->sourceTextureLoaded) {
 					D3D11_MAPPED_SUBRESOURCE ms;
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -1643,10 +1615,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 					mat4 worldMat = projectGetSourceTransformMat(project);
-					//constantBuffer->mvp = Camera->projViewMat * worldMat;
-					constantBuffer->mvp = Camera->projViewMat * tempMat;
-					//constantBuffer->world = worldMat;
-					constantBuffer->world = tempMat;
+					constantBuffer->mvp = Camera->projViewMat * worldMat;
+					constantBuffer->world = worldMat;
 					constantBuffer->color = vec4(0.7f, 0.7f, 0.7f, 1.0f);
 					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1700,6 +1670,20 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				gfxRenderDebugModel(appContext, &project->quadModelWhite);
 			}
 		}
+
+		if (project->registeredModelLoaded) {
+			D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = Camera->projViewMat * workWorldMat;
+			constantBuffer->world = workWorldMat;
+			constantBuffer->color = vec4(0.7f, 0.7f, 0.7f, 1.0f);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderDebugModel(appContext, &project->registeredRenderModel);
+
+			//gfxRenderModel(appContext, &project->registeredRenderModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1734,6 +1718,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 
 void platformShowUi(ldiPlatform* Tool) {
 	ldiApp* appContext = Tool->appContext;
+	ldiProjectContext* project = Tool->appContext->projectContext;
 	static float f = 0.0f;
 	static int counter = 0;
 
@@ -1779,7 +1764,7 @@ void platformShowUi(ldiPlatform* Tool) {
 		if (ImGui::Button("Clip points")) {
 			std::vector<ldiPointCloudVertex> clippedPoints;
 
-			for (auto& point : Tool->scan.pointCloud.points) {
+			for (auto& point : project->scan.pointCloud.points) {
 				vec3 p = point.position;
 
 				if (p.x <= Tool->scanBoundsMax.x && p.y <= Tool->scanBoundsMax.y && p.z <= Tool->scanBoundsMax.z &&
@@ -1788,7 +1773,7 @@ void platformShowUi(ldiPlatform* Tool) {
 				}
 			}
 
-			scanUpdatePoints(Tool->appContext, &Tool->scan, clippedPoints);
+			scanUpdatePoints(Tool->appContext, &project->scan, clippedPoints);
 		}
 
 		ImGui::Separator();
@@ -1796,27 +1781,29 @@ void platformShowUi(ldiPlatform* Tool) {
 		if (ImGui::Button("Save scan")) {
 			std::string filePath;
 			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Scan file", L"*.scan", L"scan")) {
-				scanSaveFile(&Tool->scan, filePath);
+				scanSaveFile(&project->scan, filePath);
 			}
 		}
 
 		if (ImGui::Button("Load scan")) {
 			std::string filePath;
 			if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Scan file", L"*.scan")) {
-				scanLoadFile(Tool->appContext, &Tool->scan, filePath);
+				scanLoadFile(Tool->appContext, &project->scan, filePath);
+				project->scanLoaded = true;
 			}
 		}
 
 		ImGui::Separator();
 
 		if (ImGui::Button("Clear scan points")) {
-			scanClearPoints(Tool->appContext, &Tool->scan);
+			scanClearPoints(Tool->appContext, &project->scan);
+			project->scanLoaded = false;
 		}
 
 		if (ImGui::Button("Save point cloud")) {
 			std::string filePath;
 			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Polygon", L"*.ply", L"ply")) {
-				plySavePoints(filePath.c_str(), &Tool->scan.pointCloud);
+				plySavePoints(filePath.c_str(), &project->scan.pointCloud);
 			}
 		}
 	}

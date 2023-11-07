@@ -136,6 +136,15 @@ float _readFloatLE(char** Data) {
 	return result;
 }
 
+double _readDoubleLE(char** Data) {
+	double result;
+
+	memcpy(&result, *Data, sizeof(result));
+	*Data += sizeof(result);
+
+	return result;
+}
+
 uint32_t _readUint32LE(char** Data) {
 	uint32_t result;
 
@@ -289,19 +298,6 @@ bool plySaveModel(const char* FileName, ldiModel* Model) {
 		return false;
 	}
 
-	/*
-	ply
-	format binary_big_endian 1.0
-	element vertex 3036130
-	property float x
-	property float y
-	property float z
-	element face 6074628
-	property list uchar int vertex_indices
-	end_header
-	*/
-
-	// TODO: Not implemented!
 	fprintf(file, "ply\n");
 	fprintf(file, "format binary_little_endian 1.0\n");
 	fprintf(file, "element vertex %zd\n", Model->verts.size());
@@ -449,7 +445,7 @@ bool plyLoadQuadMesh(const char* FileName, ldiQuadModel* Model) {
 	return true;
 }
 
-bool plyLoadModel(const char* FileName, ldiModel* Model) {
+bool plyLoadModel(const char* FileName, ldiModel* Model, bool RegMode) {
 	std::cout << "Loading PLY model: " << FileName << "\n";
 
 	FILE* file;
@@ -530,15 +526,33 @@ bool plyLoadModel(const char* FileName, ldiModel* Model) {
 	Model->verts.resize(vertCount);
 	//Model->indices.resize(quadCount * 4);
 
-	for (int i = 0; i < vertCount; ++i) {
-		float x = _readFloatLE(&dataOffset);
-		float y = _readFloatLE(&dataOffset);
-		float z = _readFloatLE(&dataOffset);
+	if (!RegMode) {
+		for (int i = 0; i < vertCount; ++i) {
+			float x = _readFloatLE(&dataOffset);
+			float y = _readFloatLE(&dataOffset);
+			float z = _readFloatLE(&dataOffset);
 
-		ldiMeshVertex v = {};
-		v.pos = vec3(x, y, z);
+			ldiMeshVertex v = {};
+			v.pos = vec3(x, y, z);
 
-		Model->verts[i] = v;
+			Model->verts[i] = v;
+		}
+	} else {
+		for (int i = 0; i < vertCount; ++i) {
+			float x = _readDoubleLE(&dataOffset);
+			float y = _readDoubleLE(&dataOffset);
+			float z = _readDoubleLE(&dataOffset);
+
+			float nX = _readDoubleLE(&dataOffset);
+			float nY = _readDoubleLE(&dataOffset);
+			float nZ = _readDoubleLE(&dataOffset);
+
+			ldiMeshVertex v = {};
+			v.pos = vec3(x, y, z);
+			v.normal = vec3(nX, nY, nZ);
+
+			Model->verts[i] = v;
+		}
 	}
 
 	for (int i = 0; i < faceCount; ++i) {
@@ -632,3 +646,49 @@ property float ny
 property float nz
 end_header
 */
+
+bool plySaveQuadMesh(const std::string& FileName, ldiQuadModel* Model) {
+	std::cout << "Saving PLY model: " << FileName << "\n";
+
+	int faceCount = Model->indices.size() / 4;
+	if (faceCount * 4 != Model->indices.size()) {
+		std::cout << "plySaveQuadMesh Model must only contain quads\n";
+		return false;
+	}
+
+	FILE* file;
+	if (fopen_s(&file, FileName.c_str(), "wb") != 0) {
+		return false;
+	}
+
+	fprintf(file, "ply\n");
+	fprintf(file, "format binary_little_endian 1.0\n");
+	fprintf(file, "element vertex %zd\n", Model->verts.size());
+	fprintf(file, "property float x\n");
+	fprintf(file, "property float y\n");
+	fprintf(file, "property float z\n");
+	fprintf(file, "element face %d\n", faceCount * 2);
+	fprintf(file, "property list uchar int vertex_indices\n");
+	fprintf(file, "end_header\n");
+
+	for (size_t i = 0; i < Model->verts.size(); ++i) {
+		fwrite(&Model->verts[i], sizeof(vec3), 1, file);
+	}
+
+	const uint8_t vertCount = 3;
+	for (int i = 0; i < faceCount; ++i) {
+		fwrite(&vertCount, 1, 1, file);
+		fwrite(&Model->indices[i * 4 + 0], sizeof(uint32_t), 1, file);
+		fwrite(&Model->indices[i * 4 + 1], sizeof(uint32_t), 1, file);
+		fwrite(&Model->indices[i * 4 + 2], sizeof(uint32_t), 1, file);
+
+		fwrite(&vertCount, 1, 1, file);
+		fwrite(&Model->indices[i * 4 + 0], sizeof(uint32_t), 1, file);
+		fwrite(&Model->indices[i * 4 + 2], sizeof(uint32_t), 1, file);
+		fwrite(&Model->indices[i * 4 + 3], sizeof(uint32_t), 1, file);
+	}
+
+	fclose(file);
+
+	return true;
+}
