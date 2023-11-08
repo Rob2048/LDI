@@ -542,6 +542,9 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				horsePos.z = Tool->appContext->platform->testPosZ;
 				horsePos.c = Tool->appContext->platform->testPosC;
 				horsePos.a = Tool->appContext->platform->testPosA;
+
+				mat4 workTrans = horseGetWorkTransform(&calibContext->calibJob, horsePos);
+				mat4 invWorkTrans = glm::inverse(workTrans);
 				
 				ldiPlane scanPlane = horseGetScanPlane(&calibContext->calibJob, horsePos);
 				scanPlane.normal = -scanPlane.normal;
@@ -556,10 +559,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					if (getRayPlaneIntersection(ray, scanPlane, worldPoint)) {
 						//std::cout << "Ray failed " << pIter << "\n";
 
+						// Bake point into work space.
+						worldPoint = invWorkTrans * vec4(worldPoint, 1.0f);
+
 						Tool->appContext->platform->liveScanPoints[pIter] = worldPoint;
 						//Tool->appContext->platform->liveScanPoints[pIter] = ray.origin + ray.direction;
 					}
 				}
+
+				Tool->appContext->platform->liveScanPointsUpdated = true;
 
 				//Tool->appContext->platform->liveScanPoints[0] = scanPlane.point;
 				//Tool->appContext->platform->liveScanPoints[1] = scanPlane.point + scanPlane.normal;

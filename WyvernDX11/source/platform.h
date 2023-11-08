@@ -744,8 +744,9 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 
 	std::vector<ldiHorsePosition> positions;
 
+	// NOTE: Initial scan used 45 angles.
 
-	int cSteps = 45;
+	int cSteps = 8;
 	for (int iC = 0; iC < cSteps; ++iC) {
 		double cStepInc = (32 * 200 * 30) / (double)cSteps;
 		int posC = (int)(iC * cStepInc);
@@ -1444,6 +1445,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				if (update) {
 					std::cout << "Updating point cloud - Size: " << Tool->copyOfLiveScanPoints.size() << "\n";
 					scanUpdatePoints(Tool->appContext, &project->scan, Tool->copyOfLiveScanPoints);
+					project->scanLoaded = true;
 				}
 			}
 		}
