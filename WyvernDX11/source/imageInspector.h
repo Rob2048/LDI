@@ -18,6 +18,9 @@
 #define CAM_IMG_WIDTH 3280
 #define CAM_IMG_HEIGHT 2464
 
+#define TEST_CAM_WIDTH 1600
+#define TEST_CAM_HEIGHT 1300
+
 #include "rotaryMeasurement.h"
 
 enum ldiImageInspectorMode {
@@ -88,6 +91,11 @@ struct ldiImageInspector {
 
 	std::vector<vec4>			hawkScanSegs;
 	std::vector<vec2>			hawkScanPoints;
+
+	ldiHawk						testCam;
+	int							testCamLastFrameId = 0;
+	uint8_t						testCamFrameBuffer[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
+	ID3D11Texture2D*			testhawkTex[2];
 };
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -202,6 +210,11 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 			}
 		}
 	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Test camera.
+	//----------------------------------------------------------------------------------------------------
+	hawkInit(&Tool->testCam, "192.168.3.16", 6969);
 
 	return 0;
 }
@@ -769,10 +782,43 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::PopID();
 	}
 
+	//----------------------------------------------------------------------------------------------------
+	// Rotary measurement.
+	//----------------------------------------------------------------------------------------------------
 	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
 		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 640, 480, Tool->rotaryResults.greyFrame });
 	}
-	
+
+	//----------------------------------------------------------------------------------------------------
+	// Test camera.
+	//----------------------------------------------------------------------------------------------------
+	{
+		ldiHawk* mvCam = &Tool->testCam;
+
+		hawkUpdateValues(mvCam);
+
+		bool newFrame = false;
+		ldiImage camImg = {};
+
+		{
+			std::unique_lock<std::mutex> lock(mvCam->valuesMutex);
+			if (Tool->testCamLastFrameId != mvCam->latestFrameId) {
+				for (int iY = 0; iY < mvCam->imgHeight; ++iY) {
+					memcpy(Tool->testCamFrameBuffer + iY * TEST_CAM_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
+				}
+
+				newFrame = true;
+				camImg.data = Tool->testCamFrameBuffer;
+				camImg.width = mvCam->imgWidth;
+				camImg.height = mvCam->imgHeight;
+			}
+		}
+
+		if (newFrame) {
+			gfxCopyToTexture2D(Tool->appContext, Tool->camTex, camImg);
+		}
+	}
+
 	//----------------------------------------------------------------------------------------------------
 	// Volume calibration.
 	//----------------------------------------------------------------------------------------------------

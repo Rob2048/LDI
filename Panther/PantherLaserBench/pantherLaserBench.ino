@@ -32,22 +32,19 @@
 // 4 NC
 // 5 3
 
-// Test limit input.
+// Test limit input:
 // 1 21 (A7)
 // 2 22 (A8)
 
+// Camera trigger:
+// 24 
+
 // Axis info:
-
-// X:
-// Y:
-// Z:
-// C:
-
-// A:
-// 90:1 gearbox.
-// 32 * 200 * 90 = 576000
-// 0.000625 steps per deg
-// 1600 steps per deg
+// X: 32 * 200 = 8mm
+// Y: 32 * 200 = 8mm
+// Z: 32 * 200 = 8mm
+// C: (30:1) 32 * 200 * 30 = 192000
+// A: (90:1) 32 * 200 * 90 = 576000
 
 //--------------------------------------------------------------------------------
 
@@ -69,6 +66,8 @@
 #define PIN_LIMIT_C_INNER		21 // Analog 7
 #define PIN_LIMIT_C_OUTER		22 // Analog 8
 
+#define PIN_CAMERA_TRIGGER		24
+
 #define AXIS_ID_X			0
 #define AXIS_ID_Y			1
 #define AXIS_ID_Z			2
@@ -81,7 +80,7 @@ ldiStepper steppers[5] = {
 	ldiStepper(0, 33, 34, 35, 36),
 	ldiStepper(0, 37, 38, 39,  9),
 	ldiStepper(0, 14, 15, 16, 17),
-	ldiStepper(0, 20, 19, 18, 10),
+	ldiStepper(0, 20, 19, 18,  0),
 	ldiStepper(0,  2,  1,  0,  5),
 };
 
@@ -549,12 +548,71 @@ void setup() {
 
 	// Enable galvo.
 	galvoInit();
+
+	// Enable camera trigger.
+	pinMode(PIN_CAMERA_TRIGGER, OUTPUT);
+	digitalWrite(PIN_CAMERA_TRIGGER, LOW);
 }
 
 //--------------------------------------------------------------------------------
 // Loop.
 //--------------------------------------------------------------------------------
 void loop() {
+
+	// PWN works: 5000hz, 15% (200us total, 11us on)
+	// analogWriteFrequency(PIN_LASER_PWM, 5000);
+	// analogWrite(PIN_LASER_PWM, 15);
+
+	// while (1){
+	// }
+
+	// while (1) {
+	// 	digitalWrite(PIN_LASER_PWM, HIGH);
+	// 	delayMicroseconds(15);
+	// 	digitalWrite(PIN_LASER_PWM, LOW);
+	// 	delayMicroseconds(250);
+	// }
+
+	int frameStartDelay = 0;
+
+	// Camera trigger test.
+	while (1) {
+		int b = Serial.read();
+
+		if (b == 'q') {
+			frameStartDelay -= 100;
+		} else if (b == 'w') {
+			frameStartDelay += 100;
+		}
+
+		if (b == 'e') {
+			frameStartDelay -= 10;
+		} else if (b == 'r') {
+			frameStartDelay += 10;
+		}
+
+		if (frameStartDelay < 0)
+			frameStartDelay = 0;
+		
+		Serial.println(frameStartDelay);
+
+		// Serial.println("Trigger camera");
+		digitalWrite(PIN_CAMERA_TRIGGER, HIGH);
+		delayMicroseconds(10);
+		digitalWrite(PIN_CAMERA_TRIGGER, LOW);
+		
+		delayMicroseconds(frameStartDelay);
+
+		for (int i = 0; i < 7; ++i) {
+			digitalWrite(PIN_LASER_PWM, HIGH);
+			delayMicroseconds(20);
+			digitalWrite(PIN_LASER_PWM, LOW);
+			delayMicroseconds(300);
+		}
+
+		delay(50);
+	}
+
 	// Comms mode.
 	while (1) {
 		updatePacketInput();

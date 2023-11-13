@@ -1,3 +1,3 @@
 #pragma once
 
-#define PIN_LASER_PWM			3
+#define PIN_LASER_PWM			10

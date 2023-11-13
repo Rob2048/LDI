@@ -1599,7 +1599,7 @@ void gfxCopyToTexture2D(ldiApp* AppContext, ID3D11Texture2D* Texture, ldiImage S
 	D3D11_TEXTURE2D_DESC texDesc;
 	Texture->GetDesc(&texDesc);
 
-	if (Source.width < texDesc.Width || Source.height < texDesc.Height) {
+	if (Source.width > texDesc.Width || Source.height > texDesc.Height) {
 		std::cout << "Tried to copy " << Source.width << "x" << Source.height << " to texture of size " << texDesc.Width << "x" << texDesc.Height << "\n";
 		return;
 	}
