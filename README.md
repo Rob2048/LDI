@@ -3,9 +3,6 @@ Laser direct imager.
 
 ![Screenshot](resources/cad_design_1.png)
 
-# Notes
-- Surfel coverage idea: Use basic surfel area technique to determine laser views, then project samples on those surfels. Then use poisson sampling to eliminate samples. Allow overlaps for fuzzy edges.
-
 # Figure paint process
 
 ## Print
@@ -16,24 +13,35 @@ Laser direct imager.
 - Primed white.
 - Connect to kinematic coupling.
 
-## Scan
-- Line scan.
-- Point filter.
-- Mesh fit.
+## Platform & camera calibration
 
-![Screenshot](resources/scan.gif)
+Capture images of calibration cube with both cameras.
+![Screenshot](resources/calib_01.png)
 
-![Screenshot](resources/scan_normals.png)
+Calculate machine platform parameters from calibration cube positions.
+![Screenshot](resources/calib_02.png)
 
-## Toner coat
-- Once for Cyan, Magenta, Yellow, and Black.
-- Preparation stage between each powder coating.
-	- Which preparation medium - degreaser? (Hand soap, etc).
-- Dip in fluid bed.
-	- Multiple dips, shake, etc.
+## 3D scanning
+Generate point cloud with triangulated line laser.
+![Screenshot](resources/scan_01.png)
 
-## Finishing
-- Apply semi-gloss coat.
+Fit source 3D model to point cloud using non-rigid registration.
+![Screenshot](resources/scan_02.png)
+
+Result of model fitting.
+![Screenshot](resources/scan_03.png)
+
+## Path planning
+
+![Screenshot](resources/path_01.png)
+
+![Screenshot](resources/path_02.png)
+
+![Screenshot](resources/path_03.png)
+
+![Screenshot](resources/path_04.png)
+
+![Screenshot](resources/path_05.png)
 
 # Color process
 
@@ -46,6 +54,16 @@ Laser direct imager.
 ![Screenshot](resources/color_process_3.jpg)
 
 ![Screenshot](resources/color_process_4.jpg)
+
+## Toner coat
+- Once for Cyan, Magenta, Yellow, and Black.
+- Preparation stage between each powder coating.
+	- Which preparation medium - degreaser? (Hand soap, etc).
+- Dip in fluid bed.
+	- Multiple dips, shake, etc.
+
+## Finishing
+- Apply semi-gloss coat.
 
 ## Color accuracy & image reproduction quality
 - Initial simulations have shown good coverage, but do not include beam cone.
@@ -63,7 +81,7 @@ Laser direct imager.
 		- ~250us for 2mm
 		- ~280us for 4mm
 
-## Galvo driver board
+### Galvo driver board
 - https://www.instructables.com/Arduino-Laser-Show-With-Real-Galvos/
 - https://hackaday.io/project/172284-galvo-laser-cutterengraver
 - 2 channel driver. Each channel uses -+ 5V differential lines.
@@ -79,6 +97,7 @@ Laser direct imager.
 - Cheap fans cause significant vibration.
 - Lower power diodes use a single mode laser which does not create the rectangle spot.
 - Shape rectangle spot with 2 prisms.
+- Blu-ray burner diodes are single mode and seem to have a good gaussian spot.
 
 ## Halftoning
 - Directed binary search
@@ -91,32 +110,7 @@ Laser direct imager.
 - Low end/high end issues:
 	- Check papers.
 	- Directly related to kernel size?
-
-## Path planning
-
-![Screenshot](resources/path_01.png)
-
-![Screenshot](resources/path_02.png)
-
-![Screenshot](resources/path_03.png)
-
-![Screenshot](resources/path_04.png)
-
-![Screenshot](resources/path_05.png)
-
-## Platform calibration
-- https://hackaday.io/project/11377-lego-optics-lab-laser-interferometer/details
-- Laser line created with masked lens and normal LED diode?
-	- Probably not required, laser has proven good.
-	- Purchasable masked LED setups are very expensive.
-- Machine vision setup
-	- Global shutter Arducam cam.
-	- Arducam low distortion lens, pick FOV to fit as needed.
-	- Laser line is central, directly over sintering laser.
-	- Camera is offset horizontally from lasers, pointing at laser focus center.
-- Machine vision ideal setup (simulation) is giving micron precision over 17cm target board.
-
-![Screenshot](resources/calibration.png)
+- Surfel coverage idea: Use basic surfel area technique to determine laser views, then project samples on those surfels. Then use poisson sampling to eliminate samples. Allow overlaps for fuzzy edges.
 
 ## Galvo field calibration
 - Find center line and rotation.

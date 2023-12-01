@@ -109,6 +109,8 @@ struct ldiPlatform {
 
 	vec3						scanBoundsMin = vec3(-5, -5, -5);
 	vec3						scanBoundsMax = vec3(5, 5, 5);
+
+	ldiAnalogScope				scope;
 };
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
@@ -1002,6 +1004,12 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	ldiModel cube = objLoadModel("../../assets/models/cube.obj");
 	Tool->cubeModel = gfxCreateRenderModel(AppContext, &cube);
 
+	//----------------------------------------------------------------------------------------------------
+	// Scope.
+	//----------------------------------------------------------------------------------------------------
+	analogScopeInit(AppContext, &Tool->scope);
+	analogScopeConnect(&Tool->scope, "\\\\.\\COM13");
+
 	return 0;
 }
 
@@ -1719,6 +1727,8 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 }
 
 void platformShowUi(ldiPlatform* Tool) {
+	analogScopeShowUi(&Tool->scope);
+
 	ldiApp* appContext = Tool->appContext;
 	ldiProjectContext* project = Tool->appContext->projectContext;
 	static float f = 0.0f;

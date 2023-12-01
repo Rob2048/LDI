@@ -172,6 +172,7 @@
     <ClCompile Include="source\stlLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="source\analogScope.h" />
     <ClInclude Include="source\calibCube.h" />
     <ClInclude Include="source\calibration.h" />
     <ClInclude Include="source\camera.h" />

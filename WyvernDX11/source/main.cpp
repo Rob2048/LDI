@@ -210,6 +210,7 @@ void _initTiming() {
 #include "physics.h"
 #include "hawk.h"
 #include "horse.h"
+#include "analogScope.h"
 #include "panther.h"
 #include "calibration.h"
 #include "scan.h"

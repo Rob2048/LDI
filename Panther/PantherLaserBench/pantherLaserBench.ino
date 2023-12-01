@@ -603,13 +603,18 @@ void loop() {
 		
 		delayMicroseconds(frameStartDelay);
 
-		for (int i = 0; i < 7; ++i) {
+		for (int i = 0; i < 6; ++i) {
 			digitalWrite(PIN_LASER_PWM, HIGH);
-			delayMicroseconds(20);
+			delayMicroseconds(70);
 			digitalWrite(PIN_LASER_PWM, LOW);
 			delayMicroseconds(300);
 		}
 
+		// delayMicroseconds(6500);
+		// digitalWrite(PIN_LASER_PWM, HIGH);
+		// delayMicroseconds(90);
+		// digitalWrite(PIN_LASER_PWM, LOW);
+		
 		delay(50);
 	}
 

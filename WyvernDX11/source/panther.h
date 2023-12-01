@@ -159,7 +159,7 @@ void pantherWorkerThread(ldiPanther* Panther) {
 		Panther->serialPortConnectCondVar.wait(lock);
 
 		while (Panther->serialPortConnected) {
-			Panther->recvTempSize = serialPortReadData(&Panther->serialPort, Panther->recvTemp, PANTHER_PACKET_RECV_MAX);
+			Panther->recvTempSize = serialPortReadData(&Panther->serialPort, Panther->recvTemp, PANTHER_RECV_TEMP_SIZE);
 			Panther->recvTempPos = 0;
 
 			if (Panther->recvTempSize == -1) {
