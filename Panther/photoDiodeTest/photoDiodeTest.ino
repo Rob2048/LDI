@@ -38,122 +38,178 @@ void setup() {
 	// adc->setConversionSpeed(ADC_CONVERSION_SPEED::MED_SPEED, 0);
 	// adc->setSamplingSpeed(ADC_SAMPLING_SPEED::MED_SPEED, 0);
 
-	// timer.begin(takeMeasurement, 2);
+	// timer.begin(takeAnalogMeasurement, 2);
 }
 
-void takeMeasurement() {
-	// int a = adc->analogRead(PIN_02, 0);
-	int a = 0;
+// void takeAnalogMeasurement() {
+// 	// int a = adc->analogRead(PIN_02, 0);
+// 	int a = 0;
 
-	// Convert to single byte.
-	a = a >> 2;
+// 	// Convert to single byte.
+// 	a = a >> 2;
 	
-	if (a > 150) {
-		digitalWrite(PIN_D1, HIGH);
-	} else {
-		digitalWrite(PIN_D1, LOW);
+// 	if (a > 150) {
+// 		digitalWrite(PIN_D1, HIGH);
+// 	} else {
+// 		digitalWrite(PIN_D1, LOW);
+// 	}
+
+// 	Serial.write(a);
+// }
+
+volatile int _frameStartDelay = -173;
+volatile int _pulseSize = 70;
+
+bool incDec(int Trigger, int DecTrigger, int IncTrigger, int ValDelta, int Min, int Max, int* Val) {
+	if (Trigger == DecTrigger) {
+		*Val -= ValDelta;
+		if (*Val < Min) {
+			*Val = Min;
+		}
+		return true;
+	} else if (Trigger == IncTrigger) {
+		*Val += ValDelta;
+		if (*Val > Max) {
+			*Val = Max;
+		}
+		return true;
 	}
 
-	Serial.write(a);
+	return false;
 }
-
-int state = 0;
 
 void loop() {
+	int camTriggerPosition = 5000;
+	int frameStartDelay = _frameStartDelay;
+	int pulseSize = _pulseSize;
+	bool showUpdate = true;
+
+	int sampleCount = 0;
+	int sampleCountTotal = 200;
+	int sampleUs = 1;
+
+	unsigned long lastTime = micros();
+
 	while (1) {
-		// No faster than 30 Hz.
+		// Keep loop at 25 Hz.
+		while (micros() - lastTime < 40000);
+		lastTime = micros();
 
-		digitalWrite(PIN_CAMERA, HIGH);
-		delayMicroseconds(10);
-		digitalWrite(PIN_CAMERA, LOW);
+		int b = Serial.read();
+		if (incDec(b, 'a', 's', 100, 0, 30000, &camTriggerPosition)) { showUpdate = true; }
+		if (incDec(b, 'q', 'w', 10, -1000, 1000, &frameStartDelay)) { showUpdate = true; }
+		if (incDec(b, 'e', 'r', 1, -1000, 1000, &frameStartDelay)) { showUpdate = true; }
+		if (incDec(b, 'o', 'p', 1, 0, 200, &pulseSize)) { showUpdate = true; }
+		
+		if (showUpdate) {
+			Serial.printf("frameStartDelay: %d pulseSize: %d camTriggerPosition: %d\n", frameStartDelay, pulseSize, camTriggerPosition);
+			showUpdate = false;
+			noInterrupts();
+			_frameStartDelay = frameStartDelay;
+			_pulseSize = pulseSize;
+			interrupts();
+		}
 
-		delayMicroseconds(750 - 100);
-
-		digitalWrite(PIN_LASER, HIGH);
-		delayMicroseconds(70);
-		digitalWrite(PIN_LASER, LOW);
-
-		delay(40);
-	}
-	
-	while (1) {
-		// Pulse delay is 16ms.
-		// Starts about ~190 us after high.
-		// Min pulse width is 80 us. (~4V)
-		// 200 us = ~6V
-		// Takes ~15ms to settle.
-		// Max voltage ~6V
-
-
-		digitalWrite(PIN_LASER, HIGH);
-		delayMicroseconds(100);
-		digitalWrite(PIN_LASER, LOW);
-		delay(20);
-		// delayMicroseconds(1000);
-	}
-
-	uint32_t timeout = millis() + 1000;
-	int count = 0;
-	int lastV = 0;
-
-	while (true) {
 		digitalWrite(PIN_D1, HIGH);
-		// int a = adc->analogRead(PIN_02, 0);
-		int a = 0;
-
-		// Convert to single byte.
-		a = a >> 2;
-		Serial.write(a);
-
+		delayMicroseconds(100);
 		digitalWrite(PIN_D1, LOW);
 
-		// if (a > 30) {
-			// digitalWrite(PIN_D1, HIGH);
-		// } else {
-			// digitalWrite(PIN_D1, LOW);
-		// }
+		if (sampleCount < sampleCountTotal) {
+			sampleCount++;
+		} else {			
+			sampleCount = 0;
+		}
 
-		// if (a > lastV + 10 || a < lastV - 10) {
-		// 	Serial.printf("%10d %10d\n", count, a);
-		// 	lastV = a;
-		// }
+		int sampleDelayUs = sampleCount * sampleUs;
 
-		// int cc = 0;
-		// while (adc->isConverting(0)) { ++cc; }
+		timer.begin(triggerCam, camTriggerPosition);
 
-		// if (state == 0) {
-		// 	if (a > 1) {
-		// 		state = 1;
-		// 		digitalWrite(PIN_D1, HIGH);
-		// 	}
-		// } else if (state == 1) {
-		// 	if (a == 0) {
-		// 		state = 0;
-		// 		digitalWrite(PIN_D1, LOW);
-		// 	}
-		// }
-
-		// ++count;
-		// if (millis() > timeout) {
-		// 	timeout = millis() + 20000;
-		// 	Serial.printf("%10d %10d %10d\n", count, a);
-		// 	count = 0;
-		// }
+		// Start galvo moves.
+		// ...
+		delayMicroseconds(5000 + 800 - sampleDelayUs);
+		
+		// digitalWrite(PIN_LASER, HIGH);
+		// delayMicroseconds(_pulseSize);
+		// digitalWrite(PIN_LASER, LOW);
 	}
-
-	// float v = (a / 4096.0f) * 3.3f;
-	// _filtered = v;
-	// _filtered = _filtered * 0.9f + v * 0.1f;
-	// Serial.print(_count++);
-	// Serial.print("    ");
-	// Serial.print(v);
-	// Serial.print(" V    ");
-	// Serial.print(_filtered);
-	// Serial.println(" V");
-
-	// Serial.printf("%10d %10.3f V %10.3f V\n", _count++, v, _filtered);
-
-	// 0.162 V in neutral state.
-
-	// delay(10);
 }
+
+void triggerCam() {
+	// digitalWrite(PIN_LASER, HIGH);
+	// delayMicroseconds(10);
+	// digitalWrite(PIN_LASER, LOW);
+	digitalWrite(PIN_CAMERA, HIGH);
+	delayMicroseconds(10);
+	digitalWrite(PIN_CAMERA, LOW);
+
+	timer.begin(triggerLaser, 750 + _frameStartDelay);
+}
+
+void triggerLaser() {
+	timer.end();
+
+	digitalWrite(PIN_LASER, HIGH);
+	delayMicroseconds(_pulseSize);
+	digitalWrite(PIN_LASER, LOW);
+}
+
+// void loop() {
+// 	int frameStartDelay = -173;
+// 	int pulseSize = 70;
+
+// 	bool showUpdate = false;
+
+// 	while (1) {
+// 		// No faster than 30 Hz.
+
+// 		int b = Serial.read();
+// 		if (b == 'q') {
+// 			frameStartDelay -= 10;
+// 			showUpdate = true;
+// 		} else if (b == 'w') {
+// 			frameStartDelay += 10;
+// 			showUpdate = true;
+// 		}
+
+// 		if (b == 'e') {
+// 			frameStartDelay -= 1;
+// 			showUpdate = true;
+// 		} else if (b == 'r') {
+// 			frameStartDelay += 1;
+// 			showUpdate = true;
+// 		}
+
+// 		if (b == 'o') {
+// 			pulseSize -= 1;
+// 			showUpdate = true;
+// 		} else if (b == 'p') {
+// 			pulseSize += 1;
+// 			showUpdate = true;
+// 		}
+
+// 		if (pulseSize < 0) {
+// 			pulseSize = 0;
+// 			showUpdate = true;
+// 		} else if (pulseSize > 200) {
+// 			pulseSize = 200;
+// 			showUpdate = true;
+// 		}
+
+// 		if (showUpdate) {
+// 			Serial.printf("frameStartDelay: %d pulseSize: %d\n", frameStartDelay, pulseSize);
+// 			showUpdate = true;
+// 		}
+
+// 		digitalWrite(PIN_CAMERA, HIGH);
+// 		delayMicroseconds(10);
+// 		digitalWrite(PIN_CAMERA, LOW);
+
+// 		delayMicroseconds(750 + frameStartDelay);
+
+// 		digitalWrite(PIN_LASER, HIGH);
+// 		delayMicroseconds(pulseSize);
+// 		digitalWrite(PIN_LASER, LOW);
+
+// 		delay(40);
+// 	}
+// }

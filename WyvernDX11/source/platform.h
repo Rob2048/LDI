@@ -1007,8 +1007,8 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Scope.
 	//----------------------------------------------------------------------------------------------------
-	analogScopeInit(AppContext, &Tool->scope);
-	analogScopeConnect(&Tool->scope, "\\\\.\\COM13");
+	//analogScopeInit(AppContext, &Tool->scope);
+	//analogScopeConnect(&Tool->scope, "\\\\.\\COM13");
 
 	return 0;
 }
@@ -1727,7 +1727,7 @@ void platformMainRender(ldiPlatform* Tool, int Width, int Height, std::vector<ld
 }
 
 void platformShowUi(ldiPlatform* Tool) {
-	analogScopeShowUi(&Tool->scope);
+	//analogScopeShowUi(&Tool->scope);
 
 	ldiApp* appContext = Tool->appContext;
 	ldiProjectContext* project = Tool->appContext->projectContext;

@@ -37,6 +37,34 @@ cbuffer pixelConstants : register(b0)
 };
 
 float4 mainPs(PS_INPUT input) : SV_Target {
+	float camI = texture0.Sample(sampler0, input.uv).r;
+
+	if (params.w > 0.5) {
+		camI = GammaToLinear(camI);
+
+		float3 c0 = float3(0.0, 0.0, 0.0);
+		float3 c1 = float3(0.0, 0.0, 1.0);
+		float3 c2 = float3(0.0, 1.0, 0.0);
+		float3 c3 = float3(1.0, 0.0, 0.0);
+		float3 c4 = float3(1.0, 1.0, 1.0);
+
+		float3 cF = c0;
+
+		if (camI >= 1.0) {
+			cF = c4;
+		} else if (camI >= 0.66) {
+			cF = lerp(c2, c3, (camI - 0.66) * 3.0);
+		} else if (camI >= 0.33) {
+			cF = lerp(c1, c2, (camI - 0.33) * 3.0);
+		} else if (camI >= 0.0) {
+			cF = lerp(c0, c1, camI * 3.0);
+		}
+		
+		return float4(cF, 1);
+	} else {
+		return float4(camI, camI, camI, 1);
+	}
+
 	// NOTE: Split each bayer filter color.
 	// float pixelX = floor(input.uv.x * 1920.0);
 	// float pixelY = floor(input.uv.y * 1080.0);
@@ -72,9 +100,9 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 	float gainGreen = params.y;
 	float gainBlue = params.z;
 
-	float camI = texture0.Sample(sampler0, input.uv).r;
+	// float camI = texture0.Sample(sampler0, input.uv).r;
 	return float4(camI, camI, camI, 1);
-
+	
 	camI = GammaToLinear(camI);
 
 	if (oddX != 0 && oddY != 0) {

@@ -95,27 +95,38 @@ struct ldiImageInspector {
 	ldiHawk						testCam;
 	int							testCamLastFrameId = 0;
 	uint8_t						testCamFrameBuffer[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
+	float						testCamFrameBufferFilter[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
 	ID3D11Texture2D*			testhawkTex[2];
+	bool						showHeatmap = true;
+	std::vector<cv::KeyPoint>	laserProfileBlobs;
 };
 
-void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
-	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
-	ldiApp* appContext = tool->appContext;
+void _imageInspectorSetCamTexState(ldiImageInspector* Tool, vec4 Params) {
+	ldiApp* appContext = Tool->appContext;
 
-	//AddDrawCmd ??
 	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
 	appContext->d3dDeviceContext->PSSetShader(appContext->imgCamPixelShader, NULL, 0);
 	appContext->d3dDeviceContext->VSSetShader(appContext->imgCamVertexShader, NULL, 0);
 
 	{
 		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(tool->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		appContext->d3dDeviceContext->Map(Tool->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
-		constantBuffer->params = vec4(1.0f, 1.0f, 1.0f, 0);
-		appContext->d3dDeviceContext->Unmap(tool->camImagePixelConstants, 0);
+		constantBuffer->params = Params;
+		appContext->d3dDeviceContext->Unmap(Tool->camImagePixelConstants, 0);
 	}
 
-	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &tool->camImagePixelConstants);
+	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &Tool->camImagePixelConstants);
+}
+
+void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
+	_imageInspectorSetCamTexState(tool, vec4(1.0f, 1.0f, 1.0f, 0));
+}
+
+void _imageInspectorSetStateCallbackHeatmap(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
+	_imageInspectorSetCamTexState(tool, vec4(1.0f, 1.0f, 1.0f, 1.0f));
 }
 
 void _imageInspectorSetStateCallback2(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -807,10 +818,29 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					memcpy(Tool->testCamFrameBuffer + iY * TEST_CAM_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
 				}
 
+				/*for (int p = 0; p < mvCam->imgWidth * mvCam->imgHeight; ++p) {
+					Tool->testCamFrameBufferFilter[p] = Tool->testCamFrameBufferFilter[p] * 0.5f + mvCam->frameBuffer[p] * 0.5f;
+					Tool->testCamFrameBuffer[p] = (uint8_t)(Tool->testCamFrameBufferFilter[p] + 0.5f);
+				}*/
+
 				newFrame = true;
 				camImg.data = Tool->testCamFrameBuffer;
 				camImg.width = mvCam->imgWidth;
 				camImg.height = mvCam->imgHeight;
+
+				// Search image
+				cv::Mat image(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
+
+				cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
+				params.blobColor = 255;
+				//std::cout << params.minArea << " " << params.maxArea << "\n";
+				//params.minArea = 70;
+				//params.maxArea = 700;
+
+				cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
+				detector->detect(image, Tool->laserProfileBlobs);
+
+				std::cout << "Blobs: " << Tool->laserProfileBlobs.size() << "\n";
 			}
 		}
 
@@ -997,6 +1027,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
+
+			ImGui::Checkbox("Show heatmap", &Tool->showHeatmap);
 		}
 
 		if (ImGui::CollapsingHeader("Rotary measurement")) {
@@ -1253,7 +1285,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		imgMax.x = imgMin.x + CAM_IMG_WIDTH * Tool->imgScale;
 		imgMax.y = imgMin.y + CAM_IMG_HEIGHT * Tool->imgScale;
 
-		draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
+		if (Tool->showHeatmap) {
+			draw_list->AddCallback(_imageInspectorSetStateCallbackHeatmap, Tool);
+		} else {
+			draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
+		}
 		draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
@@ -1418,6 +1454,25 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 					draw_list->AddCircle(offset, 2.0f, ImColor(2, 117, 247));
 				}
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw laser beam profiler results.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->showHeatmap) {
+			for (size_t iterSamples = 0; iterSamples < Tool->laserProfileBlobs.size(); ++iterSamples) {
+				cv::KeyPoint kp = Tool->laserProfileBlobs[iterSamples];
+
+				cv::Point2f o = kp.pt;
+
+				ImVec2 offset = pos;
+				offset.x = screenStartPos.x + (Tool->imgOffset.x + o.x) * Tool->imgScale;
+				offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
+
+				draw_list->AddCircle(offset, kp.size / 2.0f * Tool->imgScale, ImColor(255, 0, 0));
+
+				draw_list->AddCircle(offset, 2.0f, ImColor(255, 0, 0));
 			}
 		}
 
