@@ -823,6 +823,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					Tool->testCamFrameBuffer[p] = (uint8_t)(Tool->testCamFrameBufferFilter[p] + 0.5f);
 				}*/
 
+				/*for (int p = 0; p < mvCam->imgWidth * mvCam->imgHeight; ++p) {
+					float lin = GammaToLinear(mvCam->frameBuffer[p] / 256.0f);
+					Tool->testCamFrameBuffer[p] = (uint8_t)(lin * 255.0f);
+				}*/
+
 				newFrame = true;
 				camImg.data = Tool->testCamFrameBuffer;
 				camImg.width = mvCam->imgWidth;
@@ -840,7 +845,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
 				detector->detect(image, Tool->laserProfileBlobs);
 
-				std::cout << "Blobs: " << Tool->laserProfileBlobs.size() << "\n";
+				//std::cout << "Blobs: " << Tool->laserProfileBlobs.size() << "\n";
 			}
 		}
 
@@ -873,6 +878,14 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 
 			calibFindInitialObservations(job, Tool->appContext->platform->hawks);
+		}
+
+		if (ImGui::Button("New calibration")) {
+			calibGetInitialEstimations(job, Tool->appContext->platform->hawks);
+		}
+
+		if (ImGui::Button("Load new calibration")) {
+			calibLoadNewBA(job, "../cache/new_ba_output.txt");
 		}
 
 		if (ImGui::Button("Calibrate stereo")) {

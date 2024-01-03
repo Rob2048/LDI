@@ -87,7 +87,7 @@ struct ldiPlatform {
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = false;
 	bool						showScanPlane = false;
-	bool						liveAxisUpdate = true;
+	bool						liveAxisUpdate = false;
 
 	bool						showSourceModelShaded = true;
 	bool						showSourceModelWireframe = false;
@@ -95,6 +95,8 @@ struct ldiPlatform {
 	bool						showQuadMeshWireframe = false;
 	bool						showQuadMeshWhite = false;
 	vec4						quadMeshCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
+
+	bool						showSurfeslHigh = false;
 
 	std::mutex					liveScanPointsMutex;
 	bool						liveScanPointsUpdated;
@@ -1554,6 +1556,30 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
 			}
 		}
+
+		//----------------------------------------------------------------------------------------------------
+		// New bundle adjust test.
+		//----------------------------------------------------------------------------------------------------
+		//for (size_t poseIter = 0; poseIter < job->nbCubePoses.size(); ++poseIter) {
+
+		//	//pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
+
+		//	std::vector<vec3>* modelPoints = &Tool->defaultCube.points;
+		//	srand(poseIter);
+		//	rand();
+		//	vec3 col = getRandomColorHighSaturation();
+
+		//	for (size_t i = 0; i < modelPoints->size(); ++i) {
+		//		mat4 world = job->nbCubePoses[poseIter];
+		//		//world[3] = vec4(0, 0, 0, 1.0f);
+		//		vec3 point = world * vec4((*modelPoints)[i], 1.0f);
+
+		//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
+		//		//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
+		//	}
+
+		//	//pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
+		//}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1678,6 +1704,20 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 				gfxRenderDebugModel(appContext, &project->quadModelWhite);
+			}
+		}
+
+		if (project->surfelsLoaded) {
+			if (Tool->showSurfeslHigh) {
+				D3D11_MAPPED_SUBRESOURCE ms;
+				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+				constantBuffer->mvp = Camera->projViewMat;
+				constantBuffer->color = vec4(Camera->position, 1.0f);
+				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+				//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+				gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 			}
 		}
 
@@ -1844,6 +1884,9 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::Checkbox("Show quad mesh wireframe", &Tool->showQuadMeshWireframe);
 			ImGui::Checkbox("Show quad mesh canvas", &Tool->showQuadMeshWhite);
 
+			ImGui::Separator();
+			ImGui::Checkbox("Show surfels high", &Tool->showSurfeslHigh);
+			
 			ImGui::Separator();
 			ImGui::Text("Simulated position");
 			ImGui::Checkbox("Update live", &Tool->liveAxisUpdate);

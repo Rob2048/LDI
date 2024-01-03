@@ -397,6 +397,20 @@ mat4 convertOpenCvTransMatToGlmMat(cv::Mat& TransMat) {
 	return result;
 }
 
+cv::Mat convertGlmTransMatToOpenCvMat(mat4& TransMat) {
+	// NOTE: Just a transpose.
+	cv::Mat result = cv::Mat::zeros(4, 4, CV_64F);
+
+	for (int iY = 0; iY < 3; ++iY) {
+		for (int iX = 0; iX < 4; ++iX) {
+			result.at<double>(iY, iX) = TransMat[iX][iY];
+		}
+	}
+
+	return result;
+}
+
+// Return transfrom matrix from R and T vectors.
 mat4 convertRvecTvec(cv::Mat R, cv::Mat T) {
 	mat4 result;
 
@@ -420,7 +434,7 @@ mat4 convertRvecTvec(cv::Mat R, cv::Mat T) {
 	return result;
 }
 
-// Takes single matrix of R and T combined.
+// Return transform matrix from matrix of R and T combined.
 cv::Mat convertRvecTvec(cv::Mat RT) {
 	cv::Mat result = cv::Mat::zeros(4, 4, CV_64F);
 
@@ -448,6 +462,7 @@ cv::Mat convertRvecTvec(cv::Mat RT) {
 	return result;
 }
 
+// Return matrix of R and T combined from transform matrix.
 cv::Mat convertTransformToRT(cv::Mat Trans) {
 	cv::Mat result = cv::Mat::zeros(1, 6, CV_64F);
 

@@ -72,6 +72,14 @@ struct ldiHorsePosition {
 	int a;
 };
 
+struct ldiHorsePositionAbs {
+	double x;
+	double y;
+	double z;
+	double c;
+	double a;
+};
+
 struct ldiHorse {
 	ldiTransform origin;
 	ldiTransform axisX;

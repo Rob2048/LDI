@@ -1,6 +1,7 @@
 #pragma once
 
 // Bundle adjust and non-linear optimization:
+ 
 // https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
 
 // https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
@@ -1660,4 +1661,289 @@ void calibStereoCalibrate(ldiCalibrationJob* Job) {
 	calibLoadFullBA(Job, "../cache/ba_refined.txt");
 
 	Job->stereoCalibrated = true;
+}
+
+void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
+	// Unknown parameters (That need initial estimations):
+	// - X axis direction.
+	// - Y axis direction.
+	// - Z axis direction.
+	// - C axis direction and origin.
+	// - A axis direction and origin.
+	// - Cube 3D point positions.
+	// - Camera intrinsics (camera matrix, lens distortion).
+	// - Camera extrinsics (position, rotation).
+
+	int hawkId = 1;
+
+	Job->stPoseToSampleIds.clear();
+	Job->stCubeWorlds.clear();
+
+	//----------------------------------------------------------------------------------------------------
+	// Find a pose for each calibration sample.
+	//----------------------------------------------------------------------------------------------------
+	ldiCalibCube initialCube;
+	calibCubeInit(&initialCube);
+	Job->opCube = initialCube;
+
+	Job->stStereoCamWorld[0] = glm::identity<mat4>();
+	Job->stStereoCamWorld[1] = glm::identity<mat4>();
+
+	Job->refinedCamMat[0] = Job->defaultCamMat[0].clone();
+	Job->refinedCamDist[0] = Job->defaultCamDist[0].clone();
+
+	Job->refinedCamMat[1] = Job->defaultCamMat[1].clone();
+	Job->refinedCamDist[1] = Job->defaultCamDist[1].clone();
+
+	std::cout << "Find pose for each sample\n";
+
+	std::vector<std::vector<cv::Point2f>> viewObservations;
+	std::vector<std::vector<int>> viewPointIds;
+	std::vector<ldiHorsePositionAbs> viewPositions;
+
+	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
+		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
+		std::vector<cv::Point2f> imagePoints;
+		std::vector<int> imagePointIds;
+		std::vector<cv::Point3f> worldPoints;
+		
+		cv::Mat poseRT;
+
+		std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkId].boards;
+		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
+			ldiCharucoBoard* board = &(*boards)[boardIter];
+
+			for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
+				ldiCharucoCorner* corner = &board->corners[cornerIter];
+				int cornerGlobalId = (board->id * 9) + corner->id;
+				vec3 targetPoint = initialCube.points[cornerGlobalId];
+
+				imagePoints.push_back(cv::Point2f(corner->position.x, corner->position.y));
+				worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
+				imagePointIds.push_back(cornerGlobalId);
+			}
+		}
+
+		if (imagePoints.size() >= 6) {
+			cv::Mat r;
+			cv::Mat t;
+
+			if (computerVisionFindGeneralPoseRT(&Job->defaultCamMat[hawkId], &Job->defaultCamDist[hawkId], &imagePoints, &worldPoints, &r, &t)) {
+				std::cout << "Find pose - Sample: " << sampleIter << "\n";
+
+				poseRT = cv::Mat::zeros(1, 6, CV_64F);
+				poseRT.at<double>(0) = r.at<double>(0);
+				poseRT.at<double>(1) = r.at<double>(1);
+				poseRT.at<double>(2) = r.at<double>(2);
+				poseRT.at<double>(3) = t.at<double>(0);
+				poseRT.at<double>(4) = t.at<double>(1);
+				poseRT.at<double>(5) = t.at<double>(2);
+
+				cv::Mat camTransMat = convertRvecTvec(poseRT);
+				//cv::Mat cubeTransMat = camTransMat;//.inv();
+				mat4 cubeMat = convertOpenCvTransMatToGlmMat(camTransMat);
+				Job->stCubeWorlds.push_back(cubeMat);
+				Job->stPoseToSampleIds.push_back(sampleIter);
+
+				// Add to BA output.
+				if (sample->phase == 1) {
+					// Save positions in absolute values.
+					double stepsToCm = 1.0 / ((200 * 32) / 0.8);
+
+					ldiHorsePositionAbs platformPos = {};
+					platformPos.x = sample->X * stepsToCm;
+					platformPos.y = sample->Y * stepsToCm;
+					platformPos.z = sample->Z * stepsToCm;
+					platformPos.a = 0;
+					platformPos.c = 0;
+
+					viewObservations.push_back(imagePoints);
+					viewPointIds.push_back(imagePointIds);
+					viewPositions.push_back(platformPos);
+				}
+			} else {
+				std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+			}
+		} else {
+			std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Get volume metrics.
+	//----------------------------------------------------------------------------------------------------
+	calibBuildCalibVolumeMetrics(Job);
+
+	//----------------------------------------------------------------------------------------------------
+	// Create BA file.
+	//----------------------------------------------------------------------------------------------------
+	FILE* f;
+	fopen_s(&f, "../cache/new_ba_input.txt", "w");
+
+	if (f == 0) {
+		std::cout << "Could not open bundle adjust input file for writing\n";
+		return;
+	}
+
+	// Header.
+	fprintf(f, "%d %d\n", (int)initialCube.points.size(), (int)viewPositions.size());
+
+	// Axis directions.
+	fprintf(f, "%f %f %f\n", Job->axisX.direction.x, Job->axisX.direction.y, Job->axisX.direction.z);
+	fprintf(f, "%f %f %f\n", Job->axisY.direction.x, Job->axisY.direction.y, Job->axisY.direction.z);
+	fprintf(f, "%f %f %f\n", Job->axisZ.direction.x, Job->axisZ.direction.y, Job->axisZ.direction.z);
+	
+	// Starting intrinsics.
+	for (int j = 0; j < 9; ++j) {
+		fprintf(f, "%f ", Job->defaultCamMat[hawkId].at<double>(j));
+	}
+	fprintf(f, "\n");
+
+	for (int j = 0; j < 8; ++j) {
+		fprintf(f, "%f ", Job->defaultCamDist[hawkId].at<double>(j));
+	}
+	fprintf(f, "\n");
+
+	// Starting camera transform.
+	auto invMat = glm::inverse(Job->camVolumeMat[hawkId]);
+	cv::Mat camExt = convertTransformToRT(convertGlmTransMatToOpenCvMat(invMat));
+	// 6 params. r, t
+	for (int i = 0; i < 6; ++i) {
+		fprintf(f, "%f ", camExt.at<double>(i));
+	}
+	fprintf(f, "\n");
+
+	// 3D points.
+	for (size_t pointIter = 0; pointIter < initialCube.points.size(); ++pointIter) {
+		vec3 point = initialCube.points[pointIter];
+		fprintf(f, "%f %f %f\n", point.x, point.y, point.z);
+	}
+
+	// Views.
+	for (size_t viewIter = 0; viewIter < viewPositions.size(); ++viewIter) {
+		ldiHorsePositionAbs pos = viewPositions[viewIter];
+		fprintf(f, "%d %f %f %f %f %f\n", (int)viewObservations[viewIter].size(), pos.x, pos.y, pos.z, pos.a, pos.c);
+		
+		std::vector<cv::Point2f>* viewPoints = &viewObservations[viewIter];
+		for (size_t pointIter = 0; pointIter < viewObservations[viewIter].size(); ++pointIter) {
+			cv::Point2f point = viewObservations[viewIter][pointIter];
+			int pointId = viewPointIds[viewIter][pointIter];
+
+			fprintf(f, "%d %f %f\n", pointId, point.x, point.y);
+		}
+	}
+
+	fclose(f);
+}
+
+void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
+	FILE* f;
+
+	fopen_s(&f, FilePath.c_str(), "r");
+
+	if (f == 0) {
+		std::cout << "Could not open bundle adjust file.\n";
+		return;
+	}
+
+	int basePoseCount;
+	int cubePointCount;
+
+	fscanf_s(f, "%d\n", &cubePointCount);
+	std::cout << "Cube point count: " << cubePointCount << "\n";
+
+	// Cam intrinsics
+	double camInts[4];
+	double camDist[4];
+	fscanf_s(f, "%lf %lf %lf %lf\n", &camInts[0], &camInts[1], &camInts[2], &camInts[3]);
+	fscanf_s(f, "%lf %lf %lf %lf\n", &camDist[0], &camDist[1], &camDist[2], &camDist[3]);
+
+	cv::Mat cam = cv::Mat::eye(3, 3, CV_64F);
+	cam.at<double>(0, 0) = camInts[0];
+	cam.at<double>(0, 1) = 0.0;
+	cam.at<double>(0, 2) = camInts[2];
+	cam.at<double>(1, 0) = 0.0;
+	cam.at<double>(1, 1) = camInts[1];
+	cam.at<double>(1, 2) = camInts[3];
+	cam.at<double>(2, 0) = 0.0;
+	cam.at<double>(2, 1) = 0.0;
+	cam.at<double>(2, 2) = 1.0;
+
+	cv::Mat dist = cv::Mat::zeros(8, 1, CV_64F);
+	dist.at<double>(0) = camDist[0];
+	dist.at<double>(1) = camDist[1];
+	dist.at<double>(2) = camDist[2];
+	dist.at<double>(3) = camDist[3];
+
+	Job->refinedCamMat[0] = cam;
+	Job->refinedCamDist[0] = dist;
+
+	{
+		double pose[6];
+		fscanf_s(f, "%lf %lf %lf %lf %lf %lf\n", &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
+
+		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
+		rVec.at<double>(0) = pose[0];
+		rVec.at<double>(1) = pose[1];
+		rVec.at<double>(2) = pose[2];
+
+		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
+		tVec.at<double>(0) = pose[3];
+		tVec.at<double>(1) = pose[4];
+		tVec.at<double>(2) = pose[5];
+
+		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+		cv::Rodrigues(rVec, cvRotMat);
+
+		mat4 worldMat = glm::identity<mat4>();
+		worldMat[0][0] = cvRotMat.at<double>(0, 0);
+		worldMat[0][1] = cvRotMat.at<double>(1, 0);
+		worldMat[0][2] = cvRotMat.at<double>(2, 0);
+		worldMat[1][0] = cvRotMat.at<double>(0, 1);
+		worldMat[1][1] = cvRotMat.at<double>(1, 1);
+		worldMat[1][2] = cvRotMat.at<double>(2, 1);
+		worldMat[2][0] = cvRotMat.at<double>(0, 2);
+		worldMat[2][1] = cvRotMat.at<double>(1, 2);
+		worldMat[2][2] = cvRotMat.at<double>(2, 2);
+		worldMat[3][0] = tVec.at<double>(0);
+		worldMat[3][1] = tVec.at<double>(1);
+		worldMat[3][2] = tVec.at<double>(2);
+
+		worldMat = glm::inverse(worldMat);
+		Job->stStereoCamWorld[0] = worldMat;
+		Job->camVolumeMat[0] = worldMat;
+	}
+
+	Job->cubeWorlds[0] = glm::identity<mat4>();
+
+	Job->stCubeWorlds.clear();
+	Job->stPoseToSampleIds.clear();
+
+	// Axis directions.
+	Job->axisX.origin = vec3Zero;
+	Job->axisY.origin = vec3Zero;
+	Job->axisZ.origin = vec3Zero;
+	fscanf_s(f, "%f %f %f\n", &Job->axisX.direction.x, &Job->axisX.direction.y, &Job->axisX.direction.z);
+	fscanf_s(f, "%f %f %f\n", &Job->axisY.direction.x, &Job->axisY.direction.y, &Job->axisY.direction.z);
+	fscanf_s(f, "%f %f %f\n", &Job->axisZ.direction.x, &Job->axisZ.direction.y, &Job->axisZ.direction.z);
+	
+	std::vector<vec3> cubePoints;
+
+	for (int i = 0; i < cubePointCount; ++i) {
+		int pointId;
+		vec3 pos;
+		fscanf_s(f, "%d %f %f %f\n", &pointId, &pos.x, &pos.y, &pos.z);
+		std::cout << pointId << ": " << pos.x << ", " << pos.y << ", " << pos.z << "\n";
+
+		cubePoints.push_back(pos);
+	}
+
+	calibCubeInit(&Job->opCube);
+	Job->opCube.points = cubePoints;
+	calibCubeCalculateMetrics(&Job->opCube);
+
+	fclose(f);
+
+	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
+	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
 }
