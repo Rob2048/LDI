@@ -1221,7 +1221,7 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 			boundPlanes[3].normal = dir30;
 			boundPlanes[3].point = cubeCorners[3] + dir30 * 3.0f;
 
-			for (int j = 0; j < 2; ++j) {
+			for (int j = 0; j < 1; ++j) {
 				std::vector<vec2> points = computerVisionFindScanLine(sample.frames[j]);
 
 				std::vector<cv::Point2f> distortedPoints;
@@ -1674,7 +1674,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	// - Camera intrinsics (camera matrix, lens distortion).
 	// - Camera extrinsics (position, rotation).
 
-	int hawkId = 1;
+	// TODO: There will eventually only be one camera.
+	int hawkId = 0;
 
 	Job->stPoseToSampleIds.clear();
 	Job->stCubeWorlds.clear();
@@ -1746,7 +1747,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 				Job->stPoseToSampleIds.push_back(sampleIter);
 
 				// Add to BA output.
-				if (sample->phase == 1) {
+				//if (sample->phase == 3) {
+				{
 					// Save positions in absolute values.
 					double stepsToCm = 1.0 / ((200 * 32) / 0.8);
 
@@ -1754,8 +1756,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 					platformPos.x = sample->X * stepsToCm;
 					platformPos.y = sample->Y * stepsToCm;
 					platformPos.z = sample->Z * stepsToCm;
-					platformPos.a = 0;
-					platformPos.c = 0;
+					platformPos.a = sample->A * (360.0 / (32.0 * 200.0 * 90.0));
+					platformPos.c = (sample->C - 13000) * (360.0 / (32.0 * 200.0 * 30.0));
 
 					viewObservations.push_back(imagePoints);
 					viewPointIds.push_back(imagePointIds);
@@ -1792,6 +1794,12 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	fprintf(f, "%f %f %f\n", Job->axisX.direction.x, Job->axisX.direction.y, Job->axisX.direction.z);
 	fprintf(f, "%f %f %f\n", Job->axisY.direction.x, Job->axisY.direction.y, Job->axisY.direction.z);
 	fprintf(f, "%f %f %f\n", Job->axisZ.direction.x, Job->axisZ.direction.y, Job->axisZ.direction.z);
+	
+	fprintf(f, "%f %f %f\n", Job->axisA.origin.x, Job->axisA.origin.y, Job->axisA.origin.z);
+	fprintf(f, "%f %f %f\n", Job->axisA.direction.x, Job->axisA.direction.y, Job->axisA.direction.z);
+
+	fprintf(f, "%f %f %f\n", Job->axisC.origin.x, Job->axisC.origin.y, Job->axisC.origin.z);
+	fprintf(f, "%f %f %f\n", Job->axisC.direction.x, Job->axisC.direction.y, Job->axisC.direction.z);
 	
 	// Starting intrinsics.
 	for (int j = 0; j < 9; ++j) {
@@ -1926,6 +1934,12 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	fscanf_s(f, "%f %f %f\n", &Job->axisX.direction.x, &Job->axisX.direction.y, &Job->axisX.direction.z);
 	fscanf_s(f, "%f %f %f\n", &Job->axisY.direction.x, &Job->axisY.direction.y, &Job->axisY.direction.z);
 	fscanf_s(f, "%f %f %f\n", &Job->axisZ.direction.x, &Job->axisZ.direction.y, &Job->axisZ.direction.z);
+
+	fscanf_s(f, "%f %f %f\n", &Job->axisA.origin.x, &Job->axisA.origin.y, &Job->axisA.origin.z);
+	fscanf_s(f, "%f %f %f\n", &Job->axisA.direction.x, &Job->axisA.direction.y, &Job->axisA.direction.z);
+
+	fscanf_s(f, "%f %f %f\n", &Job->axisC.origin.x, &Job->axisC.origin.y, &Job->axisC.origin.z);
+	fscanf_s(f, "%f %f %f\n", &Job->axisC.direction.x, &Job->axisC.direction.y, &Job->axisC.direction.z);
 	
 	std::vector<vec3> cubePoints;
 
@@ -1946,4 +1960,71 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 
 	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
 	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
+}
+
+#include <glm/gtx/vector_angle.hpp>
+
+void calibTest() {
+	/*vec3 aX(0.9999172231542078, -0.006956585327668478, 0.010823712863752062);
+	vec3 aY(0.010254486657883475, 0.008653697554777377, -0.9999099754587979);
+	vec3 aZ(-0.001146858830737094, -0.999990751968776, -0.004144959800092799);
+	vec3 aA(-0.999915303602044, 0.008972020506332605, -0.009428068225579515);
+	vec3 aC(0.006538034667554949, 0.9999666793558388, 0.004888177650481211);
+
+	vec3 bX(0.9999318246554393, -0.011023814293633704, -0.0038498778764146577);
+	vec3 bY(-0.0029771883805203504, 2.9958903657382203e-05, -0.999995567716083);
+	vec3 bZ(-0.005380157007541861, -0.999971452806095, 0.005305420194662584);
+	vec3 bA(-0.9999060795891611, 0.01262906175419599, 0.005323419938635078);
+	vec3 bC(0.011120931526764891, 0.9999310973091539, -0.003758392753364999);*/
+
+	vec3 aX(1.000000, 0.000000, -0.000000);
+	vec3 aY(0.015481, 0.021631, -0.999646);
+	vec3 aZ(-0.011413, - 0.999935, 0.000000);
+	vec3 aA(-0.999893, 0.012537, -0.007526);
+	vec3 aC(0.009180, 0.999935, -0.006715);
+
+	vec3 bX(1.000000, 0.000000, 0.000000);
+	vec3 bY(-0.005044, -0.003928, -0.999980);
+	vec3 bZ(-0.009327, -0.999957, 0.000000);
+	vec3 bA(-0.999992, 0.002116, 0.003421);
+	vec3 bC(0.002039, 0.999898, -0.014153);
+
+	float aXY = glm::degrees(glm::angle(aX, aY));
+	float aXZ = glm::degrees(glm::angle(aX, aZ));
+	float aYZ = glm::degrees(glm::angle(aY, aZ));
+	float aXA = glm::degrees(glm::angle(aX, aA));
+	float aXC = glm::degrees(glm::angle(aX, aC));
+	
+	float bXY = glm::degrees(glm::angle(bX, bY));
+	float bXZ = glm::degrees(glm::angle(bX, bZ));
+	float bYZ = glm::degrees(glm::angle(bY, bZ));
+	float bXA = glm::degrees(glm::angle(bX, bA));
+	float bXC = glm::degrees(glm::angle(bX, bC));
+
+	float errorXY = aXY - bXY;
+	float errorXZ = aXZ - bXZ;
+	float errorYZ = aYZ - bYZ;
+	float errorXA = aXA - bXA;
+	float errorXC = aXC - bXC;
+	
+	std::cout << "Set A:\n";
+	std::cout << "Angle XY: " << aXY << "\n";
+	std::cout << "Angle XZ: " << aXZ << "\n";
+	std::cout << "Angle YZ: " << aYZ << "\n";
+	std::cout << "Angle XA: " << aXA << "\n";
+	std::cout << "Angle XC: " << aXC << "\n";
+	
+	std::cout << "Set B:\n";
+	std::cout << "Angle XY: " << bXY << "\n";
+	std::cout << "Angle XZ: " << bXZ << "\n";
+	std::cout << "Angle YZ: " << bYZ << "\n";
+	std::cout << "Angle XA: " << bXA << "\n";
+	std::cout << "Angle XC: " << bXC << "\n";
+
+	std::cout << "Error:\n";
+	std::cout << "Error XY: " << errorXY << "\n";
+	std::cout << "Error XZ: " << errorXZ << "\n";
+	std::cout << "Error YZ: " << errorYZ << "\n";
+	std::cout << "Error XA: " << errorXA << "\n";
+	std::cout << "Error XC: " << errorXC << "\n";
 }
