@@ -635,6 +635,16 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 	}
 
 	fclose(file);
+
+	std::cout << "X origin: " << GetStr(Job->axisX.origin) << "\n";
+	std::cout << "Y origin: " << GetStr(Job->axisY.origin) << "\n";
+	std::cout << "Z origin: " << GetStr(Job->axisZ.origin) << "\n";
+
+	std::cout << "vec3 aX(" << Job->axisX.direction.x << ", " << Job->axisX.direction.y << ", " << Job->axisX.direction.z << ");\n";
+	std::cout << "vec3 aY(" << Job->axisY.direction.x << ", " << Job->axisY.direction.y << ", " << Job->axisY.direction.z << ");\n";
+	std::cout << "vec3 aZ(" << Job->axisZ.direction.x << ", " << Job->axisZ.direction.y << ", " << Job->axisZ.direction.z << ");\n";
+	std::cout << "vec3 aA(" << Job->axisA.direction.x << ", " << Job->axisA.direction.y << ", " << Job->axisA.direction.z << ");\n";
+	std::cout << "vec3 aC(" << Job->axisC.direction.x << ", " << Job->axisC.direction.y << ", " << Job->axisC.direction.z << ");\n";
 }
 
 // Takes stereo image sample files and generates the initial calibration samples for a job.
@@ -1965,29 +1975,40 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 #include <glm/gtx/vector_angle.hpp>
 
 void calibTest() {
+	// Cam 0 optimized.
 	/*vec3 aX(0.9999172231542078, -0.006956585327668478, 0.010823712863752062);
 	vec3 aY(0.010254486657883475, 0.008653697554777377, -0.9999099754587979);
 	vec3 aZ(-0.001146858830737094, -0.999990751968776, -0.004144959800092799);
 	vec3 aA(-0.999915303602044, 0.008972020506332605, -0.009428068225579515);
-	vec3 aC(0.006538034667554949, 0.9999666793558388, 0.004888177650481211);
+	vec3 aC(0.006538034667554949, 0.9999666793558388, 0.004888177650481211);*/
 
+	// Cam 1 optimized.
 	vec3 bX(0.9999318246554393, -0.011023814293633704, -0.0038498778764146577);
 	vec3 bY(-0.0029771883805203504, 2.9958903657382203e-05, -0.999995567716083);
 	vec3 bZ(-0.005380157007541861, -0.999971452806095, 0.005305420194662584);
 	vec3 bA(-0.9999060795891611, 0.01262906175419599, 0.005323419938635078);
-	vec3 bC(0.011120931526764891, 0.9999310973091539, -0.003758392753364999);*/
+	vec3 bC(0.011120931526764891, 0.9999310973091539, -0.003758392753364999);
 
-	vec3 aX(1.000000, 0.000000, -0.000000);
+	// Stereo cam optimized.
+	vec3 aX(1, 2.98023e-08, -1.49012e-08);
+	vec3 aY(-0.00131951, 0.00377743, -0.999992);
+	vec3 aZ(0.0044288, -0.99999, 1.49012e-08);
+	vec3 aA(-0.999994, 0.0027594, 0.0022866);
+	vec3 aC(0.000342041, 1, 0.000637263);
+
+	// Cam 0 unoptimized.
+	/*vec3 aX(1.000000, 0.000000, -0.000000);
 	vec3 aY(0.015481, 0.021631, -0.999646);
 	vec3 aZ(-0.011413, - 0.999935, 0.000000);
 	vec3 aA(-0.999893, 0.012537, -0.007526);
-	vec3 aC(0.009180, 0.999935, -0.006715);
+	vec3 aC(0.009180, 0.999935, -0.006715);*/
 
-	vec3 bX(1.000000, 0.000000, 0.000000);
+	// Cam 1 unoptimized.
+	/*vec3 bX(1.000000, 0.000000, 0.000000);
 	vec3 bY(-0.005044, -0.003928, -0.999980);
 	vec3 bZ(-0.009327, -0.999957, 0.000000);
 	vec3 bA(-0.999992, 0.002116, 0.003421);
-	vec3 bC(0.002039, 0.999898, -0.014153);
+	vec3 bC(0.002039, 0.999898, -0.014153);*/
 
 	float aXY = glm::degrees(glm::angle(aX, aY));
 	float aXZ = glm::degrees(glm::angle(aX, aZ));

@@ -139,11 +139,6 @@ struct ldiCalibrationJob {
 	std::vector<std::vector<vec2>> scanPoints[2];
 	std::vector<ldiLine> scanRays[2];
 	std::vector<vec3> scanWorldPoints[2];
-
-	////----------------------------------------------------------------------------------------------------
-	//// Testing new bundle adjust data - not serialized.
-	////----------------------------------------------------------------------------------------------------
-	//std::vector<mat4> nbCubePoses;
 };
 
 struct ldiCalibrationContext {

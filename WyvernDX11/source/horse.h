@@ -138,13 +138,11 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
 	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
 
-	vec3 refToAxisC = Job->axisC.origin - vec3(0.0f, 0.0f, 0.0f);
+	vec3 refToAxisC = Job->axisC.origin;
 	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
 	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
 
-	mat4 axisCMat = mat4(1.0f);
-	axisCMat = axisCMat * glm::translate(mat4(1.0), -refToAxisC);
-	axisCMat = axisCRot * axisCMat;
+	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
 	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
 
 	mat4 zeroTransform = Job->cubeWorlds[0];
