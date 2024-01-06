@@ -438,8 +438,6 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 			fwrite(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
 		}
 		
-		fwrite(&Job->stVolumeCenter, sizeof(vec3), 1, file);
-
 		fwrite(&Job->axisX, sizeof(ldiLine), 1, file);
 		fwrite(&Job->axisY, sizeof(ldiLine), 1, file);
 		fwrite(&Job->axisZ, sizeof(ldiLine), 1, file);
@@ -589,8 +587,6 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 			fread(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
 		}
 		
-		fread(&Job->stVolumeCenter, sizeof(vec3), 1, file);
-		
 		fread(&Job->axisX, sizeof(ldiLine), 1, file);
 		fread(&Job->axisY, sizeof(ldiLine), 1, file);
 		fread(&Job->axisZ, sizeof(ldiLine), 1, file);
@@ -636,7 +632,7 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 
 	fclose(file);
 
-	std::cout << "X origin: " << GetStr(Job->axisX.origin) << "\n";
+	/*std::cout << "X origin: " << GetStr(Job->axisX.origin) << "\n";
 	std::cout << "Y origin: " << GetStr(Job->axisY.origin) << "\n";
 	std::cout << "Z origin: " << GetStr(Job->axisZ.origin) << "\n";
 
@@ -644,7 +640,7 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 	std::cout << "vec3 aY(" << Job->axisY.direction.x << ", " << Job->axisY.direction.y << ", " << Job->axisY.direction.z << ");\n";
 	std::cout << "vec3 aZ(" << Job->axisZ.direction.x << ", " << Job->axisZ.direction.y << ", " << Job->axisZ.direction.z << ");\n";
 	std::cout << "vec3 aA(" << Job->axisA.direction.x << ", " << Job->axisA.direction.y << ", " << Job->axisA.direction.z << ");\n";
-	std::cout << "vec3 aC(" << Job->axisC.direction.x << ", " << Job->axisC.direction.y << ", " << Job->axisC.direction.z << ");\n";
+	std::cout << "vec3 aC(" << Job->axisC.direction.x << ", " << Job->axisC.direction.y << ", " << Job->axisC.direction.z << ");\n";*/
 }
 
 // Takes stereo image sample files and generates the initial calibration samples for a job.
@@ -676,6 +672,112 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 
 		Job->refinedCamMat[i] = Job->defaultCamMat[i].clone();
 		Job->refinedCamDist[i] = Job->defaultCamDist[i].clone();
+	}
+}
+
+void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0), bool UseExistringMetrics = true) {
+	// Align basis to world as reasonably as possible.
+	Job->basisX = Job->axisX.direction;
+	Job->basisY = glm::normalize(glm::cross(Job->basisX, Job->axisZ.direction));
+	Job->basisZ = glm::normalize(glm::cross(Job->basisX, Job->basisY));
+
+	mat4 worldToVolume = glm::identity<mat4>();
+	worldToVolume[0] = vec4(Job->basisX, 0.0f);
+	worldToVolume[1] = vec4(Job->basisY, 0.0f);
+	worldToVolume[2] = vec4(Job->basisZ, 0.0f);
+
+	mat4 volumeRealign = glm::rotate(mat4(1.0f), glm::radians(90.0f), Job->basisX);
+	worldToVolume = volumeRealign * worldToVolume;
+
+	vec3 originTrans = CubeOffset[3];
+	std::cout << "Offset from center: " << originTrans.x << ", " << originTrans.y << ", " << originTrans.z << "\n";
+
+	volumeRealign = glm::translate(mat4(1.0f), originTrans);
+	worldToVolume = volumeRealign * worldToVolume;
+	mat4 volumeToWorld = glm::inverse(worldToVolume);
+	std::cout << "volumeToWorld: " << GetStr(&volumeToWorld) << "\n";
+
+	// Transfrom cube points to make the 0,0,0 cube the zero.
+	mat4 cubeTransform = volumeToWorld * CubeOffset;
+	//std::cout << "Zero transform: " << GetStr(&zeroTransform) << "\n";
+	calibCubeTransform(&Job->opCube, cubeTransform);
+
+	//----------------------------------------------------------------------------------------------------
+	// Transform all volume elements into world space.
+	//----------------------------------------------------------------------------------------------------
+	{
+		// Axis directions.
+		Job->axisX.direction = glm::normalize(volumeToWorld * vec4(Job->axisX.direction, 0.0f));
+		Job->axisY.direction = glm::normalize(volumeToWorld * vec4(Job->axisY.direction, 0.0f));
+		Job->axisZ.direction = glm::normalize(volumeToWorld * vec4(Job->axisZ.direction, 0.0f));
+
+		for (size_t i = 0; i < Job->stBasisXPoints.size(); ++i) {
+			Job->stBasisXPoints[i] = volumeToWorld * vec4(Job->stBasisXPoints[i], 0.0f);
+		}
+
+		for (size_t i = 0; i < Job->stBasisYPoints.size(); ++i) {
+			Job->stBasisYPoints[i] = volumeToWorld * vec4(Job->stBasisYPoints[i], 0.0f);
+		}
+
+		for (size_t i = 0; i < Job->stBasisZPoints.size(); ++i) {
+			Job->stBasisZPoints[i] = volumeToWorld * vec4(Job->stBasisZPoints[i], 0.0f);
+		}
+
+		// Cameras to world space.
+		if (UseExistringMetrics) {
+			Job->camVolumeMat[0] = volumeToWorld * Job->camVolumeMat[0];
+			Job->camVolumeMat[1] = volumeToWorld * Job->camVolumeMat[1];
+		} else {
+			Job->camVolumeMat[0] = volumeToWorld * Job->stStereoCamWorld[0];
+			Job->camVolumeMat[1] = volumeToWorld * Job->stStereoCamWorld[1];
+		}
+
+		// Normalize camera scale.
+		Job->camVolumeMat[0][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][0])), 0.0f);
+		Job->camVolumeMat[0][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][1])), 0.0f);
+		Job->camVolumeMat[0][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][2])), 0.0f);
+
+		Job->camVolumeMat[1][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][0])), 0.0f);
+		Job->camVolumeMat[1][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][1])), 0.0f);
+		Job->camVolumeMat[1][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][2])), 0.0f);
+
+		// Cube poses.
+		if (UseExistringMetrics) {
+			for (size_t i = 0; i < Job->cubeWorlds.size(); ++i) {
+				Job->cubeWorlds[i] = volumeToWorld * Job->cubeWorlds[i];
+			}
+		} else {
+			Job->cubeWorlds.resize(Job->stCubeWorlds.size());
+			for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
+				Job->cubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
+			}
+		}
+
+		// Axis C points.
+		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
+			Job->axisCPoints[i] = volumeToWorld * vec4(Job->axisCPoints[i], 1.0f);
+		}
+
+		// Axis A points.
+		for (size_t i = 0; i < Job->axisAPoints.size(); ++i) {
+			Job->axisAPoints[i] = volumeToWorld * vec4(Job->axisAPoints[i], 1.0f);
+		}
+
+		Job->axisC.origin = volumeToWorld * vec4(Job->axisC.origin, 1.0f);
+		Job->axisC.direction = volumeToWorld * vec4(Job->axisC.direction, 0.0f);
+
+		if (Job->axisC.direction.y < 0.0f) {
+			Job->axisC.direction = -Job->axisC.direction;
+		}
+
+		//	std::cout << "Axis A - Origin: " << GetStr(Job->axisA.origin) << " Dir: " << GetStr(Job->axisA.direction) << "\n";
+
+		Job->axisA.origin = volumeToWorld * vec4(Job->axisA.origin, 1.0f);
+		Job->axisA.direction = volumeToWorld * vec4(-Job->axisA.direction, 0.0f);
+
+		if (Job->axisA.direction.x > 0.0f) {
+			Job->axisA.direction = -Job->axisA.direction;
+		}
 	}
 }
 
@@ -913,11 +1015,13 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		distAvgZ = distAccum / (double)distAccumCount;
 	}
 
-	Job->stepsToCm = vec3(distAvgX, distAvgY, distAvgZ);
-
 	std::cout << "Dist avg X: " << distAvgX << "\n";
 	std::cout << "Dist avg Y: " << distAvgY << "\n";
 	std::cout << "Dist avg Z: " << distAvgZ << "\n";
+
+	//Job->stepsToCm = vec3(distAvgX, distAvgY, distAvgZ);
+	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
+	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
 
 	//----------------------------------------------------------------------------------------------------
 	// Find basis directions.
@@ -984,10 +1088,6 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->axisY = computerVisionFitLine(Job->stBasisYPoints);
 	Job->axisZ = computerVisionFitLine(Job->stBasisZPoints);
 
-	Job->basisX = Job->axisX.direction;
-	Job->basisY = glm::normalize(glm::cross(Job->basisX, Job->axisZ.direction));
-	Job->basisZ = glm::normalize(glm::cross(Job->basisX, Job->basisY));
-
 	//----------------------------------------------------------------------------------------------------
 	// Gather rotary axis samples.
 	//----------------------------------------------------------------------------------------------------
@@ -1045,27 +1145,15 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	//----------------------------------------------------------------------------------------------------
 	// Calculate calib volume to world basis.
 	//----------------------------------------------------------------------------------------------------
-	mat4 worldToVolume = glm::identity<mat4>();
-
-	worldToVolume[0] = vec4(Job->basisX, 0.0f);
-	worldToVolume[1] = vec4(Job->basisY, 0.0f);
-	worldToVolume[2] = vec4(Job->basisZ, 0.0f);
-
-	mat4 volumeRealign = glm::rotate(mat4(1.0f), glm::radians(90.0f), Job->basisX);
-	worldToVolume = volumeRealign * worldToVolume;
-
-	// Volume center point is at 0,0,0.
-	// Use sample 0 as basis for location.
-	// TODO: Calculate better calib cube center.
-
-	glm::f64vec3 samp0;
+	// Find zero sample. (Phase 0).
+	mat4 samp0;
 	bool foundSample0 = false;
 
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
 		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
 
 		if (sample->phase == 0) {
-			samp0 = glm::f64vec3(sample->X, sample->Y, sample->Z);
+			samp0 = Job->stCubeWorlds[sampleIter];
 			foundSample0 = true;
 			std::cout << "Zero sample: " << sampleIter << "\n";
 			break;
@@ -1077,95 +1165,84 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		return;
 	}
 
-	samp0 *= Job->stepsToCm;
-	std::cout << "Samp0: " << samp0.x << ", " << samp0.y << ", " << samp0.z << "\n";
-	//samp0 -= vec3(-2.0, 0.9, 0.9);
-	samp0 = (float)samp0.x * Job->axisX.direction + (float)samp0.y * Job->axisY.direction + -(float)samp0.z * Job->axisZ.direction;
+	calibRealignWorldVolume(Job, samp0, false);
+	
+	Job->metricsCalculated = true;
 
-	// TOOD: This always refers to the 0th sample?
-	vec3 volPos = Job->stCubeWorlds[0][3];
-	//volPos -= samp0;
-	std::cout << "Offset from center: " << volPos.x << ", " << volPos.y << ", " << volPos.z << "\n";
+	//std::cout << "Zero cube world: " << GetStr(&Job->cubeWorlds[0]) << "\n";
+}
 
-	volumeRealign = glm::translate(mat4(1.0f), volPos);
-	worldToVolume = volumeRealign * worldToVolume;
+double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
+	int hawkId = 0;
 
-	mat4 volumeToWorld = glm::inverse(worldToVolume);
+	std::vector<cv::Point3f> projPoints;
 
-	//----------------------------------------------------------------------------------------------------
-	// Transform all volume elements into world space.
-	//----------------------------------------------------------------------------------------------------
-	{
-		// Axis directions.
-		Job->axisX.direction = glm::normalize(volumeToWorld * vec4(Job->axisX.direction, 0.0f));
-		Job->axisY.direction = glm::normalize(volumeToWorld * vec4(Job->axisY.direction, 0.0f));
-		Job->axisZ.direction = glm::normalize(volumeToWorld * vec4(Job->axisZ.direction, 0.0f));
+	Job->projObs.clear();
+	Job->projReproj.clear();
+	Job->projError.clear();
+	
+	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
+	//for (size_t sampleIter = 0; sampleIter < Job->stPoseToSampleIds.size(); ++sampleIter) {
+		//ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[sampleIter]];
+		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
 
-		for (size_t i = 0; i < Job->stBasisXPoints.size(); ++i) {
-			Job->stBasisXPoints[i] = volumeToWorld * vec4(Job->stBasisXPoints[i], 0.0f);
-		}
-
-		for (size_t i = 0; i < Job->stBasisYPoints.size(); ++i) {
-			Job->stBasisYPoints[i] = volumeToWorld * vec4(Job->stBasisYPoints[i], 0.0f);
-		}
-
-		for (size_t i = 0; i < Job->stBasisZPoints.size(); ++i) {
-			Job->stBasisZPoints[i] = volumeToWorld * vec4(Job->stBasisZPoints[i], 0.0f);
-		}
-
-		// Center point.
-		Job->stVolumeCenter = volumeToWorld * vec4(volPos, 1.0);
-
-		// Mass model.
-		/*for (size_t i = 0; i < Job->massModelBundleAdjustPointIds.size(); ++i) {
-			vec3 point = Job->massModelTriangulatedPointsBundleAdjust[i];
-			point = volumeToWorld * vec4(point, 1.0f);
-			Job->massModelTriangulatedPointsBundleAdjust[i] = point;
+		/*if (sample->phase != 3) {
+			continue;
 		}*/
 
-		// Cameras to world space.
-		Job->camVolumeMat[0] = volumeToWorld * Job->stStereoCamWorld[0];
-		Job->camVolumeMat[1] = volumeToWorld * Job->stStereoCamWorld[1];
+		ldiHorsePosition pos = {};
+		pos.x = sample->X;
+		pos.y = sample->Y;
+		pos.z = sample->Z;
+		pos.a = sample->A;
+		pos.c = sample->C;
 
-		// Normalize scale.
-		Job->camVolumeMat[0][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][0])), 0.0f);
-		Job->camVolumeMat[0][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][1])), 0.0f);
-		Job->camVolumeMat[0][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][2])), 0.0f);
+		std::vector<vec3> points;
+		horseGetProjectionCubePoints(Job, pos, points);
 
-		Job->camVolumeMat[1][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][0])), 0.0f);
-		Job->camVolumeMat[1][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][1])), 0.0f);
-		Job->camVolumeMat[1][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][2])), 0.0f);
+		std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkId].boards;
+		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
+			ldiCharucoBoard* board = &(*boards)[boardIter];
 
-		// Cube poses.
-		Job->cubeWorlds.resize(Job->stCubeWorlds.size());
-		for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
-			Job->cubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
+			for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
+				ldiCharucoCorner* corner = &board->corners[cornerIter];
+				int cornerGlobalId = (board->id * 9) + corner->id;
+				
+				Job->projObs.push_back(corner->position);
+				projPoints.push_back(toPoint3f(points[cornerGlobalId]));
+			}
 		}
-
-		// Axis C points.
-		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
-			Job->axisCPoints[i] = volumeToWorld * vec4(Job->axisCPoints[i], 1.0f);
-		}
-
-		// Axis A points.
-		for (size_t i = 0; i < Job->axisAPoints.size(); ++i) {
-			Job->axisAPoints[i] = volumeToWorld * vec4(Job->axisAPoints[i], 1.0f);
-		}
-
-		// This axis always points negative on X.
-		/*if (fitC.direction.x > 0.0f) {
-			circle.normal = -circle.normal;
-		}*/
-
-		Job->axisC.origin = volumeToWorld * vec4(Job->axisC.origin, 1.0f);
-		Job->axisC.direction = volumeToWorld * vec4(-Job->axisC.direction, 0.0f);
-		//	std::cout << "Axis A - Origin: " << GetStr(Job->axisA.origin) << " Dir: " << GetStr(Job->axisA.direction) << "\n";
-
-		Job->axisA.origin = volumeToWorld * vec4(Job->axisA.origin, 1.0f);
-		Job->axisA.direction = volumeToWorld * vec4(-Job->axisA.direction, 0.0f);
 	}
 
-	Job->metricsCalculated = true;
+	mat4 camMat = glm::inverse(Job->camVolumeMat[0]);
+	cv::Mat rtMat = convertTransformToRT(convertGlmTransMatToOpenCvMat(camMat));
+	
+	cv::Mat r = cv::Mat::zeros(1, 3, CV_64F);
+	r.at<double>(0) = rtMat.at<double>(0);
+	r.at<double>(1) = rtMat.at<double>(1);
+	r.at<double>(2) = rtMat.at<double>(2);
+
+	cv::Mat t = cv::Mat::zeros(1, 3, CV_64F);
+	t.at<double>(0) = rtMat.at<double>(3);
+	t.at<double>(1) = rtMat.at<double>(4);
+	t.at<double>(2) = rtMat.at<double>(5);
+
+	cv::projectPoints(projPoints, r, t, Job->refinedCamMat[0], Job->refinedCamDist[0], Job->projReproj);
+
+	double meanError = 0.0;
+	
+	for (size_t i = 0; i < Job->projObs.size(); ++i) {
+		double err = glm::length(Job->projObs[i] - toVec2(Job->projReproj[i]));
+		meanError += err * err;
+		Job->projError.push_back(err);
+	}
+
+	meanError /= (double)Job->projObs.size();
+	meanError = sqrt(meanError);
+
+	std::cout << "Reprojection RMSE: " << meanError << "\n";
+
+	return meanError;
 }
 
 // Takes stereo image sample files and generates scanner calibration.
@@ -1695,6 +1772,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	//----------------------------------------------------------------------------------------------------
 	ldiCalibCube initialCube;
 	calibCubeInit(&initialCube);
+	//calibCubeTransform(&initialCube, glm::rotate(mat4(1.0f), glm::radians(45.0f), vec3Up));
 	Job->opCube = initialCube;
 
 	Job->stStereoCamWorld[0] = glm::identity<mat4>();
@@ -1740,7 +1818,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 			cv::Mat t;
 
 			if (computerVisionFindGeneralPoseRT(&Job->defaultCamMat[hawkId], &Job->defaultCamDist[hawkId], &imagePoints, &worldPoints, &r, &t)) {
-				std::cout << "Find pose - Sample: " << sampleIter << "\n";
+				std::cout << "Found pose for sample " << sampleIter << "\n";
 
 				poseRT = cv::Mat::zeros(1, 6, CV_64F);
 				poseRT.at<double>(0) = r.at<double>(0);
@@ -1774,23 +1852,26 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 					viewPositions.push_back(platformPos);
 				}
 			} else {
-				std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+				//std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
 			}
 		} else {
-			std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+			//std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
 		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
 	// Get volume metrics.
 	//----------------------------------------------------------------------------------------------------
+	Job->stereoCalibrated = true;
 	calibBuildCalibVolumeMetrics(Job);
+
+	double rmse = calibGetProjectionRMSE(Job);
 
 	//----------------------------------------------------------------------------------------------------
 	// Create BA file.
 	//----------------------------------------------------------------------------------------------------
 	FILE* f;
-	fopen_s(&f, "../cache/new_ba_input.txt", "w");
+	fopen_s(&f, "../cache/ba_input.txt", "w");
 
 	if (f == 0) {
 		std::cout << "Could not open bundle adjust input file for writing\n";
@@ -1932,10 +2013,10 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 		Job->camVolumeMat[0] = worldMat;
 	}
 
-	Job->cubeWorlds[0] = glm::identity<mat4>();
+	//Job->cubeWorlds[0] = glm::identity<mat4>();
 
 	Job->stCubeWorlds.clear();
-	Job->stPoseToSampleIds.clear();
+	//Job->stPoseToSampleIds.clear();
 
 	// Axis directions.
 	Job->axisX.origin = vec3Zero;
@@ -1964,12 +2045,47 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 
 	calibCubeInit(&Job->opCube);
 	Job->opCube.points = cubePoints;
-	calibCubeCalculateMetrics(&Job->opCube);
+	//calibCubeCalculateMetrics(&Job->opCube);
 
 	fclose(f);
 
 	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
 	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
+
+	calibGetProjectionRMSE(Job);
+	calibRealignWorldVolume(Job);
+	calibGetProjectionRMSE(Job);
+}
+
+void calibOptimizeVolume(ldiCalibrationJob* Job) {
+	std::cout << "Starting stereo calibration: " << getTime() << "\n";
+
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	char args[2048];
+	sprintf_s(args, "python bundleAdjust2.py ../../bin/cache/ba_input.txt ../../bin/cache/ba_refined.txt");
+
+	CreateProcessA(
+		NULL,
+		args,
+		NULL,
+		NULL,
+		FALSE,
+		0, //CREATE_NEW_CONSOLE,
+		NULL,
+		"../../assets/bin",
+		&si,
+		&pi
+	);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	calibLoadNewBA(Job, "../cache/ba_refined.txt");
 }
 
 #include <glm/gtx/vector_angle.hpp>

@@ -145,8 +145,6 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
 	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
 
-	mat4 zeroTransform = Job->cubeWorlds[0];
-
 	// Transform points.
 	Points.resize(Job->opCube.points.size(), vec3(0.0f, 0.0f, 0.0f));
 	for (size_t i = 0; i < Job->opCube.points.size(); ++i) {
@@ -154,7 +152,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 			continue;
 		}
 
-		Points[i] = (axisCMat * zeroTransform) * vec4(Job->opCube.points[i], 1.0f);
+		Points[i] = axisCMat * vec4(Job->opCube.points[i], 1.0f);
 		Points[i] += mechTrans;
 	}
 
@@ -165,18 +163,15 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 
 		ldiPlane plane = Job->opCube.sides[i].plane;
 
-		plane.point = zeroTransform * vec4(plane.point, 1.0f);
 		plane.point = axisCMat * vec4(plane.point, 1.0f);
 		plane.point += mechTrans;
 		
-		plane.normal = glm::normalize(zeroTransform * vec4(plane.normal, 0.0f));
 		plane.normal = glm::normalize(axisCMat * vec4(plane.normal, 0.0f));
 
 		Sides[i].plane = plane;
 
 		for (int c = 0; c < 4; ++c) {
-			vec3 transCorner = zeroTransform * vec4(Job->opCube.sides[i].corners[c], 1.0f);
-			transCorner = axisCMat * vec4(transCorner, 1.0f);
+			vec3 transCorner = axisCMat * vec4(Job->opCube.sides[i].corners[c], 1.0f);
 			transCorner += mechTrans;
 
 			Sides[i].corners[c] = transCorner;
@@ -186,9 +181,37 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	// Transform corners.
 	Corners.resize(8, vec3(0.0f, 0.0f, 0.0f));
 	for (int i = 0; i < 8; ++i) {
-		Corners[i] = zeroTransform * vec4(Job->opCube.corners[i], 1.0f);
-		Corners[i] = axisCMat * vec4(Corners[i], 1.0f);
+		Corners[i] = axisCMat * vec4(Job->opCube.corners[i], 1.0f);
 		Corners[i] += mechTrans;
+	}
+}
+
+void horseGetProjectionCubePoints(ldiCalibrationJob* Job, ldiHorsePosition Position, std::vector<vec3>& Points) {
+	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
+	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
+
+	vec3 refToAxisC = Job->axisC.origin;
+	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
+	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
+	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
+	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
+
+	vec3 refToAxisA = Job->axisA.origin;
+	float axisAAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
+	mat4 axisARot = glm::rotate(mat4(1.0f), glm::radians(axisAAngleDeg), Job->axisA.direction);
+	mat4 axisAMat = axisARot * glm::translate(mat4(1.0), -refToAxisA);
+	axisAMat = glm::translate(mat4(1.0), refToAxisA) * axisAMat;
+
+	// Transform points.
+	Points.resize(Job->opCube.points.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < Job->opCube.points.size(); ++i) {
+		if (i >= 18 && i <= 26) {
+			continue;
+		}
+
+		Points[i] = axisCMat * vec4(Job->opCube.points[i], 1.0f);
+		Points[i] = axisAMat * vec4(Points[i], 1.0f);
+		Points[i] += mechTrans;
 	}
 }
 

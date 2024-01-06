@@ -284,8 +284,7 @@ for i in range(len(sys.argv)):
 
 show_debug_plots = True
 
-# read_input(sys.argv[1])
-cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d = read_input("new_ba_input.txt")
+cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d = read_input(sys.argv[1])
 
 cam_mat_0 = cam_intrins[0]
 cam_dist_0 = cam_intrins[1]
@@ -438,8 +437,7 @@ if show_debug_plots:
 #------------------------------------------------------------------------------------------------------------------------
 # Save results.
 #------------------------------------------------------------------------------------------------------------------------
-# with open(sys.argv[2], "w") as file:
-with open("new_ba_output.txt", "w") as file:
+with open(sys.argv[2], "w") as file:
 	file.write("{}\n".format( n_points))
 
 	# Camera intrinsics

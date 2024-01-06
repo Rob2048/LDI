@@ -101,8 +101,6 @@ struct ldiCalibrationJob {
 	std::vector<vec3> stBasisYPoints;
 	std::vector<vec3> stBasisZPoints;
 
-	vec3 stVolumeCenter;
-
 	ldiLine axisX;
 	ldiLine axisY;
 	ldiLine axisZ;
@@ -139,6 +137,10 @@ struct ldiCalibrationJob {
 	std::vector<std::vector<vec2>> scanPoints[2];
 	std::vector<ldiLine> scanRays[2];
 	std::vector<vec3> scanWorldPoints[2];
+
+	std::vector<vec2> projObs;
+	std::vector<cv::Point2f> projReproj;
+	std::vector<double> projError;
 };
 
 struct ldiCalibrationContext {

@@ -72,6 +72,7 @@ struct ldiImageInspector {
 	bool						showCharucoResults = false;
 	bool						showCharucoRejectedMarkers = false;
 	bool						showUndistorted = true;
+	bool						showReprojection = false;
 	float						sceneOpacity = 0.75f;
 
 	ID3D11ShaderResourceView*	hawkResourceView[2];
@@ -713,6 +714,29 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 
 			//----------------------------------------------------------------------------------------------------
+			// Draw reprojection errors.
+			//----------------------------------------------------------------------------------------------------
+			if (Tool->showReprojection) {
+				if (Tool->appContext->calibrationContext->calibJob.metricsCalculated) {
+					ldiCalibrationJob* job = &Tool->appContext->calibrationContext->calibJob;
+
+					for (size_t i = 0; i < job->projObs.size(); ++i) {
+						ImVec2 uiPos = screenStartPos + (imgOffset + toImVec2(job->projObs[i])) * imgScale;
+						draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(0, 0, 255));
+					}
+
+					for (size_t i = 0; i < job->projReproj.size(); ++i) {
+						ImVec2 uiPos = screenStartPos + (imgOffset + toImVec2(job->projReproj[i])) * imgScale;
+
+						float t = job->projError[i] * 0.5;
+
+
+						draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(lerp(0, 1, t), 0.0f, 0.0f));
+					}
+				}
+			}
+
+			//----------------------------------------------------------------------------------------------------
 			// Draw scan line results.
 			//----------------------------------------------------------------------------------------------------
 			{
@@ -872,34 +896,41 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		ImGui::Separator();
+		ImGui::Text("Volume");
 
-		if (ImGui::Button("Find initial observations")) {
+		if (ImGui::Button("Initial observations")) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 
 			calibFindInitialObservations(job, Tool->appContext->platform->hawks);
 		}
 
-		if (ImGui::Button("New calibration")) {
+		if (ImGui::Button("Initial estimations")) {
 			calibGetInitialEstimations(job, Tool->appContext->platform->hawks);
 		}
 
-		if (ImGui::Button("Load new calibration")) {
-			calibLoadNewBA(job, "../cache/new_ba_output.txt");
+		if (ImGui::Button("Optimize")) {
+			calibOptimizeVolume(job);
 		}
 
-		if (ImGui::Button("Calibrate stereo")) {
+		/*if (ImGui::Button("Calibrate stereo")) {
 			calibStereoCalibrate(job);
 		}
 
 		if (ImGui::Button("Calibrate metrics")) {
 			calibBuildCalibVolumeMetrics(job);
-		}
+		}*/
+
+		ImGui::Separator();
+		ImGui::Text("Scanner");
 
 		if (ImGui::Button("Calibrate scanner")) {
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 			calibCalibrateScanner(job);
 		}
+
+		ImGui::Separator();
+		ImGui::Text("Galvo");
 
 		if (ImGui::Button("Calibrate galvo")) {
 		}
@@ -1038,6 +1069,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			if (ImGui::Checkbox("Show undistorted", &Tool->showUndistorted)) {
 				_imageInspectorSelectCalibJob(Tool, Tool->calibJobSelectedSampleId, Tool->calibJobSelectedSampleType);
 			}
+
+			ImGui::Checkbox("Show reprojection", &Tool->showReprojection);
 
 			ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
 

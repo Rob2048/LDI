@@ -23,10 +23,6 @@ vec3 vmax(vec3 A, vec3 B) {
 	return result;
 }
 
-float lerp(float A, float B, float T) {
-	return A + (B - A) * T;
-}
-
 struct ldiDisplacementPlane {
 	ldiModel model;
 	ldiRenderModel renderModel;

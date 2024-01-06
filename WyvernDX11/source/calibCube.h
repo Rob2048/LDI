@@ -233,3 +233,11 @@ void calibCubeInit(ldiCalibCube* Cube) {
 
 	calibCubeCalculateMetrics(Cube);
 }
+
+void calibCubeTransform(ldiCalibCube* Cube, mat4 Trans) {
+	for (size_t i = 0; i < Cube->points.size(); ++i) {
+		Cube->points[i] = Trans * vec4(Cube->points[i], 1.0);
+	}
+
+	calibCubeCalculateMetrics(Cube);
+}

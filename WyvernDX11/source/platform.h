@@ -1174,6 +1174,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		pushDebugLine(&appContext->defaultDebug, vec3(0, 0, i * gridCellWidth) - gridHalfOffset, vec3(gridCount * gridCellWidth, 0, i * gridCellWidth) - gridHalfOffset, gridColor);
 	}
 
+	pushDebugLine(&appContext->defaultDebug, vec3(0, -10, 0), vec3(0, 10, 0), gridColor);
+
 	//----------------------------------------------------------------------------------------------------
 	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
@@ -1329,8 +1331,6 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
 					}
 				}
-
-				pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
 			}
 
 			//----------------------------------------------------------------------------------------------------
@@ -1404,7 +1404,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					for (size_t i = 0; i < job->axisCPoints.size(); ++i) {
 						vec3 point = job->axisCPoints[i];
 
-						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
+						pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(0, 0, 1), 8);
 					}
 
 					pushDebugSphere(&appContext->defaultDebug, job->axisC.origin, 0.1, vec3(1, 0, 1), 32);
@@ -1556,30 +1556,6 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				gfxRenderModel(appContext, &Tool->cubeModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
 			}
 		}
-
-		//----------------------------------------------------------------------------------------------------
-		// New bundle adjust test.
-		//----------------------------------------------------------------------------------------------------
-		//for (size_t poseIter = 0; poseIter < job->nbCubePoses.size(); ++poseIter) {
-
-		//	//pushDebugSphere(&appContext->defaultDebug, point, 0.005, vec3(1, 0, 0), 8);
-
-		//	std::vector<vec3>* modelPoints = &Tool->defaultCube.points;
-		//	srand(poseIter);
-		//	rand();
-		//	vec3 col = getRandomColorHighSaturation();
-
-		//	for (size_t i = 0; i < modelPoints->size(); ++i) {
-		//		mat4 world = job->nbCubePoses[poseIter];
-		//		//world[3] = vec4(0, 0, 0, 1.0f);
-		//		vec3 point = world * vec4((*modelPoints)[i], 1.0f);
-
-		//		pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
-		//		//displayTextAtPoint(Camera, point, std::to_string(i), vec4(1, 1, 1, 0.5), TextBuffer);
-		//	}
-
-		//	//pushDebugSphere(&appContext->defaultDebug, job->stVolumeCenter, 0.1, vec3(1, 1, 1), 8);
-		//}
 	}
 
 	//----------------------------------------------------------------------------------------------------
