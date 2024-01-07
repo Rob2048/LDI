@@ -38,15 +38,6 @@ struct ldiCharucoResults {
 	std::vector<ldiCharucoBoard> rejectedBoards;
 };
 
-struct ldiCalibSample {
-	float x;
-	float y;
-	float z;
-	float a;
-	float b;
-	ldiCharucoResults charucos;
-};
-
 struct ldiCameraCalibSample {
 	ldiImage* image;
 	std::vector<cv::Point3f> worldPoints;
@@ -57,6 +48,19 @@ struct ldiCameraCalibSample {
 	mat4 simTargetCamLocalMat;
 	cv::Mat rvec;
 	cv::Mat tvec;
+};
+
+struct ldiCalibSample {
+	std::string path;
+	int phase;
+	int X;
+	int Y;
+	int Z;
+	int C;
+	int A;
+	bool imageLoaded = false;
+	ldiImage frame;
+	ldiCharucoResults cube;
 };
 
 struct ldiCalibStereoSample {
@@ -767,16 +771,16 @@ void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCal
 	std::vector<ldiSampleTracker> boardMap;
 
 	for (size_t sampleIter = 0; sampleIter < Samples->size(); ++sampleIter) {
-		for (size_t boardIter = 0; boardIter < (*Samples)[sampleIter].charucos.boards.size(); ++boardIter) {
-			if ((*Samples)[sampleIter].charucos.boards[boardIter].corners.size() < 6) {
+		for (size_t boardIter = 0; boardIter < (*Samples)[sampleIter].cube.boards.size(); ++boardIter) {
+			if ((*Samples)[sampleIter].cube.boards[boardIter].corners.size() < 6) {
 				continue;
 			}
 
 			std::vector<int> cornerIds;
 			std::vector<cv::Point2f> cornerPositions;
 
-			for (size_t cornerIter = 0; cornerIter < (*Samples)[sampleIter].charucos.boards[boardIter].corners.size(); ++cornerIter) {
-				ldiCharucoCorner corner = (*Samples)[sampleIter].charucos.boards[boardIter].corners[cornerIter];
+			for (size_t cornerIter = 0; cornerIter < (*Samples)[sampleIter].cube.boards[boardIter].corners.size(); ++cornerIter) {
+				ldiCharucoCorner corner = (*Samples)[sampleIter].cube.boards[boardIter].corners[cornerIter];
 
 				cornerIds.push_back(corner.id);
 				cornerPositions.push_back(cv::Point2f(corner.position.x, corner.position.y));
@@ -871,8 +875,8 @@ void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCal
 		rotMat[2][2] = -cvRotMat.at<double>(2, 2);
 
 		mat4 transMat = glm::translate(mat4(1.0f), vec3(tvecs[i].at<double>(0), -tvecs[i].at<double>(1), -tvecs[i].at<double>(2)));
-		(*Samples)[boardMap[i].sampleId].charucos.boards[boardMap[i].boardId].camLocalMat = transMat * rotMat;
-		(*Samples)[boardMap[i].sampleId].charucos.boards[boardMap[i].boardId].localMat = true;
+		(*Samples)[boardMap[i].sampleId].cube.boards[boardMap[i].boardId].camLocalMat = transMat * rotMat;
+		(*Samples)[boardMap[i].sampleId].cube.boards[boardMap[i].boardId].localMat = true;
 	}
 }
 

@@ -19,6 +19,27 @@
 
 // NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
 
+void calibSaveCalibImage(ldiImage* Image, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib") {
+	char path[1024];
+	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
+
+	FILE* file;
+	fopen_s(&file, path, "wb");
+
+	fwrite(&Phase, sizeof(int), 1, file);
+	fwrite(&X, sizeof(int), 1, file);
+	fwrite(&Y, sizeof(int), 1, file);
+	fwrite(&Z, sizeof(int), 1, file);
+	fwrite(&C, sizeof(int), 1, file);
+	fwrite(&A, sizeof(int), 1, file);
+
+	fwrite(&Image->width, sizeof(int), 1, file);
+	fwrite(&Image->height, sizeof(int), 1, file);
+	fwrite(Image->data, 1, Image->width * Image->height, file);
+
+	fclose(file);
+}
+
 void calibSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib_space") {
 	char path[1024];
 	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
@@ -484,6 +505,18 @@ void calibSaveCalibJob(ldiCalibrationJob* Job) {
 	}
 
 	fclose(file);
+}
+
+void calibSplitStereoSamplesJob(ldiCalibrationJob* Job) {
+	for (int sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
+		ldiCalibStereoSample& sample = Job->samples[sampleIter];
+		std::cout << sample.path << "\n";
+
+		calibLoadStereoSampleImages(&sample);
+		calibSaveCalibImage(&sample.frames[0], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_0");
+		calibSaveCalibImage(&sample.frames[1], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_1");
+		calibFreeStereoCalibImages(&sample);
+	}
 }
 
 // Loads entire state of the calibration job.

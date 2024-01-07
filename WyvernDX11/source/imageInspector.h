@@ -891,6 +891,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			calibLoadCalibJob(job);
 		}
 
+		if (ImGui::Button("Split stereo samples")) {
+			calibSplitStereoSamplesJob(job);
+		}
+
 		if (ImGui::Button("Save job")) {
 			calibSaveCalibJob(job);
 		}
