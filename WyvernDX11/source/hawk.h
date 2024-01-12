@@ -31,8 +31,8 @@ struct ldiHawk {
 	int							uiShutterSpeed;
 	int							uiAnalogGain;
 
-	cv::Mat						defaultCameraMat;
-	cv::Mat						defaultDistMat;
+	//cv::Mat						defaultCameraMat;
+	//cv::Mat						defaultDistMat;
 
 	// Shared by threads.
 	std::thread					workerThread;

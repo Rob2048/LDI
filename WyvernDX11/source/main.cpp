@@ -871,8 +871,6 @@ int main() {
 	//			- path plan data (final surfels & tool path)
 	//			- print progress
 
-	calibTest();
-
 	std::cout << "Starting WyvernDX11\n";
 	ldiApp* appContext = &_appContext;
 	_initTiming();

@@ -361,6 +361,15 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int
 			calibImg.data = outputImage.data;
 			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[i], calibImg);
 		} else {
+			cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
+			cv::Mat downscaleImage;
+			cv::Mat upscaleImage;
+
+			// TODO: Remove me.
+			cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+			cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+
+			calibImg.data = upscaleImage.data;
 			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[i], calibImg);
 		}
 	}
@@ -888,15 +897,28 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 
-			calibLoadCalibJob(job);
+			std::string filePath;
+			if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Calibration file", L"*.cal")) {
+				calibLoadCalibJob(filePath, job);
+			}
 		}
+
+		if (ImGui::Button("Save job")) {
+			std::string filePath;
+			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Calibration file", L"*.cal", L"cal")) {
+				calibSaveCalibJob(filePath, job);
+			}
+		}
+
+		ImGui::Separator();
+		ImGui::Text("Tools");
 
 		if (ImGui::Button("Split stereo samples")) {
 			calibSplitStereoSamplesJob(job);
 		}
 
-		if (ImGui::Button("Save job")) {
-			calibSaveCalibJob(job);
+		if (ImGui::Button("Compare calibrations")) {
+			calibCompareVolumeCalibrations("../cache/volume_calib_new_ba.dat", "../cache/volume_calib_quarter_new_ba.dat");
 		}
 
 		ImGui::Separator();
@@ -906,7 +928,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 
-			calibFindInitialObservations(job, Tool->appContext->platform->hawks);
+			std::string directoryPath;
+			if (showOpenDirectoryDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, directoryPath)) {
+				std::cout << "Selected captures folder: " << directoryPath << "\n";
+				calibFindInitialObservations(job, Tool->appContext->platform->hawks, directoryPath);
+			}
 		}
 
 		if (ImGui::Button("Initial estimations")) {
@@ -917,13 +943,13 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			calibOptimizeVolume(job);
 		}
 
-		/*if (ImGui::Button("Calibrate stereo")) {
+		if (ImGui::Button("Calibrate stereo")) {
 			calibStereoCalibrate(job);
 		}
 
 		if (ImGui::Button("Calibrate metrics")) {
 			calibBuildCalibVolumeMetrics(job);
-		}*/
+		}
 
 		ImGui::Separator();
 		ImGui::Text("Scanner");

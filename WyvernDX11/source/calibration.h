@@ -369,12 +369,9 @@ void deserializeCalibCube(FILE* File, ldiCalibCube* Cube) {
 }
 
 // Save the entire current state of the calibration job.
-void calibSaveCalibJob(ldiCalibrationJob* Job) {
-	char path[1024];
-	sprintf_s(path, "../cache/volume_calib.dat");
-
+void calibSaveCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
 	FILE* file;
-	fopen_s(&file, path, "wb");
+	fopen_s(&file, FilePath.c_str(), "wb");
 
 	serializeVectorPrep(file, Job->samples);
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
@@ -520,14 +517,16 @@ void calibSplitStereoSamplesJob(ldiCalibrationJob* Job) {
 }
 
 // Loads entire state of the calibration job.
-void calibLoadCalibJob(ldiCalibrationJob* Job) {
+bool calibLoadCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
 	calibClearJob(Job);
 
-	char path[1024];
-	sprintf_s(path, "../cache/volume_calib.dat");
-
 	FILE* file;
-	fopen_s(&file, path, "rb");
+	fopen_s(&file, FilePath.c_str(), "rb");
+
+	if (file == 0) {
+		std::cout << "Could not open job file: " << FilePath << "\n";
+		return false;
+	}
 
 	size_t sampleCount = deserializeVectorPrep(file);
 	for (size_t sampleIter = 0; sampleIter < sampleCount; ++sampleIter) {
@@ -664,23 +663,36 @@ void calibLoadCalibJob(ldiCalibrationJob* Job) {
 	}
 
 	fclose(file);
-
-	/*std::cout << "X origin: " << GetStr(Job->axisX.origin) << "\n";
-	std::cout << "Y origin: " << GetStr(Job->axisY.origin) << "\n";
-	std::cout << "Z origin: " << GetStr(Job->axisZ.origin) << "\n";
-
-	std::cout << "vec3 aX(" << Job->axisX.direction.x << ", " << Job->axisX.direction.y << ", " << Job->axisX.direction.z << ");\n";
-	std::cout << "vec3 aY(" << Job->axisY.direction.x << ", " << Job->axisY.direction.y << ", " << Job->axisY.direction.z << ");\n";
-	std::cout << "vec3 aZ(" << Job->axisZ.direction.x << ", " << Job->axisZ.direction.y << ", " << Job->axisZ.direction.z << ");\n";
-	std::cout << "vec3 aA(" << Job->axisA.direction.x << ", " << Job->axisA.direction.y << ", " << Job->axisA.direction.z << ");\n";
-	std::cout << "vec3 aC(" << Job->axisC.direction.x << ", " << Job->axisC.direction.y << ", " << Job->axisC.direction.z << ");\n";*/
 }
 
 // Takes stereo image sample files and generates the initial calibration samples for a job.
-void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
+void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks, const std::string& DirectoryPath) {
 	calibClearJob(Job);
 
-	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/volume_calib_space/");
+	// TODO: Maybe reset defaul mats somewhere else?
+	Job->defaultCamMat = cv::Mat::eye(3, 3, CV_64F);
+	cv::Mat* dc = &Job->defaultCamMat;
+	dc->at<double>(0, 0) = 2666.92;
+	dc->at<double>(0, 1) = 0.0;
+	dc->at<double>(0, 2) = 1704.76;
+	dc->at<double>(1, 0) = 0.0;
+	dc->at<double>(1, 1) = 2683.62;
+	dc->at<double>(1, 2) = 1294.87;
+	dc->at<double>(2, 0) = 0.0;
+	dc->at<double>(2, 1) = 0.0;
+	dc->at<double>(2, 2) = 1.0;
+
+	Job->defaultCamDist = cv::Mat::zeros(8, 1, CV_64F);
+	cv::Mat* dd = &Job->defaultCamDist;
+	dd->at<double>(0) = 0.1937769949436188;
+	dd->at<double>(1) = -0.3512980043888092;
+	dd->at<double>(2) = 0.002319999970495701;
+	dd->at<double>(3) = 0.00217368989251554;
+
+	Job->refinedCamMat[i] = Job->defaultCamMat[i].clone();
+	Job->refinedCamDist[i] = Job->defaultCamDist[i].clone();
+
+	std::vector<std::string> filePaths = listAllFilesInDirectory(DirectoryPath);
 
 	for (int i = 0; i < filePaths.size(); ++i) {
 		if (endsWith(filePaths[i], ".dat")) {
@@ -689,9 +701,9 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 
 			calibLoadStereoCalibSampleData(&sample);
 
-			for (int j = 0; j < 2; ++j) {
-				computerVisionFindCharuco(sample.frames[j], &sample.cubes[j], &Hawks[j].defaultCameraMat, &Hawks[j].defaultDistMat);
-			}
+			int hawkId = 0;
+
+			computerVisionFindCharuco(sample.frames[hawkId], &sample.cubes[hawkId], &Hawks[hawkId].defaultCameraMat, &Hawks[hawkId].defaultDistMat);
 
 			calibFreeStereoCalibImages(&sample);
 
@@ -2123,53 +2135,28 @@ void calibOptimizeVolume(ldiCalibrationJob* Job) {
 
 #include <glm/gtx/vector_angle.hpp>
 
-void calibTest() {
-	// Cam 0 optimized.
-	/*vec3 aX(0.9999172231542078, -0.006956585327668478, 0.010823712863752062);
-	vec3 aY(0.010254486657883475, 0.008653697554777377, -0.9999099754587979);
-	vec3 aZ(-0.001146858830737094, -0.999990751968776, -0.004144959800092799);
-	vec3 aA(-0.999915303602044, 0.008972020506332605, -0.009428068225579515);
-	vec3 aC(0.006538034667554949, 0.9999666793558388, 0.004888177650481211);*/
+void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::string& CalibPathB) {
+	ldiCalibrationJob jobA;
+	if (!calibLoadCalibJob(CalibPathA, &jobA)) {
+		return;
+	}
 
-	// Cam 1 optimized.
-	vec3 bX(0.9999318246554393, -0.011023814293633704, -0.0038498778764146577);
-	vec3 bY(-0.0029771883805203504, 2.9958903657382203e-05, -0.999995567716083);
-	vec3 bZ(-0.005380157007541861, -0.999971452806095, 0.005305420194662584);
-	vec3 bA(-0.9999060795891611, 0.01262906175419599, 0.005323419938635078);
-	vec3 bC(0.011120931526764891, 0.9999310973091539, -0.003758392753364999);
+	ldiCalibrationJob jobB;
+	if (calibLoadCalibJob(CalibPathB, &jobB)) {
+		return;
+	}
 
-	// Stereo cam optimized.
-	vec3 aX(1, 2.98023e-08, -1.49012e-08);
-	vec3 aY(-0.00131951, 0.00377743, -0.999992);
-	vec3 aZ(0.0044288, -0.99999, 1.49012e-08);
-	vec3 aA(-0.999994, 0.0027594, 0.0022866);
-	vec3 aC(0.000342041, 1, 0.000637263);
-
-	// Cam 0 unoptimized.
-	/*vec3 aX(1.000000, 0.000000, -0.000000);
-	vec3 aY(0.015481, 0.021631, -0.999646);
-	vec3 aZ(-0.011413, - 0.999935, 0.000000);
-	vec3 aA(-0.999893, 0.012537, -0.007526);
-	vec3 aC(0.009180, 0.999935, -0.006715);*/
-
-	// Cam 1 unoptimized.
-	/*vec3 bX(1.000000, 0.000000, 0.000000);
-	vec3 bY(-0.005044, -0.003928, -0.999980);
-	vec3 bZ(-0.009327, -0.999957, 0.000000);
-	vec3 bA(-0.999992, 0.002116, 0.003421);
-	vec3 bC(0.002039, 0.999898, -0.014153);*/
-
-	float aXY = glm::degrees(glm::angle(aX, aY));
-	float aXZ = glm::degrees(glm::angle(aX, aZ));
-	float aYZ = glm::degrees(glm::angle(aY, aZ));
-	float aXA = glm::degrees(glm::angle(aX, aA));
-	float aXC = glm::degrees(glm::angle(aX, aC));
+	float aXY = glm::degrees(glm::angle(jobA.axisX.direction, jobA.axisY.direction));
+	float aXZ = glm::degrees(glm::angle(jobA.axisX.direction, jobA.axisZ.direction));
+	float aYZ = glm::degrees(glm::angle(jobA.axisY.direction, jobA.axisZ.direction));
+	float aXA = glm::degrees(glm::angle(jobA.axisX.direction, jobA.axisA.direction));
+	float aXC = glm::degrees(glm::angle(jobA.axisX.direction, jobA.axisC.direction));
 	
-	float bXY = glm::degrees(glm::angle(bX, bY));
-	float bXZ = glm::degrees(glm::angle(bX, bZ));
-	float bYZ = glm::degrees(glm::angle(bY, bZ));
-	float bXA = glm::degrees(glm::angle(bX, bA));
-	float bXC = glm::degrees(glm::angle(bX, bC));
+	float bXY = glm::degrees(glm::angle(jobB.axisX.direction, jobB.axisY.direction));
+	float bXZ = glm::degrees(glm::angle(jobB.axisX.direction, jobB.axisZ.direction));
+	float bYZ = glm::degrees(glm::angle(jobB.axisY.direction, jobB.axisZ.direction));
+	float bXA = glm::degrees(glm::angle(jobB.axisX.direction, jobB.axisA.direction));
+	float bXC = glm::degrees(glm::angle(jobB.axisX.direction, jobB.axisC.direction));
 
 	float errorXY = aXY - bXY;
 	float errorXZ = aXZ - bXZ;
@@ -2183,6 +2170,8 @@ void calibTest() {
 	std::cout << "Angle YZ: " << aYZ << "\n";
 	std::cout << "Angle XA: " << aXA << "\n";
 	std::cout << "Angle XC: " << aXC << "\n";
+	std::cout << "Cam mat: " << jobA.refinedCamMat[0] << "\n";
+	std::cout << "Cam dist: " << jobA.refinedCamDist[0] << "\n";
 	
 	std::cout << "Set B:\n";
 	std::cout << "Angle XY: " << bXY << "\n";
@@ -2190,11 +2179,15 @@ void calibTest() {
 	std::cout << "Angle YZ: " << bYZ << "\n";
 	std::cout << "Angle XA: " << bXA << "\n";
 	std::cout << "Angle XC: " << bXC << "\n";
+	std::cout << "Cam mat: " << jobB.refinedCamMat[0] << "\n";
+	std::cout << "Cam dist: " << jobB.refinedCamDist[0] << "\n";
 
 	std::cout << "Error:\n";
-	std::cout << "Error XY: " << errorXY << "\n";
-	std::cout << "Error XZ: " << errorXZ << "\n";
-	std::cout << "Error YZ: " << errorYZ << "\n";
-	std::cout << "Error XA: " << errorXA << "\n";
-	std::cout << "Error XC: " << errorXC << "\n";
+	std::cout << "Angle XY: " << errorXY << "\n";
+	std::cout << "Angle XZ: " << errorXZ << "\n";
+	std::cout << "Angle YZ: " << errorYZ << "\n";
+	std::cout << "Angle XA: " << errorXA << "\n";
+	std::cout << "Angle XC: " << errorXC << "\n";
+	std::cout << "Cam mat: " << (jobA.refinedCamMat[0] - jobB.refinedCamMat[0]) << "\n";
+	std::cout << "Cam dist: " << (jobA.refinedCamDist[0] - jobB.refinedCamDist[0]) << "\n";
 }

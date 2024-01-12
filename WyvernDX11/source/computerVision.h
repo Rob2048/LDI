@@ -569,18 +569,26 @@ void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 	int offset = 1;
 
 	try {
-		cv::Mat image(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
-		std::vector<int> markerIds;
-		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedMarkers;
+		double t0 = getTime();
+
+		cv::Mat srcImage(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
+		cv::Mat downscaleImage;
+		cv::Mat upscaleImage;
+
+		cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+		cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+
 		auto parameters = cv::aruco::DetectorParameters();
 		parameters.minMarkerPerimeterRate = 0.015;
 		// TODO: Check if this is doing anything.
 		parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
 
-		double t0 = getTime();
-		
 		cv::aruco::ArucoDetector arucoDetector(_dictionary, parameters);
-		arucoDetector.detectMarkers(image, markerCorners, markerIds, rejectedMarkers);
+
+		std::vector<int> markerIds;
+		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedMarkers;
+		arucoDetector.detectMarkers(upscaleImage, markerCorners, markerIds, rejectedMarkers);
+
 		// TODO: Use refine strategy to detect more markers.
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
@@ -623,7 +631,7 @@ void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 				std::vector<int> charucoIds;
 
 				cv::aruco::CharucoDetector charucoDetector(*(_charucoBoards[i]).get(), cv::aruco::CharucoParameters(), parameters);
-				charucoDetector.detectBoard(image, charucoCorners, charucoIds, markerCorners, markerIds);
+				charucoDetector.detectBoard(upscaleImage, charucoCorners, charucoIds, markerCorners, markerIds);
 				//std::cout << "    " << i << " Charucos: " << charucoIds.size() << "\n";
 
 				// Board is valid if it has at least one corner.

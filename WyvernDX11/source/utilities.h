@@ -221,6 +221,56 @@ bool showOpenFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath,
 	return result;
 }
 
+bool showOpenDirectoryDialog(HWND WindowHandle, const std::string& DefaultFolderPath, std::string& FilePath) {
+	bool result = false;
+
+	wchar_t defaultFolderWStr[1024];
+	convertStrToWide(DefaultFolderPath.c_str(), defaultFolderWStr);
+
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	if (SUCCEEDED(hr)) {
+		IFileOpenDialog* pFileOpen;
+		hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+
+		if (SUCCEEDED(hr)) {
+			IShellItem* pDefaultFolderItem;
+			hr = SHCreateItemFromParsingName(defaultFolderWStr, NULL, IID_IShellItem, reinterpret_cast<void**>(&pDefaultFolderItem));
+			if (SUCCEEDED(hr)) {
+				
+				pFileOpen->SetOptions(FOS_PICKFOLDERS);
+				hr = pFileOpen->SetDefaultFolder(pDefaultFolderItem);
+
+				if (SUCCEEDED(hr)) {
+					hr = pFileOpen->Show(WindowHandle);
+
+					if (SUCCEEDED(hr)) {
+						IShellItem* pItem;
+						hr = pFileOpen->GetResult(&pItem);
+						if (SUCCEEDED(hr)) {
+							PWSTR pszFilePath;
+							hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+
+							// Display the file name to the user.
+							if (SUCCEEDED(hr)) {
+								std::wstring wstr = pszFilePath;
+								FilePath = std::string(wstr.begin(), wstr.end());
+								CoTaskMemFree(pszFilePath);
+								result = true;
+							}
+							pItem->Release();
+						}
+					}
+				}
+				pDefaultFolderItem->Release();
+			}
+			pFileOpen->Release();
+		}
+		CoUninitialize();
+	}
+
+	return result;
+}
+
 bool showSaveFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath, std::string& FilePath, const LPCWSTR ExtensionInfo, const LPCWSTR ExtensionFilter, const LPCWSTR DefaultExtension) {
 	bool result = false;
 
