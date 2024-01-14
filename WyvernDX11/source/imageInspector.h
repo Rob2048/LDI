@@ -74,16 +74,18 @@ struct ldiImageInspector {
 	bool						showUndistorted = true;
 	bool						showReprojection = false;
 	float						sceneOpacity = 0.75f;
+	float						imageContrast = 1.0f;
+	float						imageBrightness = 0.0f;
 
-	ID3D11ShaderResourceView*	hawkResourceView[2];
-	ID3D11Texture2D*			hawkTex[2];
-	ldiRenderViewBuffers		hawkViewBuffer[2];
-	int							hawkViewWidth[2];
-	int							hawkViewHeight[2];
-	float						hawkImageScale[2] = { 1, 1 };
-	vec2						hawkImageOffset[2] = { vec2(0.0f, 0.0f), vec2(0.0f, 0.0f) };
-	int							hawkLastFrameId[2] = { 0, 0 };
-	uint8_t						hawkFrameBuffer[2][CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+	ID3D11ShaderResourceView*	hawkResourceView;
+	ID3D11Texture2D*			hawkTex;
+	ldiRenderViewBuffers		hawkViewBuffer;
+	int							hawkViewWidth;
+	int							hawkViewHeight;
+	float						hawkImageScale = 1;
+	vec2						hawkImageOffset = vec2(0.0f, 0.0f);
+	int							hawkLastFrameId = 0;
+	uint8_t						hawkFrameBuffer[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 	
 	bool						hawkScanProcessImage = false;
 	bool						hawkEnableGammaTest = false;
@@ -98,7 +100,7 @@ struct ldiImageInspector {
 	uint8_t						testCamFrameBuffer[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
 	float						testCamFrameBufferFilter[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
 	ID3D11Texture2D*			testhawkTex[2];
-	bool						showHeatmap = true;
+	bool						showHeatmap = false;
 	std::vector<cv::KeyPoint>	laserProfileBlobs;
 };
 
@@ -122,20 +124,25 @@ void _imageInspectorSetCamTexState(ldiImageInspector* Tool, vec4 Params) {
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
-	_imageInspectorSetCamTexState(tool, vec4(1.0f, 1.0f, 1.0f, 0));
+
+	if (tool->showHeatmap) {
+		_imageInspectorSetCamTexState(tool, vec4(tool->imageBrightness, tool->imageContrast, 0.0f, 1.0f));
+	} else {
+		_imageInspectorSetCamTexState(tool, vec4(tool->imageBrightness, tool->imageContrast, 0.0f, 0));
+	}
 }
 
-void _imageInspectorSetStateCallbackHeatmap(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
-	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
-	_imageInspectorSetCamTexState(tool, vec4(1.0f, 1.0f, 1.0f, 1.0f));
-}
-
-void _imageInspectorSetStateCallback2(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
-	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
-	ldiApp* appContext = tool->appContext;
-
-	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
-}
+//void _imageInspectorSetStateCallbackHeatmap(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+//	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
+//	_imageInspectorSetCamTexState(tool, vec4(1.0f, 0.0f, 0.0f, 1.0f));
+//}
+//
+//void _imageInspectorSetStateCallback2(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+//	ldiImageInspector* tool = (ldiImageInspector*)cmd->UserCallbackData;
+//	ldiApp* appContext = tool->appContext;
+//
+//	appContext->d3dDeviceContext->PSSetSamplers(0, 1, &appContext->defaultPointSamplerState);
+//}
 
 int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	Tool->appContext = AppContext;
@@ -189,18 +196,18 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	// Machine vision.
 	//----------------------------------------------------------------------------------------------------
-	for (int i = 0; i < 2; ++i) {
-		Tool->hawkViewWidth[i] = 3280;
-		Tool->hawkViewHeight[i] = 2464;
-		Tool->hawkImageOffset[i] = vec2(0.0f, 0.0f);
-		Tool->hawkImageScale[i] = 1.0f;
-		gfxCreateRenderView(AppContext, &Tool->hawkViewBuffer[i], Tool->hawkViewWidth[i], Tool->hawkViewHeight[i]);
+	{
+		Tool->hawkViewWidth = 3280;
+		Tool->hawkViewHeight = 2464;
+		Tool->hawkImageOffset = vec2(0.0f, 0.0f);
+		Tool->hawkImageScale = 1.0f;
+		gfxCreateRenderView(AppContext, &Tool->hawkViewBuffer, Tool->hawkViewWidth, Tool->hawkViewHeight);
 
 		// Camera texture.
 		{
 			D3D11_TEXTURE2D_DESC tex2dDesc = {};
-			tex2dDesc.Width = Tool->hawkViewWidth[i];
-			tex2dDesc.Height = Tool->hawkViewHeight[i];
+			tex2dDesc.Width = Tool->hawkViewWidth;
+			tex2dDesc.Height = Tool->hawkViewHeight;
 			tex2dDesc.MipLevels = 1;
 			tex2dDesc.ArraySize = 1;
 			tex2dDesc.Format = DXGI_FORMAT_R8_UNORM;
@@ -211,12 +218,12 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 			tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 			tex2dDesc.MiscFlags = 0;
 
-			if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->hawkTex[i]) != S_OK) {
+			if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->hawkTex) != S_OK) {
 				std::cout << "Texture failed to create\n";
 				return 1;
 			}
 
-			if (AppContext->d3dDevice->CreateShaderResourceView(Tool->hawkTex[i], NULL, &Tool->hawkResourceView[i]) != S_OK) {
+			if (AppContext->d3dDevice->CreateShaderResourceView(Tool->hawkTex, NULL, &Tool->hawkResourceView) != S_OK) {
 				std::cout << "CreateShaderResourceView failed\n";
 				return 1;
 			}
@@ -231,24 +238,24 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	return 0;
 }
 
-void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool, int HawkId) {
+void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool) {
 	ldiApp* appContext = Tool->appContext;
 
-	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer[HawkId].mainViewRtView, Tool->hawkViewBuffer[HawkId].depthStencilView);
+	appContext->d3dDeviceContext->OMSetRenderTargets(1, &Tool->hawkViewBuffer.mainViewRtView, Tool->hawkViewBuffer.depthStencilView);
 
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
 	viewport.TopLeftY = 0;
-	viewport.Width = Tool->hawkViewWidth[HawkId];
-	viewport.Height = Tool->hawkViewHeight[HawkId];
+	viewport.Width = Tool->hawkViewWidth;
+	viewport.Height = Tool->hawkViewHeight;
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 
 	appContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 	vec4 bgCol(0, 0, 0, 0);
-	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer[HawkId].mainViewRtView, (float*)&bgCol);
-	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer[HawkId].depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	appContext->d3dDeviceContext->ClearRenderTargetView(Tool->hawkViewBuffer.mainViewRtView, (float*)&bgCol);
+	appContext->d3dDeviceContext->ClearDepthStencilView(Tool->hawkViewBuffer.depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	beginDebugPrimitives(&appContext->defaultDebug);
 
@@ -284,17 +291,17 @@ void _imageInspectorRenderHawkCalibration(ldiImageInspector* Tool, int HawkId) {
 	renderDebugPrimitives(appContext, &appContext->defaultDebug);
 }
 
-void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Width, int Height, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
-	if (Tool->hawkViewWidth[HawkId] != Width || Tool->hawkViewHeight[HawkId] != Height) {
-		Tool->hawkViewWidth[HawkId] = Width;
-		Tool->hawkViewHeight[HawkId] = Height;
-		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer[HawkId], Width, Height);
+void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int Width, int Height, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
+	if (Tool->hawkViewWidth != Width || Tool->hawkViewHeight != Height) {
+		Tool->hawkViewWidth = Width;
+		Tool->hawkViewHeight = Height;
+		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer, Width, Height);
 	}
 
 	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
 	ldiCalibrationJob* job = &calibContext->calibJob;
 
-	mat4 camWorldMat = job->camVolumeMat[HawkId];
+	mat4 camWorldMat = job->camVolumeMat;
 	//mat4 camWorldMat = job->opInitialCamWorld[HawkId];
 
 	{
@@ -310,8 +317,8 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Wi
 	mat4 viewMat = cameraConvertOpenCvWorldToViewMat(camWorldMat);
 	mat4 projMat = mat4(1.0);
 
-	if (!job->refinedCamMat[HawkId].empty()) {
-		projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->refinedCamMat[HawkId], 0.01f, 100.0f);
+	if (!job->camMat.empty()) {
+		projMat = cameraCreateProjectionFromOpenCvCamera(CAM_IMG_WIDTH, CAM_IMG_HEIGHT, job->camMat, 0.01f, 100.0f);
 	}
 
 	projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
@@ -325,7 +332,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int HawkId, int Wi
 	camera.viewHeight = Height;
 
 	std::vector<ldiTextInfo> textBuffer;
-	platformRender(Tool->appContext->platform, &Tool->hawkViewBuffer[HawkId], Width, Height, &camera, &textBuffer, false);
+	platformRender(Tool->appContext->platform, &Tool->hawkViewBuffer, Width, Height, &camera, &textBuffer, false);
 }
 
 void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int SelectionType) {
@@ -337,50 +344,48 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int
 	}
 
 	ldiCalibrationJob* job = &Tool->appContext->calibrationContext->calibJob;
-	ldiCalibStereoSample* stereoSample;
+	ldiCalibSample* sample;
 
 	if (SelectionType == 0) {
-		stereoSample = &job->samples[Tool->calibJobSelectedSampleId];
+		sample = &job->samples[Tool->calibJobSelectedSampleId];
 	} else if (SelectionType == 1) {
-		stereoSample = &job->scanSamples[Tool->calibJobSelectedSampleId];
+		sample = &job->scanSamples[Tool->calibJobSelectedSampleId];
 	} else {
 		return;
 	}
 	
-	calibLoadStereoSampleImages(stereoSample);
+	calibLoadSampleImages(sample);
 
-	for (int i = 0; i < 2; ++i) {
-		ldiImage calibImg = stereoSample->frames[i];
+	ldiImage calibImg = sample->frame;
 
-		if (Tool->showUndistorted) {
-			cv::Mat image(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
-			cv::Mat outputImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1);
+	if (Tool->showUndistorted) {
+		cv::Mat image(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
+		cv::Mat outputImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1);
 
-			cv::undistort(image, outputImage, job->refinedCamMat[i], job->refinedCamDist[i]);
+		cv::undistort(image, outputImage, job->camMat, job->camDist);
 
-			calibImg.data = outputImage.data;
-			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[i], calibImg);
-		} else {
-			cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
-			cv::Mat downscaleImage;
-			cv::Mat upscaleImage;
+		calibImg.data = outputImage.data;
+		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
+	} else {
+		cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
+		cv::Mat downscaleImage;
+		cv::Mat upscaleImage;
 
-			// TODO: Remove me.
-			cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-			cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+		// TODO: Remove me.
+		cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+		cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
 
-			calibImg.data = upscaleImage.data;
-			gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[i], calibImg);
-		}
+		calibImg.data = upscaleImage.data;
+		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
 	}
 
-	calibFreeStereoCalibImages(stereoSample);
+	calibFreeCalibImages(sample);
 
-	Tool->appContext->platform->testPosX = stereoSample->X;
-	Tool->appContext->platform->testPosY = stereoSample->Y;
-	Tool->appContext->platform->testPosZ = stereoSample->Z;
-	Tool->appContext->platform->testPosC = stereoSample->C;
-	Tool->appContext->platform->testPosA = stereoSample->A;
+	Tool->appContext->platform->testPosX = sample->X;
+	Tool->appContext->platform->testPosY = sample->Y;
+	Tool->appContext->platform->testPosZ = sample->Z;
+	Tool->appContext->platform->testPosC = sample->C;
+	Tool->appContext->platform->testPosA = sample->A;
 }
 
 struct ldiUiPositionInfo {
@@ -539,8 +544,8 @@ void imageInspectorDrawCharucoResults(ldiUiPositionInfo uiInfo, ldiCharucoResult
 void imageInspectorShowUi(ldiImageInspector* Tool) {
 	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
 
-	for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
-		ldiHawk* mvCam = &Tool->appContext->platform->hawks[hawkIter];
+	{
+		ldiHawk* mvCam = &Tool->appContext->platform->hawk;
 
 		hawkUpdateValues(mvCam);
 
@@ -549,15 +554,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		{
 			std::unique_lock<std::mutex> lock(mvCam->valuesMutex);
-			if (Tool->hawkLastFrameId[hawkIter] != mvCam->latestFrameId) {
-				Tool->hawkLastFrameId[hawkIter] = mvCam->latestFrameId;
+			if (Tool->hawkLastFrameId != mvCam->latestFrameId) {
+				Tool->hawkLastFrameId = mvCam->latestFrameId;
 
 				for (int iY = 0; iY < mvCam->imgHeight; ++iY) {
-					memcpy(Tool->hawkFrameBuffer[hawkIter] + iY * CAM_IMG_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
+					memcpy(Tool->hawkFrameBuffer + iY * CAM_IMG_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
 				}
 
 				newFrame = true;
-				camImg.data = Tool->hawkFrameBuffer[hawkIter];
+				camImg.data = Tool->hawkFrameBuffer;
 				camImg.width = mvCam->imgWidth;
 				camImg.height = mvCam->imgHeight;
 			}
@@ -584,7 +589,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				scanPlane.normal = -scanPlane.normal;
 				
 				// Project points onto scan plane.
-				ldiCamera camera = horseGetCamera(&calibContext->calibJob, horsePos, hawkIter, 3280, 2464);
+				ldiCamera camera = horseGetCamera(&calibContext->calibJob, horsePos, 3280, 2464);
 
 				for (size_t pIter = 0; pIter < Tool->hawkScanPoints.size(); ++pIter) {
 					ldiLine ray = screenToRay(&camera, Tool->hawkScanPoints[pIter]);
@@ -607,17 +612,17 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				//Tool->appContext->platform->liveScanPoints[1] = scanPlane.point + scanPlane.normal;
 			}
 
-			if (Tool->showUndistorted && calibContext->calibJob.stereoCalibrated) {
+			if (Tool->showUndistorted) {
 				cv::Mat image(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
 				cv::Mat outputImage(cv::Size(camImg.width, camImg.height), CV_8UC1);
 
-				cv::undistort(image, outputImage, calibContext->calibJob.refinedCamMat[hawkIter], calibContext->calibJob.refinedCamDist[hawkIter]);
+				cv::undistort(image, outputImage, calibContext->calibJob.camMat, calibContext->calibJob.camDist);
 
 				ldiImage tempImg = camImg;
 				tempImg.data = outputImage.data;
-				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], tempImg);
+				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, tempImg);
 			} else {
-				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex[hawkIter], camImg);
+				gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, camImg);
 			}
 
 			if (Tool->camCalibProcess) {
@@ -667,18 +672,18 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			}
 		}
 
-		ImGui::PushID(("hawkView_" + std::to_string(hawkIter)).c_str());
+		ImGui::PushID("hawkView");
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		if (ImGui::Begin(("Hawk View " + std::to_string(hawkIter)).c_str())) {
+		if (ImGui::Begin("Hawk View")) {
 			ImVec2 viewSize = ImGui::GetContentRegionAvail();
 			ImVec2 startPos = ImGui::GetCursorPos();
 			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
 			ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-			auto surfaceResult = uiViewportSurface2D("__captureSurface", &Tool->hawkImageScale[hawkIter], &Tool->hawkImageOffset[hawkIter]);
+			auto surfaceResult = uiViewportSurface2D("__captureSurface", &Tool->hawkImageScale, &Tool->hawkImageOffset);
 
-			ImVec2 imgOffset = toImVec2(Tool->hawkImageOffset[hawkIter]);
-			float imgScale = Tool->hawkImageScale[hawkIter];
+			ImVec2 imgOffset = toImVec2(Tool->hawkImageOffset);
+			float imgScale = Tool->hawkImageScale;
 
 			ImVec2 imgMin;
 			imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
@@ -689,18 +694,18 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			imgMax.y = imgMin.y + CAM_IMG_HEIGHT * imgScale;
 
 			draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
-			draw_list->AddImage(Tool->hawkResourceView[hawkIter], imgMin, imgMax);
+			draw_list->AddImage(Tool->hawkResourceView, imgMin, imgMax);
 			draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
 			//----------------------------------------------------------------------------------------------------
 			// 3D view overlay.
 			//----------------------------------------------------------------------------------------------------
-			_imageInspectorRenderHawkVolume(Tool, hawkIter, viewSize.x, viewSize.y, Tool->hawkImageOffset[hawkIter] * imgScale, vec2((float)CAM_IMG_WIDTH, (float)CAM_IMG_HEIGHT) * imgScale);
+			_imageInspectorRenderHawkVolume(Tool, viewSize.x, viewSize.y, Tool->hawkImageOffset * imgScale, vec2((float)CAM_IMG_WIDTH, (float)CAM_IMG_HEIGHT) * imgScale);
 
 			ImVec2 uv_min(0.0f, 0.0f);
 			ImVec2 uv_max(1.0f, 1.0f);
 			ImVec4 tint_col(1.0f, 1.0f, 1.0f, Tool->sceneOpacity);
-			draw_list->AddImage(Tool->hawkViewBuffer[hawkIter].mainViewResourceView, screenStartPos, screenStartPos + viewSize, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+			draw_list->AddImage(Tool->hawkViewBuffer.mainViewResourceView, screenStartPos, screenStartPos + viewSize, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 
 			draw_list->AddText(imgMin, ImColor(200, 200, 200), "Camera");
 
@@ -711,12 +716,12 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ldiCharucoResults* charucos = &Tool->camImageCharucoResults;
 
 				if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1 && Tool->calibJobSelectedSampleType == 0) {
-					charucos = &Tool->appContext->calibrationContext->calibJob.samples[Tool->calibJobSelectedSampleId].cubes[hawkIter];
+					charucos = &Tool->appContext->calibrationContext->calibJob.samples[Tool->calibJobSelectedSampleId].cube;
 				}
 
 				ldiUiPositionInfo uiInfo = {};
-				uiInfo.imgOffset = toImVec2(Tool->hawkImageOffset[hawkIter]);
-				uiInfo.imgScale = Tool->hawkImageScale[hawkIter];
+				uiInfo.imgOffset = toImVec2(Tool->hawkImageOffset);
+				uiInfo.imgScale = Tool->hawkImageScale;
 				uiInfo.screenStartPos = screenStartPos;
 
 				imageInspectorDrawCharucoResults(uiInfo, charucos, Tool->showCharucoRejectedMarkers, true);
@@ -751,8 +756,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			{
 				if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1 && Tool->calibJobSelectedSampleType == 1) {
 
-					if (calibContext->calibJob.scanPoints[hawkIter].size() > 0) {
-						std::vector<vec2>& points = calibContext->calibJob.scanPoints[hawkIter][Tool->calibJobSelectedSampleId];
+					if (calibContext->calibJob.scanPoints.size() > 0) {
+						std::vector<vec2>& points = calibContext->calibJob.scanPoints[Tool->calibJobSelectedSampleId];
 
 						for (size_t i = 0; i < points.size(); ++i) {
 							vec2 point = points[i];
@@ -913,12 +918,13 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::Separator();
 		ImGui::Text("Tools");
 
-		if (ImGui::Button("Split stereo samples")) {
-			calibSplitStereoSamplesJob(job);
-		}
+		//if (ImGui::Button("Split stereo samples")) {
+		//	//calibSplitStereoSamplesJob(job);
+		//	calibSplitStereoSamplesScanner();
+		//}
 
 		if (ImGui::Button("Compare calibrations")) {
-			calibCompareVolumeCalibrations("../cache/volume_calib_new_ba.dat", "../cache/volume_calib_quarter_new_ba.dat");
+			calibCompareVolumeCalibrations("../cache/calib_hawk0_optimized.cal", "../cache/calib_hawk1_optimized.cal");
 		}
 
 		ImGui::Separator();
@@ -930,25 +936,16 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			std::string directoryPath;
 			if (showOpenDirectoryDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, directoryPath)) {
-				std::cout << "Selected captures folder: " << directoryPath << "\n";
-				calibFindInitialObservations(job, Tool->appContext->platform->hawks, directoryPath);
+				calibFindInitialObservations(job, directoryPath);
 			}
 		}
 
 		if (ImGui::Button("Initial estimations")) {
-			calibGetInitialEstimations(job, Tool->appContext->platform->hawks);
+			calibGetInitialEstimations(job);
 		}
 
 		if (ImGui::Button("Optimize")) {
 			calibOptimizeVolume(job);
-		}
-
-		if (ImGui::Button("Calibrate stereo")) {
-			calibStereoCalibrate(job);
-		}
-
-		if (ImGui::Button("Calibrate metrics")) {
-			calibBuildCalibVolumeMetrics(job);
 		}
 
 		ImGui::Separator();
@@ -956,7 +953,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		if (ImGui::Button("Calibrate scanner")) {
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
-			calibCalibrateScanner(job);
+
+			std::string directoryPath;
+			if (showOpenDirectoryDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, directoryPath)) {
+				calibCalibrateScanner(job, directoryPath);
+			}
 		}
 
 		ImGui::Separator();
@@ -967,14 +968,14 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		ImGui::Separator();
 
-		ImGui::Text("Stereo calibrated: %s", job->stereoCalibrated ? "Yes" : "No");
+		ImGui::Text("Initial estimations: %s", job->initialEstimations ? "Yes" : "No");
 		ImGui::Text("Metrics calibrated: %s", job->metricsCalculated ? "Yes" : "No");
 		ImGui::Text("Scanner calibrated: %s", job->scannerCalibrated ? "Yes" : "No");
 		ImGui::Text("Galvo calibrated: %s", job->galvoCalibrated ? "Yes" : "No");
 		ImGui::Text("Volume calibration samples: %d", job->samples.size());
 
 		if (ImGui::CollapsingHeader("Volume calibration samples")) {
-			if (ImGui::BeginTable("table_volume_samples", 9, ImGuiTableFlags_Borders)) {
+			if (ImGui::BeginTable("table_volume_samples", 8, ImGuiTableFlags_Borders)) {
 				ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 20.0f);
 				ImGui::TableSetupColumn("Phase", ImGuiTableColumnFlags_WidthFixed, 20.0f);
 				ImGui::TableSetupColumn("X", ImGuiTableColumnFlags_WidthFixed, 50.0f);
@@ -982,12 +983,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ImGui::TableSetupColumn("Z", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 				ImGui::TableSetupColumn("A", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 				ImGui::TableSetupColumn("C", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-				ImGui::TableSetupColumn("Boards 0", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-				ImGui::TableSetupColumn("Boards 1", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+				ImGui::TableSetupColumn("Boards", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 				ImGui::TableHeadersRow();
 
 				for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
-					ldiCalibStereoSample* sample = &job->samples[sampleIter];
+					ldiCalibSample* sample = &job->samples[sampleIter];
 
 					ImGui::TableNextRow();
 
@@ -1020,11 +1020,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					ImGui::Text("%d", sample->C);
 
 					ImGui::TableSetColumnIndex(7);
-					ImGui::Text("%d - %d", sample->cubes[0].boards.size(), sample->cubes[0].rejectedBoards.size());
-
-					ImGui::TableSetColumnIndex(8);
-					ImGui::Text("%d - %d", sample->cubes[1].boards.size(), sample->cubes[1].rejectedBoards.size());
-				
+					ImGui::Text("%d - %d", sample->cube.boards.size(), sample->cube.rejectedBoards.size());
 				}
 				ImGui::EndTable();
 			}
@@ -1042,7 +1038,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ImGui::TableHeadersRow();
 
 				for (size_t sampleIter = 0; sampleIter < job->scanSamples.size(); ++sampleIter) {
-					ldiCalibStereoSample* sample = &job->scanSamples[sampleIter];
+					ldiCalibSample* sample = &job->scanSamples[sampleIter];
 
 					ImGui::TableNextRow();
 
@@ -1105,6 +1101,14 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
 
 			ImGui::Checkbox("Show heatmap", &Tool->showHeatmap);
+
+			ImGui::DragFloat("Brightness", &Tool->imageBrightness, 0.01f, -10.0f, 10.0f);
+			ImGui::DragFloat("Contrast", &Tool->imageContrast, 0.1f, 0.0f, 20.0f);
+
+			if (ImGui::Button("Reset")) {
+				Tool->imageBrightness = 0.0f;
+				Tool->imageContrast = 1.0f;
+			}
 		}
 
 		if (ImGui::CollapsingHeader("Rotary measurement")) {
@@ -1130,13 +1134,13 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			ImGui::Text("Process time: %.3f ms", Tool->rotaryResults.processTime);
 		}
 
-		for (int i = 0; i < 2; ++i) {
-			ldiHawk* mvCam = &Tool->appContext->platform->hawks[i];
+		{
+			ldiHawk* mvCam = &Tool->appContext->platform->hawk;
 
-			ImGui::PushID(i);
+			ImGui::PushID(0);
 
 			char tempBuffer[256];
-			sprintf_s(tempBuffer, "Camera %d", i);
+			sprintf_s(tempBuffer, "Camera (Hawk)");
 
 			if (ImGui::CollapsingHeader(tempBuffer)) {
 				if (ImGui::SliderInt("Shutter speed", &mvCam->uiShutterSpeed, 1, 66000)) {
@@ -1187,7 +1191,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				}
 			
 				if (ImGui::Button("Save calibration")) {
-					std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
+					std::string dataPath = "../cache/calibImages.dat";
 
 					FILE* file;
 					fopen_s(&file, dataPath.c_str(), "wb");
@@ -1219,7 +1223,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					// TODO: Clear memory allocated.
 					Tool->cameraCalibSamples.clear();
 
-					std::string dataPath = "../cache/calibImages_" + std::to_string(i) + ".dat";
+					std::string dataPath = "../cache/calibImages.dat";
 
 					FILE* file;
 					fopen_s(&file, dataPath.c_str(), "rb");
@@ -1361,11 +1365,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		imgMax.x = imgMin.x + CAM_IMG_WIDTH * Tool->imgScale;
 		imgMax.y = imgMin.y + CAM_IMG_HEIGHT * Tool->imgScale;
 
-		if (Tool->showHeatmap) {
-			draw_list->AddCallback(_imageInspectorSetStateCallbackHeatmap, Tool);
-		} else {
-			draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
-		}
+		draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
 		draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 

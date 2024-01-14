@@ -175,6 +175,7 @@
     <ClInclude Include="source\analogScope.h" />
     <ClInclude Include="source\calibCube.h" />
     <ClInclude Include="source\calibration.h" />
+    <ClInclude Include="source\calibrationJob.h" />
     <ClInclude Include="source\camera.h" />
     <ClInclude Include="source\circleFit.h" />
     <ClInclude Include="source\computerVision.h" />

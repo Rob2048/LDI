@@ -7,6 +7,7 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/vector_angle.hpp>
 
 typedef glm::vec2 vec2;
 typedef glm::f64vec2 vec2d;

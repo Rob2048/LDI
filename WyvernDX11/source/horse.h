@@ -146,22 +146,22 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
 
 	// Transform points.
-	Points.resize(Job->opCube.points.size(), vec3(0.0f, 0.0f, 0.0f));
-	for (size_t i = 0; i < Job->opCube.points.size(); ++i) {
+	Points.resize(Job->cube.points.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < Job->cube.points.size(); ++i) {
 		if (i >= 18 && i <= 26) {
 			continue;
 		}
 
-		Points[i] = axisCMat * vec4(Job->opCube.points[i], 1.0f);
+		Points[i] = axisCMat * vec4(Job->cube.points[i], 1.0f);
 		Points[i] += mechTrans;
 	}
 
 	// Transform sides.
-	Sides.resize(Job->opCube.sides.size(), {});
-	for (size_t i = 0; i < Job->opCube.sides.size(); ++i) {
-		Sides[i].id = Job->opCube.sides[i].id;
+	Sides.resize(Job->cube.sides.size(), {});
+	for (size_t i = 0; i < Job->cube.sides.size(); ++i) {
+		Sides[i].id = Job->cube.sides[i].id;
 
-		ldiPlane plane = Job->opCube.sides[i].plane;
+		ldiPlane plane = Job->cube.sides[i].plane;
 
 		plane.point = axisCMat * vec4(plane.point, 1.0f);
 		plane.point += mechTrans;
@@ -171,7 +171,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 		Sides[i].plane = plane;
 
 		for (int c = 0; c < 4; ++c) {
-			vec3 transCorner = axisCMat * vec4(Job->opCube.sides[i].corners[c], 1.0f);
+			vec3 transCorner = axisCMat * vec4(Job->cube.sides[i].corners[c], 1.0f);
 			transCorner += mechTrans;
 
 			Sides[i].corners[c] = transCorner;
@@ -181,7 +181,7 @@ void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Posi
 	// Transform corners.
 	Corners.resize(8, vec3(0.0f, 0.0f, 0.0f));
 	for (int i = 0; i < 8; ++i) {
-		Corners[i] = axisCMat * vec4(Job->opCube.corners[i], 1.0f);
+		Corners[i] = axisCMat * vec4(Job->cube.corners[i], 1.0f);
 		Corners[i] += mechTrans;
 	}
 }
@@ -203,13 +203,13 @@ void horseGetProjectionCubePoints(ldiCalibrationJob* Job, ldiHorsePosition Posit
 	axisAMat = glm::translate(mat4(1.0), refToAxisA) * axisAMat;
 
 	// Transform points.
-	Points.resize(Job->opCube.points.size(), vec3(0.0f, 0.0f, 0.0f));
-	for (size_t i = 0; i < Job->opCube.points.size(); ++i) {
+	Points.resize(Job->cube.points.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < Job->cube.points.size(); ++i) {
 		if (i >= 18 && i <= 26) {
 			continue;
 		}
 
-		Points[i] = axisCMat * vec4(Job->opCube.points[i], 1.0f);
+		Points[i] = axisCMat * vec4(Job->cube.points[i], 1.0f);
 		Points[i] = axisAMat * vec4(Points[i], 1.0f);
 		Points[i] += mechTrans;
 	}
@@ -226,8 +226,8 @@ mat4 horseGetWorkTransform(ldiCalibrationJob* Job, ldiHorsePosition Position) {
 	return axisCMat;
 }
 
-ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height, bool UseViewport, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
-	mat4 camWorldMat = Job->camVolumeMat[HawkId];
+ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int Width, int Height, bool UseViewport, vec2 ViewPortTopLeft, vec2 ViewPortSize) {
+	mat4 camWorldMat = Job->camVolumeMat;
 
 	{
 		vec3 refToAxis = Job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
@@ -242,10 +242,8 @@ ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int 
 	mat4 viewMat = cameraConvertOpenCvWorldToViewMat(camWorldMat);
 	mat4 projMat = mat4(1.0);
 
-	//if (!job->refinedCamMat[HawkId].empty()) {
-	projMat = cameraCreateProjectionFromOpenCvCamera(Width, Height, Job->refinedCamMat[HawkId], 0.01f, 100.0f);
-	//}
-
+	projMat = cameraCreateProjectionFromOpenCvCamera(Width, Height, Job->camMat, 0.01f, 100.0f);
+	
 	if (UseViewport) {
 		projMat = cameraProjectionToVirtualViewport(projMat, ViewPortTopLeft, ViewPortSize, vec2(Width, Height));
 	}
@@ -261,8 +259,8 @@ ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int 
 	return camera;
 }
 
-ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int HawkId, int Width, int Height) {
-	return horseGetCamera(Job, Position, HawkId, Width, Height, false, vec2(0.0f, 0.0f), vec2(Width, Height));
+ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int Width, int Height) {
+	return horseGetCamera(Job, Position, Width, Height, false, vec2(0.0f, 0.0f), vec2(Width, Height));
 }
 
 ldiPlane horseGetScanPlane(ldiCalibrationJob* Job, ldiHorsePosition Position) {

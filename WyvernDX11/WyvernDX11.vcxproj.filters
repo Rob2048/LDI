@@ -173,5 +173,8 @@
     <ClInclude Include="source\analogScope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\calibrationJob.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

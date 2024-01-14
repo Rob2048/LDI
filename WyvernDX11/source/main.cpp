@@ -43,6 +43,7 @@
 #include "threadSafeQueue.h"
 #include "camera.h"
 #include "ui.h"
+#include "calibrationJob.h"
 
 // TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {

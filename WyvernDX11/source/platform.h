@@ -64,8 +64,8 @@ struct ldiPlatform {
 
 	float						mmPerStepX;
 
-	// Dual machine vision cameras.
-	ldiHawk						hawks[2];
+	// Machine vision camera.
+	ldiHawk						hawk;
 
 	// Motion/Galvo/Laser control.
 	ldiPanther					panther;
@@ -187,30 +187,20 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 
 		Sleep(1000);
 
-		hawkClearWaitPacket(&Platform->hawks[0]);
-		hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
-
-		hawkClearWaitPacket(&Platform->hawks[1]);
-		hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
-
-		hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-		hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+		hawkClearWaitPacket(&Platform->hawk);
+		hawkSetMode(&Platform->hawk, CCM_AVERAGE);
+		hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 		{
-			std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
-			std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+			std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 
 			ldiImage frame0 = {};
-			frame0.data = Platform->hawks[0].frameBuffer;
-			frame0.width = Platform->hawks[0].imgWidth;
-			frame0.height = Platform->hawks[0].imgHeight;
+			frame0.data = Platform->hawk.frameBuffer;
+			frame0.width = Platform->hawk.imgWidth;
+			frame0.height = Platform->hawk.imgHeight;
 
-			ldiImage frame1 = {};
-			frame1.data = Platform->hawks[1].frameBuffer;
-			frame1.width = Platform->hawks[1].imgWidth;
-			frame1.height = Platform->hawks[1].imgHeight;
-		
-			calibSaveStereoCalibImage(&frame0, &frame1, 0, 0, 0, 13000, 0, 0, imgId);
+			calibSaveCalibImage(&frame0, 0, 0, 0, 13000, 0, 0, imgId);
+
 			++imgId;
 		}
 	}
@@ -264,44 +254,27 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 				}
 
 				if (iZ != 0) {
-					hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-					hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+					hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 					std::cout << "Got frame " << getTime() << "\n";
 
 					{
-						std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
-						std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+						std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 						
 						ldiImage frame0 = {};
-						frame0.data = Platform->hawks[0].frameBuffer;
-						frame0.width = Platform->hawks[0].imgWidth;
-						frame0.height = Platform->hawks[0].imgHeight;
+						frame0.data = Platform->hawk.frameBuffer;
+						frame0.width = Platform->hawk.imgWidth;
+						frame0.height = Platform->hawk.imgHeight;
 
-						ldiImage frame1 = {};
-						frame1.data = Platform->hawks[1].frameBuffer;
-						frame1.width = Platform->hawks[1].imgWidth;
-						frame1.height = Platform->hawks[1].imgHeight;
-
-						if (frame0.width != frame1.width || frame0.height != frame1.height) {
-							std::cout << "Can't save calib image due to different sizes\n";
-							return false;
-						}
-
-						calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 1, imgId);
+						calibSaveCalibImage(&frame0, capPosX, capPosY, capPosZ, capPosC, capPosA, 1, imgId);
 						++imgId;
 					}
 				}
 
 				if (iZ < 7) {
-					hawkClearWaitPacket(&Platform->hawks[0]);
-					hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
-
-					hawkClearWaitPacket(&Platform->hawks[1]);
-					hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
-
-					hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
-					hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+					hawkClearWaitPacket(&Platform->hawk);
+					hawkSetMode(&Platform->hawk, CCM_AVERAGE);
+					hawkWaitForPacket(&Platform->hawk, HO_AVERAGE_GATHERED);
 					
 					std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
 
@@ -351,44 +324,27 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		}
 
 		if (iC != 0) {
-			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+			hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 			std::cout << "Got frame " << getTime() << "\n";
 
 			{
-				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
-				std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+				std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 
 				ldiImage frame0 = {};
-				frame0.data = Platform->hawks[0].frameBuffer;
-				frame0.width = Platform->hawks[0].imgWidth;
-				frame0.height = Platform->hawks[0].imgHeight;
+				frame0.data = Platform->hawk.frameBuffer;
+				frame0.width = Platform->hawk.imgWidth;
+				frame0.height = Platform->hawk.imgHeight;
 
-				ldiImage frame1 = {};
-				frame1.data = Platform->hawks[1].frameBuffer;
-				frame1.width = Platform->hawks[1].imgWidth;
-				frame1.height = Platform->hawks[1].imgHeight;
-
-				if (frame0.width != frame1.width || frame0.height != frame1.height) {
-					std::cout << "Can't save calib image due to different sizes\n";
-					return false;
-				}
-
-				calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 2, imgId);
+				calibSaveCalibImage(&frame0, capPosX, capPosY, capPosZ, capPosC, capPosA, 2, imgId);
 				++imgId;
 			}
 		}
 
 		if (iC < 60) {
-			hawkClearWaitPacket(&Platform->hawks[0]);
-			hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
-
-			hawkClearWaitPacket(&Platform->hawks[1]);
-			hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
-
-			hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
-			hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+			hawkClearWaitPacket(&Platform->hawk);
+			hawkSetMode(&Platform->hawk, CCM_AVERAGE);
+			hawkWaitForPacket(&Platform->hawk, HO_AVERAGE_GATHERED);
 
 			std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
 
@@ -437,44 +393,27 @@ bool _platformCaptureCalibration(ldiPlatform* Platform) {
 		}
 
 		if (iA != 0) {
-			hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-			hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+			hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 			std::cout << "Got frame " << getTime() << "\n";
 
 			{
-				std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
-				std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+				std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 
 				ldiImage frame0 = {};
-				frame0.data = Platform->hawks[0].frameBuffer;
-				frame0.width = Platform->hawks[0].imgWidth;
-				frame0.height = Platform->hawks[0].imgHeight;
+				frame0.data = Platform->hawk.frameBuffer;
+				frame0.width = Platform->hawk.imgWidth;
+				frame0.height = Platform->hawk.imgHeight;
 
-				ldiImage frame1 = {};
-				frame1.data = Platform->hawks[1].frameBuffer;
-				frame1.width = Platform->hawks[1].imgWidth;
-				frame1.height = Platform->hawks[1].imgHeight;
-
-				if (frame0.width != frame1.width || frame0.height != frame1.height) {
-					std::cout << "Can't save calib image due to different sizes\n";
-					return false;
-				}
-
-				calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 3, imgId);
+				calibSaveCalibImage(&frame0, capPosX, capPosY, capPosZ, capPosC, capPosA, 3, imgId);
 				++imgId;
 			}
 		}
 
 		if (iA < 61) {
-			hawkClearWaitPacket(&Platform->hawks[0]);
-			hawkSetMode(&Platform->hawks[0], CCM_AVERAGE);
-
-			hawkClearWaitPacket(&Platform->hawks[1]);
-			hawkSetMode(&Platform->hawks[1], CCM_AVERAGE);
-
-			hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
-			hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+			hawkClearWaitPacket(&Platform->hawk);
+			hawkSetMode(&Platform->hawk, CCM_AVERAGE);
+			hawkWaitForPacket(&Platform->hawk, HO_AVERAGE_GATHERED);
 
 			std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
 
@@ -547,44 +486,27 @@ bool _platformCaptureScannerCalibration(ldiPlatform* Platform) {
 			}
 
 			if (iZ != 0) {
-				hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
-				hawkWaitForPacket(&Platform->hawks[1], HO_FRAME);
+				hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 				std::cout << "Got frame " << getTime() << "\n";
 
 				{
-					std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
-					std::unique_lock<std::mutex> lock1(Platform->hawks[1].valuesMutex);
+					std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 
 					ldiImage frame0 = {};
-					frame0.data = Platform->hawks[0].frameBuffer;
-					frame0.width = Platform->hawks[0].imgWidth;
-					frame0.height = Platform->hawks[0].imgHeight;
+					frame0.data = Platform->hawk.frameBuffer;
+					frame0.width = Platform->hawk.imgWidth;
+					frame0.height = Platform->hawk.imgHeight;
 
-					ldiImage frame1 = {};
-					frame1.data = Platform->hawks[1].frameBuffer;
-					frame1.width = Platform->hawks[1].imgWidth;
-					frame1.height = Platform->hawks[1].imgHeight;
-
-					if (frame0.width != frame1.width || frame0.height != frame1.height) {
-						std::cout << "Can't save calib image due to different sizes\n";
-						return false;
-					}
-
-					calibSaveStereoCalibImage(&frame0, &frame1, capPosX, capPosY, capPosZ, capPosC, capPosA, 0, imgId, "scanner_calib");
+					calibSaveCalibImage(&frame0, capPosX, capPosY, capPosZ, capPosC, capPosA, 0, imgId, "scanner_calib");
 					++imgId;
 				}
 			}
 
 			if (iZ < 61) {
-				hawkClearWaitPacket(&Platform->hawks[0]);
-				hawkSetMode(&Platform->hawks[0], CCM_AVERAGE_NO_FLASH);
-
-				hawkClearWaitPacket(&Platform->hawks[1]);
-				hawkSetMode(&Platform->hawks[1], CCM_AVERAGE_NO_FLASH);
-
-				hawkWaitForPacket(&Platform->hawks[0], HO_AVERAGE_GATHERED);
-				hawkWaitForPacket(&Platform->hawks[1], HO_AVERAGE_GATHERED);
+				hawkClearWaitPacket(&Platform->hawk);
+				hawkSetMode(&Platform->hawk, CCM_AVERAGE_NO_FLASH);
+				hawkWaitForPacket(&Platform->hawk, HO_AVERAGE_GATHERED);
 
 				std::cout << "Capture at " << posX << ", " << posY << ", " << posZ << ", " << posC << ", " << posA << "\n";
 
@@ -677,18 +599,18 @@ bool _platformScan2(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 
 				Sleep(600);
 
-				hawkClearWaitPacket(&Platform->hawks[0]);
-				hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+				hawkClearWaitPacket(&Platform->hawk);
+				hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 				std::vector<vec2> scanPoints;
 
 				{
-					std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+					std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 			
 					ldiImage frame0 = {};
-					frame0.data = Platform->hawks[0].frameBuffer;
-					frame0.width = Platform->hawks[0].imgWidth;
-					frame0.height = Platform->hawks[0].imgHeight;
+					frame0.data = Platform->hawk.frameBuffer;
+					frame0.width = Platform->hawk.imgWidth;
+					frame0.height = Platform->hawk.imgHeight;
 
 					scanPoints = computerVisionFindScanLine(frame0);
 				}
@@ -710,7 +632,7 @@ bool _platformScan2(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 				scanPlane.normal = -scanPlane.normal;
 
 				// Project points onto scan plane.
-				ldiCamera camera = horseGetCamera(&Platform->appContext->calibrationContext->calibJob, horsePos, 0, 3280, 2464);
+				ldiCamera camera = horseGetCamera(&Platform->appContext->calibrationContext->calibJob, horsePos, 3280, 2464);
 
 				for (size_t pIter = 0; pIter < scanPoints.size(); ++pIter) {
 					ldiLine ray = screenToRay(&camera, scanPoints[pIter]);
@@ -810,18 +732,18 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 
 		Sleep(600);
 
-		hawkClearWaitPacket(&Platform->hawks[0]);
-		hawkWaitForPacket(&Platform->hawks[0], HO_FRAME);
+		hawkClearWaitPacket(&Platform->hawk);
+		hawkWaitForPacket(&Platform->hawk, HO_FRAME);
 
 		std::vector<vec2> scanPoints;
 
 		{
-			std::unique_lock<std::mutex> lock0(Platform->hawks[0].valuesMutex);
+			std::unique_lock<std::mutex> lock0(Platform->hawk.valuesMutex);
 
 			ldiImage frame0 = {};
-			frame0.data = Platform->hawks[0].frameBuffer;
-			frame0.width = Platform->hawks[0].imgWidth;
-			frame0.height = Platform->hawks[0].imgHeight;
+			frame0.data = Platform->hawk.frameBuffer;
+			frame0.width = Platform->hawk.imgWidth;
+			frame0.height = Platform->hawk.imgHeight;
 
 			scanPoints = computerVisionFindScanLine(frame0);
 		}
@@ -835,9 +757,9 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 		ldiPlane scanPlane = horseGetScanPlane(job, targetPos);
 		scanPlane.normal = -scanPlane.normal;
 
-		ldiCamera camera = horseGetCamera(job, targetPos, 0, 3280, 2464);
+		ldiCamera camera = horseGetCamera(job, targetPos, 3280, 2464);
 
-		computerVisionUndistortPoints(scanPoints, job->refinedCamMat[0], job->refinedCamDist[0]);
+		computerVisionUndistortPoints(scanPoints, job->camMat, job->camDist);
 
 		// Project points onto scan plane.
 		{
@@ -958,47 +880,7 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 
 	Tool->workerThread = std::thread(platformWorkerThread, Tool);
 
-	hawkInit(&Tool->hawks[0], "169.254.72.101", 6969);
-	hawkInit(&Tool->hawks[1], "169.254.73.101", 6969);
-
-	// Set default camera intrinsics:
-	cv::Mat* dc = &Tool->hawks[0].defaultCameraMat;
-	*dc = cv::Mat::eye(3, 3, CV_64F);
-	dc->at<double>(0, 0) = 2666.92;
-	dc->at<double>(0, 1) = 0.0;
-	dc->at<double>(0, 2) = 1704.76;
-	dc->at<double>(1, 0) = 0.0;
-	dc->at<double>(1, 1) = 2683.62;
-	dc->at<double>(1, 2) = 1294.87;
-	dc->at<double>(2, 0) = 0.0;
-	dc->at<double>(2, 1) = 0.0;
-	dc->at<double>(2, 2) = 1.0;
-
-	cv::Mat* dd = &Tool->hawks[0].defaultDistMat;
-	*dd = cv::Mat::zeros(8, 1, CV_64F);
-	dd->at<double>(0) = 0.1937769949436188;
-	dd->at<double>(1) = -0.3512980043888092;
-	dd->at<double>(2) = 0.002319999970495701;
-	dd->at<double>(3) = 0.00217368989251554;
-
-	dc = &Tool->hawks[1].defaultCameraMat;
-	*dc = cv::Mat::eye(3, 3, CV_64F);
-	dc->at<double>(0, 0) = 2660.06;
-	dc->at<double>(0, 1) = 0.0;
-	dc->at<double>(0, 2) = 1671.81;
-	dc->at<double>(1, 0) = 0.0;
-	dc->at<double>(1, 1) = 2660.69;
-	dc->at<double>(1, 2) = 1210.23;
-	dc->at<double>(2, 0) = 0.0;
-	dc->at<double>(2, 1) = 0.0;
-	dc->at<double>(2, 2) = 1.0;
-
-	dd = &Tool->hawks[1].defaultDistMat;
-	*dd = cv::Mat::zeros(8, 1, CV_64F);
-	dd->at<double>(0) = 0.206924;
-	dd->at<double>(1) = -0.377569;
-	dd->at<double>(2) = 0.000113651;
-	dd->at<double>(3) = -0.000941601;
+	hawkInit(&Tool->hawk, "169.254.72.101", 6969);
 
 	//----------------------------------------------------------------------------------------------------
 	// Cube.
@@ -1216,20 +1098,18 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Camera positions.
 			//----------------------------------------------------------------------------------------------------
 			{
-				for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
-					mat4 camWorldMat = calibContext->calibJob.camVolumeMat[hawkIter];
-					renderOrigin(appContext, Camera, camWorldMat, "Hawk W" + std::to_string(hawkIter), TextBuffer);
+				mat4 camWorldMat = calibContext->calibJob.camVolumeMat;
+				renderOrigin(appContext, Camera, camWorldMat, "Hawk W", TextBuffer);
 
-					vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
-					float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
-					mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
+				vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+				float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
+				mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
-					camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
-					camWorldMat = axisRot * camWorldMat;
-					camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
+				camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
+				camWorldMat = axisRot * camWorldMat;
+				camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
 
-					renderOrigin(appContext, Camera, camWorldMat, "Hawk T" + std::to_string(hawkIter), TextBuffer);
-				}
+				renderOrigin(appContext, Camera, camWorldMat, "Hawk T", TextBuffer);
 			}
 
 			//----------------------------------------------------------------------------------------------------
@@ -1290,24 +1170,14 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
 					}
 
-					for (size_t i = 0; i < job->scanWorldPoints[0].size(); ++i) {
-						vec3 point = job->scanWorldPoints[0][i];
+					for (size_t i = 0; i < job->scanWorldPoints.size(); ++i) {
+						vec3 point = job->scanWorldPoints[i];
 						pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
 					}
 
-					for (size_t i = 0; i < job->scanWorldPoints[1].size(); ++i) {
-						vec3 point = job->scanWorldPoints[1][i];
-						pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(0.4, 1, 1), 6);
-					}
-
-					for (size_t i = 0; i < job->scanRays[0].size(); ++i) {
-						ldiLine line = job->scanRays[0][i];
+					for (size_t i = 0; i < job->scanRays.size(); ++i) {
+						ldiLine line = job->scanRays[i];
 						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
-					}
-
-					for (size_t i = 0; i < job->scanRays[1].size(); ++i) {
-						ldiLine line = job->scanRays[1][i];
-						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(0.1f, 0.4f, 1.0f));
 					}
 				}
 			}
@@ -1316,14 +1186,14 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Calibration volume.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibCubeVolume) {
-				std::vector<vec3>* modelPoints = &job->opCube.points;
-				for (size_t cubeIter = 0; cubeIter < job->cubeWorlds.size(); ++cubeIter) {
+				std::vector<vec3>* modelPoints = &job->cube.points;
+				for (size_t cubeIter = 0; cubeIter < job->cubePoses.size(); ++cubeIter) {
 					srand(cubeIter);
 					rand();
 					vec3 col = getRandomColorHighSaturation();
 
 					for (size_t i = 0; i < modelPoints->size(); ++i) {
-						mat4 world = job->cubeWorlds[cubeIter];
+						mat4 world = job->cubePoses[cubeIter];
 						//world[3] = vec4(0, 0, 0, 1.0f);
 						vec3 point = world * vec4((*modelPoints)[i], 1.0f);
 
@@ -1337,33 +1207,33 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Calibration basis.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibVolumeBasis) {
-				for (size_t i = 0; i < calibContext->calibJob.stBasisXPoints.size(); ++i) {
+				for (size_t i = 0; i < calibContext->calibJob.axisXPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.stBasisXPoints[i];
+					vec3 point = calibContext->calibJob.axisXPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 
-				for (size_t i = 0; i < calibContext->calibJob.stBasisYPoints.size(); ++i) {
+				for (size_t i = 0; i < calibContext->calibJob.axisYPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.stBasisYPoints[i];
+					vec3 point = calibContext->calibJob.axisYPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 
-				for (size_t i = 0; i < calibContext->calibJob.stBasisZPoints.size(); ++i) {
+				for (size_t i = 0; i < calibContext->calibJob.axisZPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.stBasisZPoints[i];
+					vec3 point = calibContext->calibJob.axisZPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 

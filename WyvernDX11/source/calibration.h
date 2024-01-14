@@ -19,708 +19,50 @@
 
 // NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
 
-void calibSaveCalibImage(ldiImage* Image, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib") {
-	char path[1024];
-	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
-
-	FILE* file;
-	fopen_s(&file, path, "wb");
-
-	fwrite(&Phase, sizeof(int), 1, file);
-	fwrite(&X, sizeof(int), 1, file);
-	fwrite(&Y, sizeof(int), 1, file);
-	fwrite(&Z, sizeof(int), 1, file);
-	fwrite(&C, sizeof(int), 1, file);
-	fwrite(&A, sizeof(int), 1, file);
-
-	fwrite(&Image->width, sizeof(int), 1, file);
-	fwrite(&Image->height, sizeof(int), 1, file);
-	fwrite(Image->data, 1, Image->width * Image->height, file);
-
-	fclose(file);
-}
-
-void calibSaveStereoCalibImage(ldiImage* Image0, ldiImage* Image1, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib_space") {
-	char path[1024];
-	sprintf_s(path, "../cache/%s/%04d_%d.dat", Directory.c_str(), ImgId, Phase);
-
-	FILE* file;
-	fopen_s(&file, path, "wb");
-
-	fwrite(&Phase, sizeof(int), 1, file);
-	fwrite(&X, sizeof(int), 1, file);
-	fwrite(&Y, sizeof(int), 1, file);
-	fwrite(&Z, sizeof(int), 1, file);
-	fwrite(&C, sizeof(int), 1, file);
-	fwrite(&A, sizeof(int), 1, file);
-
-	fwrite(&Image0->width, sizeof(int), 1, file);
-	fwrite(&Image0->height, sizeof(int), 1, file);
-	fwrite(Image0->data, 1, Image0->width * Image0->height, file);
-	fwrite(Image1->data, 1, Image0->width * Image0->height, file);
-
-	fclose(file);
-}
-
-void calibLoadStereoCalibSampleData(ldiCalibStereoSample* Sample) {
-	FILE* file;
-	fopen_s(&file, Sample->path.c_str(), "rb");
-
-	fread(&Sample->phase, sizeof(int), 1, file);
-	fread(&Sample->X, sizeof(int), 1, file);
-	fread(&Sample->Y, sizeof(int), 1, file);
-	fread(&Sample->Z, sizeof(int), 1, file);
-	fread(&Sample->C, sizeof(int), 1, file);
-	fread(&Sample->A, sizeof(int), 1, file);
-
-	int width;
-	int height;
-	fread(&width, 4, 1, file);
-	fread(&height, 4, 1, file);
-
-	for (int i = 0; i < 2; ++i) {
-		Sample->frames[i].data = new uint8_t[width * height];
-		Sample->frames[i].width = width;
-		Sample->frames[i].height = height;
-
-		fread(Sample->frames[i].data, width * height, 1, file);
-	}
-
-	Sample->imageLoaded = true;
-
-	fclose(file);
-}
-
-void calibFreeStereoCalibImages(ldiCalibStereoSample* Sample) {
-	if (Sample->imageLoaded) {
-		delete[] Sample->frames[0].data;
-		delete[] Sample->frames[1].data;
-		Sample->imageLoaded = false;
-	}
-}
-
-void calibLoadStereoSampleImages(ldiCalibStereoSample* Sample) {
-	calibFreeStereoCalibImages(Sample);
-
-	FILE* file;
-	fopen_s(&file, Sample->path.c_str(), "rb");
-
-	int dummy;
-	fread(&dummy, sizeof(int), 1, file);
-	fread(&dummy, sizeof(int), 1, file);
-	fread(&dummy, sizeof(int), 1, file);
-	fread(&dummy, sizeof(int), 1, file);
-	fread(&dummy, sizeof(int), 1, file);
-	fread(&dummy, sizeof(int), 1, file);
-
-	int width;
-	int height;
-	fread(&width, 4, 1, file);
-	fread(&height, 4, 1, file);
-
-	for (int i = 0; i < 2; ++i) {
-		Sample->frames[i].data = new uint8_t[width * height];
-		Sample->frames[i].width = width;
-		Sample->frames[i].height = height;
-
-		fread(Sample->frames[i].data, width * height, 1, file);
-	}
-
-	Sample->imageLoaded = true;
-
-	fclose(file);
-}
-
-void calibClearJob(ldiCalibrationJob* Job) {
-	for (size_t i = 0; i < Job->samples.size(); ++i) {
-		calibFreeStereoCalibImages(&Job->samples[i]);
-	}
-	Job->samples.clear();
-
-	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
-		calibFreeStereoCalibImages(&Job->scanSamples[i]);
-	}
-	Job->scanSamples.clear();
-
-	Job->stereoCalibrated = false;
-	Job->metricsCalculated = false;
-	Job->scannerCalibrated = false;
-	Job->galvoCalibrated = false;
-}
-
-template<class T> void serializeVectorPrep(FILE* File, std::vector<T>& Vector) {
-	int size = Vector.size();
-	fwrite(&size, sizeof(int), 1, File);
-}
-
-template<class T> size_t deserializeVectorPrep(FILE* File, std::vector<T>& Vector) {
-	Vector.clear();
-
-	int result = 0;
-	fread(&result, sizeof(int), 1, File);
-
-	Vector.resize(result);
-
-	return (size_t)result;
-}
-
-size_t deserializeVectorPrep(FILE* File) {
-	int result = 0;
-	fread(&result, sizeof(int), 1, File);
-
-	return (size_t)result;
-}
-
-void serializeString(FILE* File, const std::string& String) {
-	int len = (int)String.length();
-	const char* str = String.c_str();
-
-	fwrite(&len, sizeof(int), 1, File);
-	fwrite(str, len, 1, File);
-}
-
-std::string deserializeString(FILE* File) {
-	int len;
-
-	fread(&len, sizeof(int), 1, File);
-	char* strBuf = new char[len + 1];
-	fread(strBuf, sizeof(char), len, File);
-	strBuf[len] = 0;
-
-	std::string result = std::string(strBuf);
-
-	delete[] strBuf;
-
-	return result;
-}
-
-void serializeMat(FILE* File, const cv::Mat& Mat) {
-	int type = Mat.type();
-	int channels = Mat.channels();
-	fwrite(&type, sizeof(int), 1, File);
-	fwrite(&channels, sizeof(int), 1, File);
-	fwrite(&Mat.rows, sizeof(int), 1, File);
-	fwrite(&Mat.cols, sizeof(int), 1, File);
-
-	if (!Mat.isContinuous()) {
-		std::cout << "Error: Mat is not continuous!\n";
-	}
-
-	fwrite(Mat.data, Mat.cols * Mat.rows, Mat.elemSize(), File);
-}
-
-cv::Mat deserializeMat(FILE* File) {
-	int type;
-	int channels;
-	int rows;
-	int cols;
-	fread(&type, sizeof(int), 1, File);
-	fread(&channels, sizeof(int), 1, File);
-	fread(&rows, sizeof(int), 1, File);
-	fread(&cols, sizeof(int), 1, File);
-	
-	cv::Mat result = cv::Mat(rows, cols, type);
-
-	fread(result.data, result.elemSize(), cols * rows, File);
-
-	return result;
-}
-
-void serializeCharucoBoard(FILE* File, ldiCharucoBoard* Board) {
-	fwrite(&Board->id, sizeof(ldiCharucoBoard::id), 1, File);
-
-	serializeVectorPrep(File, Board->corners);
-	for (size_t i = 0; i < Board->corners.size(); ++i) {
-		fwrite(&Board->corners[i], sizeof(ldiCharucoCorner), 1, File);
-	}
-
-	fwrite(&Board->localMat, sizeof(ldiCharucoBoard::localMat), 1, File);
-	
-	fwrite(&Board->camLocalMat, sizeof(ldiCharucoBoard::camLocalMat), 1, File);
-	fwrite(&Board->rejected, sizeof(ldiCharucoBoard::rejected), 1, File);
-	fwrite(&Board->camLocalCharucoEstimatedMat, sizeof(ldiCharucoBoard::camLocalCharucoEstimatedMat), 1, File);
-	fwrite(&Board->charucoEstimatedImageCenter, sizeof(ldiCharucoBoard::charucoEstimatedImageCenter), 1, File);
-	fwrite(&Board->charucoEstimatedImageNormal, sizeof(ldiCharucoBoard::charucoEstimatedImageNormal), 1, File);
-	fwrite(&Board->charucoEstimatedBoardAngle, sizeof(ldiCharucoBoard::charucoEstimatedBoardAngle), 1, File);
-
-	serializeVectorPrep(File, Board->reprojectdCorners);
-	for (size_t i = 0; i < Board->reprojectdCorners.size(); ++i) {
-		fwrite(&Board->reprojectdCorners[i], sizeof(vec2), 1, File);
-	}
-
-	serializeVectorPrep(File, Board->outline);
-	for (size_t i = 0; i < Board->outline.size(); ++i) {
-		fwrite(&Board->outline[i], sizeof(vec2), 1, File);
-	}
-}
-
-void deserializeCharucoBoard(FILE* File, ldiCharucoBoard* Board) {
-	fread(&Board->id, sizeof(ldiCharucoBoard::id), 1, File);
-
-	Board->corners.clear();
-	size_t count = deserializeVectorPrep(File);
-	for (size_t i = 0; i < count; ++i) {
-		ldiCharucoCorner corner = {};
-		fread(&corner, sizeof(ldiCharucoCorner), 1, File);
-		Board->corners.push_back(corner);
-	}
-
-	fread(&Board->localMat, sizeof(ldiCharucoBoard::localMat), 1, File);
-
-	fread(&Board->camLocalMat, sizeof(ldiCharucoBoard::camLocalMat), 1, File);
-	fread(&Board->rejected, sizeof(ldiCharucoBoard::rejected), 1, File);
-	fread(&Board->camLocalCharucoEstimatedMat, sizeof(ldiCharucoBoard::camLocalCharucoEstimatedMat), 1, File);
-	fread(&Board->charucoEstimatedImageCenter, sizeof(ldiCharucoBoard::charucoEstimatedImageCenter), 1, File);
-	fread(&Board->charucoEstimatedImageNormal, sizeof(ldiCharucoBoard::charucoEstimatedImageNormal), 1, File);
-	fread(&Board->charucoEstimatedBoardAngle, sizeof(ldiCharucoBoard::charucoEstimatedBoardAngle), 1, File);
-
-	Board->reprojectdCorners.clear();
-	count = deserializeVectorPrep(File);
-	for (size_t i = 0; i < count; ++i) {
-		vec2 corner = {};
-		fread(&corner, sizeof(vec2), 1, File);
-		Board->reprojectdCorners.push_back(corner);
-	}
-
-	Board->outline.clear();
-	count = deserializeVectorPrep(File);
-	for (size_t i = 0; i < count; ++i) {
-		vec2 corner = {};
-		fread(&corner, sizeof(vec2), 1, File);
-		Board->outline.push_back(corner);
-	}
-}
-
-void serialize(FILE* File, ldiModel* Model) {
-	serializeVectorPrep(File, Model->verts);
-	for (size_t i = 0; i < Model->verts.size(); ++i) {
-		fwrite(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
-	}
-
-	serializeVectorPrep(File, Model->indices);
-	for (size_t i = 0; i < Model->indices.size(); ++i) {
-		fwrite(&Model->indices[i], sizeof(uint32_t), 1, File);
-	}
-}
-
-void deserialize(FILE* File, ldiModel* Model) {
-	deserializeVectorPrep(File, Model->verts);
-	for (size_t i = 0; i < Model->verts.size(); ++i) {
-		fread(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
-	}
-
-	deserializeVectorPrep(File, Model->indices);
-	for (size_t i = 0; i < Model->indices.size(); ++i) {
-		fread(&Model->indices[i], sizeof(uint32_t), 1, File);
-	}
-}
-
-void serialize(FILE* File, ldiImage* Image, int Channels) {
-	fwrite(&Image->width, sizeof(int), 1, File);
-	fwrite(&Image->height, sizeof(int), 1, File);
-	fwrite(Image->data, Image->width * Image->height * Channels, 1, File);
-}
-
-void deserialize(FILE* File, ldiImage* Image, int Channels) {
-	fread(&Image->width, sizeof(int), 1, File);
-	fread(&Image->height, sizeof(int), 1, File);
-	Image->data = new uint8_t[Image->width * Image->height * Channels];
-	fread(Image->data, Image->width * Image->height * Channels, 1, File);
-}
-
-void serializeCalibCube(FILE* File, ldiCalibCube* Cube) {
-	fwrite(&Cube->cellSize, sizeof(float), 1, File);
-	fwrite(&Cube->gridSize, sizeof(int), 1, File);
-	fwrite(&Cube->pointsPerSide, sizeof(int), 1, File);
-	fwrite(&Cube->totalPoints, sizeof(int), 1, File);
-	fwrite(&Cube->scaleFactor, sizeof(float), 1, File);
-
-	serializeVectorPrep(File, Cube->points);
-	for (size_t i = 0; i < Cube->points.size(); ++i) {
-		fwrite(&Cube->points[i], sizeof(vec3), 1, File);
-	}
-
-	serializeVectorPrep(File, Cube->sides);
-	for (size_t i = 0; i < Cube->sides.size(); ++i) {
-		fwrite(&Cube->sides[i], sizeof(ldiCalibCubeSide), 1, File);
-	}
-
-	fwrite(&Cube->corners, sizeof(ldiCalibCube::corners), 1, File);
-}
-
-void deserializeCalibCube(FILE* File, ldiCalibCube* Cube) {
-	fread(&Cube->cellSize, sizeof(float), 1, File);
-	fread(&Cube->gridSize, sizeof(int), 1, File);
-	fread(&Cube->pointsPerSide, sizeof(int), 1, File);
-	fread(&Cube->totalPoints, sizeof(int), 1, File);
-	fread(&Cube->scaleFactor, sizeof(float), 1, File);
-
-	deserializeVectorPrep(File, Cube->points);
-	for (size_t i = 0; i < Cube->points.size(); ++i) {
-		fread(&Cube->points[i], sizeof(vec3), 1, File);
-	}
-
-	deserializeVectorPrep(File, Cube->sides);
-	for (size_t i = 0; i < Cube->sides.size(); ++i) {
-		fread(&Cube->sides[i], sizeof(ldiCalibCubeSide), 1, File);
-	}
-
-	fread(&Cube->corners, sizeof(ldiCalibCube::corners), 1, File);
-}
-
-// Save the entire current state of the calibration job.
-void calibSaveCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
-	FILE* file;
-	fopen_s(&file, FilePath.c_str(), "wb");
-
-	serializeVectorPrep(file, Job->samples);
-	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		auto sample = &Job->samples[sampleIter];
-
-		serializeString(file, sample->path.c_str());
-
-		fwrite(&sample->phase, sizeof(int), 1, file);
-		fwrite(&sample->X, sizeof(int), 1, file);
-		fwrite(&sample->Y, sizeof(int), 1, file);
-		fwrite(&sample->Z, sizeof(int), 1, file);
-		fwrite(&sample->C, sizeof(int), 1, file);
-		fwrite(&sample->A, sizeof(int), 1, file);
-
-		for (int chResIter = 0; chResIter < 2; ++chResIter) {
-			auto chRes = &sample->cubes[chResIter];
-
-			serializeVectorPrep(file, chRes->markers);
-			for (size_t markerIter = 0; markerIter < chRes->markers.size(); ++markerIter) {
-				auto marker = &chRes->markers[markerIter];
-				fwrite(&marker, sizeof(ldiCharucoMarker), 1, file);
-			}
-
-			serializeVectorPrep(file, chRes->rejectedMarkers);
-			for (size_t markerIter = 0; markerIter < chRes->rejectedMarkers.size(); ++markerIter) {
-				auto marker = &chRes->rejectedMarkers[markerIter];
-				fwrite(&marker, sizeof(ldiCharucoMarker), 1, file);
-			}
-
-			serializeVectorPrep(file, chRes->boards);
-			for (size_t boardIter = 0; boardIter < chRes->boards.size(); ++boardIter) {
-				serializeCharucoBoard(file, &chRes->boards[boardIter]);
-			}
-
-			serializeVectorPrep(file, chRes->rejectedBoards);
-			for (size_t boardIter = 0; boardIter < chRes->rejectedBoards.size(); ++boardIter) {
-				serializeCharucoBoard(file, &chRes->rejectedBoards[boardIter]);
-			}
-		}
-	}
-
-	for (int i = 0; i < 2; ++i) {
-		serializeMat(file, Job->defaultCamMat[i]);
-		serializeMat(file, Job->defaultCamDist[i]);
-		serializeMat(file, Job->refinedCamMat[i]);
-		serializeMat(file, Job->refinedCamDist[i]);
-	}
-
-	fwrite(&Job->stereoCalibrated, sizeof(bool), 1, file);
-	if (Job->stereoCalibrated) {
-		serializeVectorPrep(file, Job->stPoseToSampleIds);
-		for (size_t i = 0; i < Job->stPoseToSampleIds.size(); ++i) {
-			fwrite(&Job->stPoseToSampleIds[i], sizeof(int), 1, file);
-		}
-
-		serializeVectorPrep(file, Job->stCubeWorlds);
-		for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
-			fwrite(&Job->stCubeWorlds[i], sizeof(mat4), 1, file);
-		}
-
-		for (int i = 0; i < 2; ++i) {
-			fwrite(&Job->stStereoCamWorld[i], sizeof(mat4), 1, file);
-		}
-
-		serializeCalibCube(file, &Job->opCube);
-	}
-
-	fwrite(&Job->metricsCalculated, sizeof(bool), 1, file);
-	if (Job->metricsCalculated) {
-		serializeVectorPrep(file, Job->stBasisXPoints);
-		for (size_t i = 0; i < Job->stBasisXPoints.size(); ++i) {
-			fwrite(&Job->stBasisXPoints[i], sizeof(vec3), 1, file);
-		}
-
-		serializeVectorPrep(file, Job->stBasisYPoints);
-		for (size_t i = 0; i < Job->stBasisYPoints.size(); ++i) {
-			fwrite(&Job->stBasisYPoints[i], sizeof(vec3), 1, file);
-		}
-
-		serializeVectorPrep(file, Job->stBasisZPoints);
-		for (size_t i = 0; i < Job->stBasisZPoints.size(); ++i) {
-			fwrite(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
-		}
-		
-		fwrite(&Job->axisX, sizeof(ldiLine), 1, file);
-		fwrite(&Job->axisY, sizeof(ldiLine), 1, file);
-		fwrite(&Job->axisZ, sizeof(ldiLine), 1, file);
-		fwrite(&Job->axisC, sizeof(ldiLine), 1, file);
-		fwrite(&Job->axisA, sizeof(ldiLine), 1, file);
-
-		fwrite(&Job->basisX, sizeof(vec3), 1, file);
-		fwrite(&Job->basisY, sizeof(vec3), 1, file);
-		fwrite(&Job->basisZ, sizeof(vec3), 1, file);
-
-		fwrite(&Job->stepsToCm, sizeof(glm::f64vec3), 1, file);
-
-		serializeVectorPrep(file, Job->cubeWorlds);
-		for (size_t i = 0; i < Job->cubeWorlds.size(); ++i) {
-			fwrite(&Job->cubeWorlds[i], sizeof(mat4), 1, file);
-		}
-
-		for (int i = 0; i < 2; ++i) {
-			fwrite(&Job->camVolumeMat[i], sizeof(mat4), 1, file);
-		}
-	}
-
-	fwrite(&Job->scannerCalibrated, sizeof(bool), 1, file);
-	if (Job->scannerCalibrated) {
-		serializeVectorPrep(file, Job->scanSamples);
-		for (size_t sampleIter = 0; sampleIter < Job->scanSamples.size(); ++sampleIter) {
-			auto sample = &Job->scanSamples[sampleIter];
-
-			serializeString(file, sample->path.c_str());
-
-			fwrite(&sample->phase, sizeof(int), 1, file);
-			fwrite(&sample->X, sizeof(int), 1, file);
-			fwrite(&sample->Y, sizeof(int), 1, file);
-			fwrite(&sample->Z, sizeof(int), 1, file);
-			fwrite(&sample->C, sizeof(int), 1, file);
-			fwrite(&sample->A, sizeof(int), 1, file);
-		}
-
-		fwrite(&Job->scanPlane, sizeof(ldiPlane), 1, file);
-	}
-
-	fwrite(&Job->galvoCalibrated, sizeof(bool), 1, file);
-	if (Job->galvoCalibrated) {
-	}
-
-	fclose(file);
-}
-
-void calibSplitStereoSamplesJob(ldiCalibrationJob* Job) {
-	for (int sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		ldiCalibStereoSample& sample = Job->samples[sampleIter];
-		std::cout << sample.path << "\n";
-
-		calibLoadStereoSampleImages(&sample);
-		calibSaveCalibImage(&sample.frames[0], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_0");
-		calibSaveCalibImage(&sample.frames[1], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_1");
-		calibFreeStereoCalibImages(&sample);
-	}
-}
-
-// Loads entire state of the calibration job.
-bool calibLoadCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
-	calibClearJob(Job);
-
-	FILE* file;
-	fopen_s(&file, FilePath.c_str(), "rb");
-
-	if (file == 0) {
-		std::cout << "Could not open job file: " << FilePath << "\n";
-		return false;
-	}
-
-	size_t sampleCount = deserializeVectorPrep(file);
-	for (size_t sampleIter = 0; sampleIter < sampleCount; ++sampleIter) {
-		ldiCalibStereoSample sample = {};
-
-		sample.path = deserializeString(file);
-
-		fread(&sample.phase, sizeof(int), 1, file);
-		fread(&sample.X, sizeof(int), 1, file);
-		fread(&sample.Y, sizeof(int), 1, file);
-		fread(&sample.Z, sizeof(int), 1, file);
-		fread(&sample.C, sizeof(int), 1, file);
-		fread(&sample.A, sizeof(int), 1, file);
-
-		for (int chResIter = 0; chResIter < 2; ++chResIter) {
-			auto chRes = &sample.cubes[chResIter];
-
-			size_t markerCount = deserializeVectorPrep(file);
-			for (size_t markerIter = 0; markerIter < markerCount; ++markerIter) {
-				ldiCharucoMarker marker = {};
-				fread(&marker, sizeof(ldiCharucoMarker), 1, file);
-				chRes->markers.push_back(marker);
-			}
-
-			markerCount = deserializeVectorPrep(file);
-			for (size_t markerIter = 0; markerIter < markerCount; ++markerIter) {
-				ldiCharucoMarker marker = {};
-				fread(&marker, sizeof(ldiCharucoMarker), 1, file);
-				chRes->rejectedMarkers.push_back(marker);
-			}
-
-			size_t boardCount = deserializeVectorPrep(file);
-			for (size_t boardIter = 0; boardIter < boardCount; ++boardIter) {
-				ldiCharucoBoard board = {};
-				deserializeCharucoBoard(file, &board);
-				chRes->boards.push_back(board);
-			}
-
-			boardCount = deserializeVectorPrep(file);
-			for (size_t boardIter = 0; boardIter < boardCount; ++boardIter) {
-				ldiCharucoBoard board = {};
-				deserializeCharucoBoard(file, &board);
-				chRes->rejectedBoards.push_back(board);
-			}
-		}
-
-		Job->samples.push_back(sample);
-	}
-
-	for (int i = 0; i < 2; ++i) {
-		Job->defaultCamMat[i] = deserializeMat(file);
-		Job->defaultCamDist[i] = deserializeMat(file);
-		Job->refinedCamMat[i] = deserializeMat(file);
-		Job->refinedCamDist[i] = deserializeMat(file);
-	}
-
-	fread(&Job->stereoCalibrated, sizeof(bool), 1, file);
-	if (Job->stereoCalibrated) {
-		size_t count = deserializeVectorPrep(file, Job->stPoseToSampleIds);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stPoseToSampleIds[i], sizeof(int), 1, file);
-		}
-
-		count = deserializeVectorPrep(file, Job->stCubeWorlds);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stCubeWorlds[i], sizeof(mat4), 1, file);
-		}
-
-		for (int i = 0; i < 2; ++i) {
-			fread(&Job->stStereoCamWorld[i], sizeof(mat4), 1, file);
-		}
-
-		deserializeCalibCube(file, &Job->opCube);
-	}
-
-	fread(&Job->metricsCalculated, sizeof(bool), 1, file);
-	if (Job->metricsCalculated) {
-		size_t count = deserializeVectorPrep(file, Job->stBasisXPoints);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stBasisXPoints[i], sizeof(vec3), 1, file);
-		}
-
-		count = deserializeVectorPrep(file, Job->stBasisYPoints);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stBasisYPoints[i], sizeof(vec3), 1, file);
-		}
-
-		count = deserializeVectorPrep(file, Job->stBasisZPoints);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->stBasisZPoints[i], sizeof(vec3), 1, file);
-		}
-		
-		fread(&Job->axisX, sizeof(ldiLine), 1, file);
-		fread(&Job->axisY, sizeof(ldiLine), 1, file);
-		fread(&Job->axisZ, sizeof(ldiLine), 1, file);
-		fread(&Job->axisC, sizeof(ldiLine), 1, file);
-		fread(&Job->axisA, sizeof(ldiLine), 1, file);
-
-		fread(&Job->basisX, sizeof(vec3), 1, file);
-		fread(&Job->basisY, sizeof(vec3), 1, file);
-		fread(&Job->basisZ, sizeof(vec3), 1, file);
-
-		fread(&Job->stepsToCm, sizeof(glm::f64vec3), 1, file);
-
-		count = deserializeVectorPrep(file, Job->cubeWorlds);
-		for (size_t i = 0; i < count; ++i) {
-			fread(&Job->cubeWorlds[i], sizeof(mat4), 1, file);
-		}
-
-		for (int i = 0; i < 2; ++i) {
-			fread(&Job->camVolumeMat[i], sizeof(mat4), 1, file);
-		}
-	}
-
-	fread(&Job->scannerCalibrated, sizeof(bool), 1, file);
-	if (Job->scannerCalibrated) {
-		size_t count = deserializeVectorPrep(file, Job->scanSamples);
-		for (size_t sampleIter = 0; sampleIter < count; ++sampleIter) {
-			ldiCalibStereoSample sample = {};
-
-			sample.path = deserializeString(file);
-
-			fread(&sample.phase, sizeof(int), 1, file);
-			fread(&sample.X, sizeof(int), 1, file);
-			fread(&sample.Y, sizeof(int), 1, file);
-			fread(&sample.Z, sizeof(int), 1, file);
-			fread(&sample.C, sizeof(int), 1, file);
-			fread(&sample.A, sizeof(int), 1, file);
-
-			Job->scanSamples[sampleIter] = sample;
-		}
-
-		fread(&Job->scanPlane, sizeof(ldiPlane), 1, file);
-	}
-
-	fclose(file);
-}
-
 // Takes stereo image sample files and generates the initial calibration samples for a job.
-void calibFindInitialObservations(ldiCalibrationJob* Job, ldiHawk* Hawks, const std::string& DirectoryPath) {
+void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
 	calibClearJob(Job);
 
-	// TODO: Maybe reset defaul mats somewhere else?
-	Job->defaultCamMat = cv::Mat::eye(3, 3, CV_64F);
-	cv::Mat* dc = &Job->defaultCamMat;
-	dc->at<double>(0, 0) = 2666.92;
-	dc->at<double>(0, 1) = 0.0;
-	dc->at<double>(0, 2) = 1704.76;
-	dc->at<double>(1, 0) = 0.0;
-	dc->at<double>(1, 1) = 2683.62;
-	dc->at<double>(1, 2) = 1294.87;
-	dc->at<double>(2, 0) = 0.0;
-	dc->at<double>(2, 1) = 0.0;
-	dc->at<double>(2, 2) = 1.0;
+	Job->camMat = cv::Mat::eye(3, 3, CV_64F);
+	Job->camMat.at<double>(0, 0) = 2666.92;
+	Job->camMat.at<double>(0, 1) = 0.0;
+	Job->camMat.at<double>(0, 2) = 1704.76;
+	Job->camMat.at<double>(1, 0) = 0.0;
+	Job->camMat.at<double>(1, 1) = 2683.62;
+	Job->camMat.at<double>(1, 2) = 1294.87;
+	Job->camMat.at<double>(2, 0) = 0.0;
+	Job->camMat.at<double>(2, 1) = 0.0;
+	Job->camMat.at<double>(2, 2) = 1.0;
 
-	Job->defaultCamDist = cv::Mat::zeros(8, 1, CV_64F);
-	cv::Mat* dd = &Job->defaultCamDist;
-	dd->at<double>(0) = 0.1937769949436188;
-	dd->at<double>(1) = -0.3512980043888092;
-	dd->at<double>(2) = 0.002319999970495701;
-	dd->at<double>(3) = 0.00217368989251554;
-
-	Job->refinedCamMat[i] = Job->defaultCamMat[i].clone();
-	Job->refinedCamDist[i] = Job->defaultCamDist[i].clone();
+	Job->camDist = cv::Mat::zeros(8, 1, CV_64F);
+	Job->camDist.at<double>(0) = 0.1937769949436188;
+	Job->camDist.at<double>(1) = -0.3512980043888092;
+	Job->camDist.at<double>(2) = 0.002319999970495701;
+	Job->camDist.at<double>(3) = 0.00217368989251554;
 
 	std::vector<std::string> filePaths = listAllFilesInDirectory(DirectoryPath);
 
+	std::cout << "Filepaths: " << DirectoryPath << "\n";
+
 	for (int i = 0; i < filePaths.size(); ++i) {
 		if (endsWith(filePaths[i], ".dat")) {
-			ldiCalibStereoSample sample = {};
+			ldiCalibSample sample = {};
 			sample.path = filePaths[i];
 
-			calibLoadStereoCalibSampleData(&sample);
+			calibLoadCalibSampleData(&sample);
 
 			int hawkId = 0;
 
-			computerVisionFindCharuco(sample.frames[hawkId], &sample.cubes[hawkId], &Hawks[hawkId].defaultCameraMat, &Hawks[hawkId].defaultDistMat);
+			computerVisionFindCharuco(sample.frame, &sample.cube, &Job->camMat, &Job->camDist);
 
-			calibFreeStereoCalibImages(&sample);
+			calibFreeCalibImages(&sample);
 
 			Job->samples.push_back(sample);
 		}
 	}
-
-	for (int i = 0; i < 2; ++i) {
-		Job->defaultCamMat[i] = Hawks[i].defaultCameraMat.clone();
-		Job->defaultCamDist[i] = Hawks[i].defaultDistMat.clone();
-
-		Job->refinedCamMat[i] = Job->defaultCamMat[i].clone();
-		Job->refinedCamDist[i] = Job->defaultCamDist[i].clone();
-	}
 }
 
-void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0), bool UseExistringMetrics = true) {
+void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)) {
 	// Align basis to world as reasonably as possible.
 	Job->basisX = Job->axisX.direction;
 	Job->basisY = glm::normalize(glm::cross(Job->basisX, Job->axisZ.direction));
@@ -745,7 +87,7 @@ void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)
 	// Transfrom cube points to make the 0,0,0 cube the zero.
 	mat4 cubeTransform = volumeToWorld * CubeOffset;
 	//std::cout << "Zero transform: " << GetStr(&zeroTransform) << "\n";
-	calibCubeTransform(&Job->opCube, cubeTransform);
+	calibCubeTransform(&Job->cube, cubeTransform);
 
 	//----------------------------------------------------------------------------------------------------
 	// Transform all volume elements into world space.
@@ -756,48 +98,31 @@ void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)
 		Job->axisY.direction = glm::normalize(volumeToWorld * vec4(Job->axisY.direction, 0.0f));
 		Job->axisZ.direction = glm::normalize(volumeToWorld * vec4(Job->axisZ.direction, 0.0f));
 
-		for (size_t i = 0; i < Job->stBasisXPoints.size(); ++i) {
-			Job->stBasisXPoints[i] = volumeToWorld * vec4(Job->stBasisXPoints[i], 0.0f);
+		for (size_t i = 0; i < Job->axisXPoints.size(); ++i) {
+			Job->axisXPoints[i] = volumeToWorld * vec4(Job->axisXPoints[i], 0.0f);
 		}
 
-		for (size_t i = 0; i < Job->stBasisYPoints.size(); ++i) {
-			Job->stBasisYPoints[i] = volumeToWorld * vec4(Job->stBasisYPoints[i], 0.0f);
+		for (size_t i = 0; i < Job->axisYPoints.size(); ++i) {
+			Job->axisYPoints[i] = volumeToWorld * vec4(Job->axisYPoints[i], 0.0f);
 		}
 
-		for (size_t i = 0; i < Job->stBasisZPoints.size(); ++i) {
-			Job->stBasisZPoints[i] = volumeToWorld * vec4(Job->stBasisZPoints[i], 0.0f);
+		for (size_t i = 0; i < Job->axisZPoints.size(); ++i) {
+			Job->axisZPoints[i] = volumeToWorld * vec4(Job->axisZPoints[i], 0.0f);
 		}
 
 		// Cameras to world space.
-		if (UseExistringMetrics) {
-			Job->camVolumeMat[0] = volumeToWorld * Job->camVolumeMat[0];
-			Job->camVolumeMat[1] = volumeToWorld * Job->camVolumeMat[1];
-		} else {
-			Job->camVolumeMat[0] = volumeToWorld * Job->stStereoCamWorld[0];
-			Job->camVolumeMat[1] = volumeToWorld * Job->stStereoCamWorld[1];
-		}
-
+		Job->camVolumeMat = volumeToWorld * Job->camVolumeMat;
+		
 		// Normalize camera scale.
-		Job->camVolumeMat[0][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][0])), 0.0f);
-		Job->camVolumeMat[0][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][1])), 0.0f);
-		Job->camVolumeMat[0][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[0][2])), 0.0f);
-
-		Job->camVolumeMat[1][0] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][0])), 0.0f);
-		Job->camVolumeMat[1][1] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][1])), 0.0f);
-		Job->camVolumeMat[1][2] = vec4(glm::normalize(vec3(Job->camVolumeMat[1][2])), 0.0f);
+		Job->camVolumeMat[0] = vec4(glm::normalize(vec3(Job->camVolumeMat[0])), 0.0f);
+		Job->camVolumeMat[1] = vec4(glm::normalize(vec3(Job->camVolumeMat[1])), 0.0f);
+		Job->camVolumeMat[2] = vec4(glm::normalize(vec3(Job->camVolumeMat[2])), 0.0f);
 
 		// Cube poses.
-		if (UseExistringMetrics) {
-			for (size_t i = 0; i < Job->cubeWorlds.size(); ++i) {
-				Job->cubeWorlds[i] = volumeToWorld * Job->cubeWorlds[i];
-			}
-		} else {
-			Job->cubeWorlds.resize(Job->stCubeWorlds.size());
-			for (size_t i = 0; i < Job->stCubeWorlds.size(); ++i) {
-				Job->cubeWorlds[i] = volumeToWorld * Job->stCubeWorlds[i];
-			}
+		for (size_t i = 0; i < Job->cubePoses.size(); ++i) {
+			Job->cubePoses[i] = volumeToWorld * Job->cubePoses[i];
 		}
-
+		
 		// Axis C points.
 		for (size_t i = 0; i < Job->axisCPoints.size(); ++i) {
 			Job->axisCPoints[i] = volumeToWorld * vec4(Job->axisCPoints[i], 1.0f);
@@ -830,8 +155,8 @@ void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)
 void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->metricsCalculated = false;
 
-	if (!Job->stereoCalibrated) {
-		std::cout << "Can't calculate metrics, no stereo calibration\n";
+	if (!Job->initialEstimations) {
+		std::cout << "Can't calculate metrics, no initial estimations\n";
 		return;
 	}
 
@@ -857,8 +182,8 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	std::vector<ldiTbColumn> columnZ;
 
 	// TODO: Use view error to decide if view should be included.
-	for (size_t sampleIter = 0; sampleIter < Job->stPoseToSampleIds.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[sampleIter]];
+	for (size_t sampleIter = 0; sampleIter < Job->poseToSampleIds.size(); ++sampleIter) {
+		ldiCalibSample* sample = &Job->samples[Job->poseToSampleIds[sampleIter]];
 
 		if (sample->phase != 1) {
 			continue;
@@ -896,7 +221,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			pose.x = x;
 			pose.y = y;
 			pose.z = z;
-			pose.pose = Job->stCubeWorlds[sampleIter];
+			pose.pose = Job->cubePoses[sampleIter];
 			columnX[columnId].poses.push_back(pose);
 
 			//std::cout << "(X) View: " << sampleIter << " Sample: " << stereoSampleId[sampleIter] <<  " Mech: " << x << "," << y << "," << z << "\n";
@@ -926,7 +251,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			pose.x = x;
 			pose.y = y;
 			pose.z = z;
-			pose.pose = Job->stCubeWorlds[sampleIter];
+			pose.pose = Job->cubePoses[sampleIter];
 			columnY[columnId].poses.push_back(pose);
 		}
 
@@ -954,7 +279,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 			pose.x = x;
 			pose.y = y;
 			pose.z = z;
-			pose.pose = Job->stCubeWorlds[sampleIter];
+			pose.pose = Job->cubePoses[sampleIter];
 			columnZ[columnId].poses.push_back(pose);
 		}
 	}
@@ -1071,9 +396,9 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	//----------------------------------------------------------------------------------------------------
 	// Find basis directions.
 	//----------------------------------------------------------------------------------------------------
-	Job->stBasisXPoints.clear();
-	Job->stBasisYPoints.clear();
-	Job->stBasisZPoints.clear();
+	Job->axisXPoints.clear();
+	Job->axisYPoints.clear();
+	Job->axisZPoints.clear();
 
 	// X.
 	{
@@ -1088,7 +413,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 
 			for (size_t pointIter = 0; pointIter < columnX[i].poses.size(); ++pointIter) {
 				vec3 transPoint = vec3(columnX[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisXPoints.push_back(transPoint);
+				Job->axisXPoints.push_back(transPoint);
 			}
 		}
 	}
@@ -1106,7 +431,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 
 			for (size_t pointIter = 0; pointIter < columnY[i].poses.size(); ++pointIter) {
 				vec3 transPoint = vec3(columnY[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisYPoints.push_back(transPoint);
+				Job->axisYPoints.push_back(transPoint);
 			}
 		}
 	}
@@ -1124,14 +449,14 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 
 			for (size_t pointIter = 0; pointIter < columnZ[i].poses.size(); ++pointIter) {
 				vec3 transPoint = vec3(columnZ[i].poses[pointIter].pose[3]) - centroid;
-				Job->stBasisZPoints.push_back(transPoint);
+				Job->axisZPoints.push_back(transPoint);
 			}
 		}
 	}
 
-	Job->axisX = computerVisionFitLine(Job->stBasisXPoints);
-	Job->axisY = computerVisionFitLine(Job->stBasisYPoints);
-	Job->axisZ = computerVisionFitLine(Job->stBasisZPoints);
+	Job->axisX = computerVisionFitLine(Job->axisXPoints);
+	Job->axisY = computerVisionFitLine(Job->axisYPoints);
+	Job->axisZ = computerVisionFitLine(Job->axisZPoints);
 
 	//----------------------------------------------------------------------------------------------------
 	// Gather rotary axis samples.
@@ -1140,14 +465,14 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->axisAPoints.clear();
 
 	// Just for visualization.
-	for (size_t poseIter = 0; poseIter < Job->stPoseToSampleIds.size(); ++poseIter) {
-		ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[poseIter]];
+	for (size_t poseIter = 0; poseIter < Job->poseToSampleIds.size(); ++poseIter) {
+		ldiCalibSample* sample = &Job->samples[Job->poseToSampleIds[poseIter]];
 
 		if (sample->phase == 2) {
-			vec3 transPoint = Job->stCubeWorlds[poseIter][3];
+			vec3 transPoint = Job->cubePoses[poseIter][3];
 			Job->axisCPoints.push_back(transPoint);
 		} else if (sample->phase == 3) {
-			vec3 transPoint = Job->stCubeWorlds[poseIter][3];
+			vec3 transPoint = Job->cubePoses[poseIter][3];
 			Job->axisAPoints.push_back(transPoint);
 		}
 	}
@@ -1155,7 +480,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	std::vector<vec3> circOriginsC;
 	std::vector<vec3> circOriginsA;
 
-	for (size_t pointIter = 0; pointIter < Job->opCube.points.size(); ++pointIter) {
+	for (size_t pointIter = 0; pointIter < Job->cube.points.size(); ++pointIter) {
 		if (pointIter / 9 == 2) {
 			continue;
 		}
@@ -1163,14 +488,14 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		std::vector<vec3d> axisPointsC;
 		std::vector<vec3d> axisPointsA;
 
-		for (size_t poseIter = 0; poseIter < Job->stPoseToSampleIds.size(); ++poseIter) {
-			ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[poseIter]];
+		for (size_t poseIter = 0; poseIter < Job->poseToSampleIds.size(); ++poseIter) {
+			ldiCalibSample* sample = &Job->samples[Job->poseToSampleIds[poseIter]];
 
 			if (sample->phase == 2) {
-				vec3d transPoint = mat4d(Job->stCubeWorlds[poseIter]) * vec4d(Job->opCube.points[pointIter], 1.0);
+				vec3d transPoint = mat4d(Job->cubePoses[poseIter]) * vec4d(Job->cube.points[pointIter], 1.0);
 				axisPointsC.push_back(transPoint);
 			} else if (sample->phase == 3) {
-				vec3d transPoint = mat4d(Job->stCubeWorlds[poseIter]) * vec4d(Job->opCube.points[pointIter], 1.0);
+				vec3d transPoint = mat4d(Job->cubePoses[poseIter]) * vec4d(Job->cube.points[pointIter], 1.0);
 				axisPointsA.push_back(transPoint);
 			}
 		}
@@ -1195,10 +520,10 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	bool foundSample0 = false;
 
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
+		ldiCalibSample* sample = &Job->samples[sampleIter];
 
 		if (sample->phase == 0) {
-			samp0 = Job->stCubeWorlds[sampleIter];
+			samp0 = Job->cubePoses[sampleIter];
 			foundSample0 = true;
 			std::cout << "Zero sample: " << sampleIter << "\n";
 			break;
@@ -1210,7 +535,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 		return;
 	}
 
-	calibRealignWorldVolume(Job, samp0, false);
+	calibRealignWorldVolume(Job, samp0);
 	
 	Job->metricsCalculated = true;
 
@@ -1218,8 +543,6 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 }
 
 double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
-	int hawkId = 0;
-
 	std::vector<cv::Point3f> projPoints;
 
 	Job->projObs.clear();
@@ -1227,9 +550,9 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 	Job->projError.clear();
 	
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-	//for (size_t sampleIter = 0; sampleIter < Job->stPoseToSampleIds.size(); ++sampleIter) {
-		//ldiCalibStereoSample* sample = &Job->samples[Job->stPoseToSampleIds[sampleIter]];
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
+	//for (size_t sampleIter = 0; sampleIter < Job->initialPoseToSampleIds.size(); ++sampleIter) {
+		//ldiCalibStereoSample* sample = &Job->samples[Job->initialPoseToSampleIds[sampleIter]];
+		ldiCalibSample* sample = &Job->samples[sampleIter];
 
 		/*if (sample->phase != 3) {
 			continue;
@@ -1245,7 +568,7 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 		std::vector<vec3> points;
 		horseGetProjectionCubePoints(Job, pos, points);
 
-		std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkId].boards;
+		std::vector<ldiCharucoBoard>* boards = &sample->cube.boards;
 		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
 			ldiCharucoBoard* board = &(*boards)[boardIter];
 
@@ -1259,7 +582,7 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 		}
 	}
 
-	mat4 camMat = glm::inverse(Job->camVolumeMat[0]);
+	mat4 camMat = glm::inverse(Job->camVolumeMat);
 	cv::Mat rtMat = convertTransformToRT(convertGlmTransMatToOpenCvMat(camMat));
 	
 	cv::Mat r = cv::Mat::zeros(1, 3, CV_64F);
@@ -1272,7 +595,7 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 	t.at<double>(1) = rtMat.at<double>(4);
 	t.at<double>(2) = rtMat.at<double>(5);
 
-	cv::projectPoints(projPoints, r, t, Job->refinedCamMat[0], Job->refinedCamDist[0], Job->projReproj);
+	cv::projectPoints(projPoints, r, t, Job->camMat, Job->camDist, Job->projReproj);
 
 	double meanError = 0.0;
 	
@@ -1291,33 +614,30 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 }
 
 // Takes stereo image sample files and generates scanner calibration.
-void calibCalibrateScanner(ldiCalibrationJob* Job) {
+void calibCalibrateScanner(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
 	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
-		calibFreeStereoCalibImages(&Job->scanSamples[i]);
+		calibFreeCalibImages(&Job->scanSamples[i]);
 	}
 	Job->scanSamples.clear();
 	
 	Job->scannerCalibrated = false;
-	Job->scanPoints[0].clear();
-	Job->scanPoints[1].clear();
-	Job->scanRays[0].clear();
-	Job->scanRays[1].clear();
-	Job->scanWorldPoints[0].clear();
-	Job->scanWorldPoints[1].clear();
+	Job->scanPoints.clear();
+	Job->scanRays.clear();
+	Job->scanWorldPoints.clear();
 
 	if (!Job->metricsCalculated) {
 		std::cout << "Scanner calibration requires metrics to be calculated\n";
 		return;
 	}
 
-	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/scanner_calib/");
+	std::vector<std::string> filePaths = listAllFilesInDirectory(DirectoryPath);
 
 	for (int i = 0; i < filePaths.size(); ++i) {
 		if (endsWith(filePaths[i], ".dat")) {
-			ldiCalibStereoSample sample = {};
+			ldiCalibSample sample = {};
 			sample.path = filePaths[i];
 
-			calibLoadStereoCalibSampleData(&sample);
+			calibLoadCalibSampleData(&sample);
 
 			// Find machine basis for this sample position.
 			ldiHorsePosition horsePos = {};
@@ -1353,8 +673,16 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 			boundPlanes[3].normal = dir30;
 			boundPlanes[3].point = cubeCorners[3] + dir30 * 3.0f;
 
-			for (int j = 0; j < 1; ++j) {
-				std::vector<vec2> points = computerVisionFindScanLine(sample.frames[j]);
+			{
+				cv::Mat srcImage(cv::Size(sample.frame.width, sample.frame.height), CV_8UC1, sample.frame.data);
+				cv::Mat downscaleImage;
+				cv::Mat upscaleImage;
+
+				cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+				cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+
+				std::vector<vec2> points = computerVisionFindScanLine({ sample.frame.width / 2, sample.frame.height / 2, downscaleImage.data });
+				//std::vector<vec2> points = computerVisionFindScanLine(sample.frame);
 
 				std::vector<cv::Point2f> distortedPoints;
 				std::vector<cv::Point2f> undistortedPoints;
@@ -1363,16 +691,16 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 					distortedPoints.push_back(toPoint2f(points[pIter]));
 				}
 
-				cv::undistortPoints(distortedPoints, undistortedPoints, Job->refinedCamMat[j], Job->refinedCamDist[j], cv::noArray(), Job->refinedCamMat[j]);
+				cv::undistortPoints(distortedPoints, undistortedPoints, Job->camMat, Job->camDist, cv::noArray(), Job->camMat);
 
 				for (size_t pIter = 0; pIter < points.size(); ++pIter) {
 					points[pIter] = toVec2(undistortedPoints[pIter]);
 				}
 
-				Job->scanPoints[j].push_back(points);
+				Job->scanPoints.push_back(points);
 
 				// Project points against current machine basis.
-				ldiCamera camera = horseGetCamera(Job, horsePos, j, 3280, 2464);
+				ldiCamera camera = horseGetCamera(Job, horsePos, 3280, 2464);
 
 				//if (i == 0) {
 				{
@@ -1392,22 +720,22 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 						}
 
 						if (pointWithinBounds) {
-							Job->scanWorldPoints[j].push_back(worldPoint);
+							Job->scanWorldPoints.push_back(worldPoint);
 							//Job->scanRays[j].push_back(ray);
 						}
 					}
 				}
 			}
 
-			calibFreeStereoCalibImages(&sample);
+			calibFreeCalibImages(&sample);
 
 			Job->scanSamples.push_back(sample);
 		}
 	}
 
 	std::vector<vec3> allWorldPoints;
-	allWorldPoints.reserve(Job->scanWorldPoints[0].size() + Job->scanWorldPoints[1].size());
-	allWorldPoints.insert(allWorldPoints.begin(), Job->scanWorldPoints[0].begin(), Job->scanWorldPoints[0].end());
+	allWorldPoints.reserve(Job->scanWorldPoints.size() + Job->scanWorldPoints.size());
+	allWorldPoints.insert(allWorldPoints.begin(), Job->scanWorldPoints.begin(), Job->scanWorldPoints.end());
 	//allWorldPoints.insert(allWorldPoints.begin() + Job->scanWorldPoints[0].size(), Job->scanWorldPoints[1].begin(), Job->scanWorldPoints[1].end());
 
 	ldiPlane scanPlane;
@@ -1416,386 +744,7 @@ void calibCalibrateScanner(ldiCalibrationJob* Job) {
 	Job->scannerCalibrated = true;
 }
 
-//----------------------------------------------------------------------------------------------------
-// Bundle adjust experiments.
-//----------------------------------------------------------------------------------------------------
-void calibSaveFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
-	std::vector<int> viewId;
-	std::vector<int> stereoSampleId;
-	std::vector<int> camId;
-	std::vector<cv::Mat> camExtrinsics;
-	std::vector<cv::Mat> diffExtrinsics;
-	std::vector<std::vector<cv::Point2f>> observations;
-	std::vector<std::vector<int>> observationPointIds;
-
-	cv::Mat relativeMat = cv::Mat::zeros(1, 6, CV_64F);
-	int relativeMatCount = 0;
-
-	int totalImagePointCount = 0;
-
-	ldiCalibCube initialCube;
-	calibCubeInit(&initialCube);
-
-	// Find a pose for each calibration sample.
-	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-	//for (size_t sampleIter = 0; sampleIter < 344; ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
-
-		std::vector<cv::Point2f> imagePoints[2];
-		std::vector<int> imagePointIds[2];
-		cv::Mat camExts[2];
-		//mat4 camExts[2];
-
-		bool foundPoseInBothEyes = true;
-
-		for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
-			// Combine all boards into a set of image points and 3d target local points.
-			std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkIter].boards;
-
-			std::vector<cv::Point3f> worldPoints;
-
-			for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
-				ldiCharucoBoard* board = &(*boards)[boardIter];
-
-				for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
-					ldiCharucoCorner* corner = &board->corners[cornerIter];
-					int cornerGlobalId = (board->id * 9) + corner->id;
-					vec3 targetPoint = initialCube.points[cornerGlobalId];
-
-					imagePoints[hawkIter].push_back(cv::Point2f(corner->position.x, corner->position.y));
-					worldPoints.push_back(cv::Point3f(targetPoint.x, targetPoint.y, targetPoint.z));
-					imagePointIds[hawkIter].push_back(cornerGlobalId);
-				}
-			}
-
-			if (imagePoints[hawkIter].size() >= 6) {
-				cv::Mat r;
-				cv::Mat t;
-				
-				std::cout << "Find pose - Sample: " << sampleIter << " Hawk: " << hawkIter << "\n";
-				if (computerVisionFindGeneralPoseRT(&Job->defaultCamMat[hawkIter], &Job->defaultCamDist[hawkIter], &imagePoints[hawkIter], &worldPoints, &r, &t)) {
-					camExts[hawkIter] = cv::Mat::zeros(1, 6, CV_64F);
-					camExts[hawkIter].at<double>(0) = r.at<double>(0);
-					camExts[hawkIter].at<double>(1) = r.at<double>(1);
-					camExts[hawkIter].at<double>(2) = r.at<double>(2);
-					camExts[hawkIter].at<double>(3) = t.at<double>(0);
-					camExts[hawkIter].at<double>(4) = t.at<double>(1);
-					camExts[hawkIter].at<double>(5) = t.at<double>(2);
-				} else {
-					foundPoseInBothEyes = false;
-					break;
-				}
-			} else {
-				foundPoseInBothEyes = false;
-				break;
-			}
-		}
-
-		if (foundPoseInBothEyes) {
-			for (int hawkIter = 0; hawkIter < 2; ++hawkIter) {
-				
-				if (hawkIter == 0) {
-					stereoSampleId.push_back(sampleIter);
-					camExtrinsics.push_back(camExts[hawkIter]);
-				} else {
-					cv::Mat cam0 = convertRvecTvec(camExts[0]);
-					cv::Mat cam1 = convertRvecTvec(camExts[1]);
-					cam1 = cam1 * cam0.inv();
-
-					cv::Mat relativeRT = convertTransformToRT(cam1);
-
-					relativeMat += relativeRT;
-					relativeMatCount += 1;
-
-					diffExtrinsics.push_back(relativeRT);
-					//diffExtrinsics.push_back(camExts[hawkIter]);
-				}
-
-				viewId.push_back(stereoSampleId.size() - 1);
-				camId.push_back(hawkIter);
-				observations.push_back(imagePoints[hawkIter]);
-				observationPointIds.push_back(imagePointIds[hawkIter]);
-				totalImagePointCount += (int)imagePoints[hawkIter].size();
-			}
-		}
-	}
-
-	// Write file.
-	FILE* f;
-	fopen_s(&f, FilePath.c_str(), "w");
-	//fopen_s(&f, "C:/Projects/LDI/PyBA/ba_input.txt", "w");
-
-	if (f == 0) {
-		std::cout << "Could not open bundle adjust input file for writing\n";
-		return;
-	}
-
-	// Header.
-	fprintf(f, "%d %d %d\n", (int)stereoSampleId.size(), (int)initialCube.points.size(), totalImagePointCount);
-
-	// Starting intrinsics.
-	for (int i = 0; i < 2; ++i) {
-		//Job->defaultCamMat[i]
-
-		for (int j = 0; j < 9; ++j) {
-			fprintf(f, "%f ", Job->defaultCamMat[i].at<double>(j));
-		}
-
-		fprintf(f, "\n");
-
-		for (int j = 0; j < 8; ++j) {
-			fprintf(f, "%f ", Job->defaultCamDist[i].at<double>(j));
-		}
-
-		fprintf(f, "\n");
-	}
-
-	// Relative pose.
-	{
-		relativeMat /= (float)relativeMatCount;
-
-		// Starting relative stereo pose
-		// 6 params. r, t
-		for (int i = 0; i < 6; ++i) {
-			fprintf(f, "%f ", relativeMat.at<double>(i));
-		}
-
-		fprintf(f, "\n");
-	}
-
-	// Observations.
-	for (size_t viewIter = 0; viewIter < observations.size(); ++viewIter) {
-		std::vector<cv::Point2f>* viewPoints = &observations[viewIter];
-
-		for (size_t pointIter = 0; pointIter < observations[viewIter].size(); ++pointIter) {
-			cv::Point2f point = observations[viewIter][pointIter];
-			int pointId = observationPointIds[viewIter][pointIter];
-
-			fprintf(f, "%d %d %d %f %f\n", viewId[viewIter], camId[viewIter], pointId, point.x, point.y);
-		}
-	}
-
-	// Base poses.
-	for (size_t viewIter = 0; viewIter < stereoSampleId.size(); ++viewIter) {
-		fprintf(f, "%d ", stereoSampleId[viewIter]);
-		
-		// Camera extrinsics.
-		// 6 params. r, t
-		for (int i = 0; i < 6; ++i) {
-			fprintf(f, "%f ", camExtrinsics[viewIter].at<double>(i));
-		}
-
-		fprintf(f, "\n");
-	}
-
-	// 3D points.
-	for (size_t pointIter = 0; pointIter < initialCube.points.size(); ++pointIter) {
-		vec3 point = initialCube.points[pointIter];
-		fprintf(f, "%f %f %f\n", point.x, point.y, point.z);
-	}
-	
-	fclose(f);
-}
-
-void calibLoadFullBA(ldiCalibrationJob* Job, const std::string& FilePath) {
-	FILE* f;
-	fopen_s(&f, FilePath.c_str(), "r");
-
-	if (f == 0) {
-		std::cout << "Could not open bundle adjust file.\n";
-		return;
-	}
-
-	int basePoseCount;
-	int cubePointCount;
-
-	fscanf_s(f, "%d %d\n", &basePoseCount, &cubePointCount);
-	std::cout << "Base pose count: " << basePoseCount << " Cube point count: " << cubePointCount << "\n";
-
-	// Cam intrinsics
-	for (int i = 0; i < 2; ++i) {
-		double camInts[4];
-		double camDist[4];
-		fscanf_s(f, "%lf %lf %lf %lf\n", &camInts[0], &camInts[1], &camInts[2], &camInts[3]);
-		fscanf_s(f, "%lf %lf %lf %lf\n", &camDist[0], &camDist[1], &camDist[2], &camDist[3]);
-		
-		cv::Mat cam = cv::Mat::eye(3, 3, CV_64F);
-		cam.at<double>(0, 0) = camInts[0];
-		cam.at<double>(0, 1) = 0.0;
-		cam.at<double>(0, 2) = camInts[2];
-		cam.at<double>(1, 0) = 0.0;
-		cam.at<double>(1, 1) = camInts[1];
-		cam.at<double>(1, 2) = camInts[3];
-		cam.at<double>(2, 0) = 0.0;
-		cam.at<double>(2, 1) = 0.0;
-		cam.at<double>(2, 2) = 1.0;
-
-		cv::Mat dist = cv::Mat::zeros(8, 1, CV_64F);
-		dist.at<double>(0) = camDist[0];
-		dist.at<double>(1) = camDist[1];
-		dist.at<double>(2) = camDist[2];
-		dist.at<double>(3) = camDist[3];
-
-		Job->refinedCamMat[i] = cam;
-		Job->refinedCamDist[i] = dist;
-	}
-
-	mat4 cam0 = glm::identity<mat4>();
-	mat4 cam1 = glm::identity<mat4>();
-
-	{
-		// Relative pose
-		double pose[6];
-		fscanf_s(f, "%lf %lf %lf %lf %lf %lf\n", &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
-
-		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
-		rVec.at<double>(0) = pose[0];
-		rVec.at<double>(1) = pose[1];
-		rVec.at<double>(2) = pose[2];
-
-		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
-		tVec.at<double>(0) = pose[3];
-		tVec.at<double>(1) = pose[4];
-		tVec.at<double>(2) = pose[5];
-
-		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rVec, cvRotMat);
-
-		mat4 worldMat = glm::identity<mat4>();
-		worldMat[0][0] = cvRotMat.at<double>(0, 0);
-		worldMat[0][1] = cvRotMat.at<double>(1, 0);
-		worldMat[0][2] = cvRotMat.at<double>(2, 0);
-		worldMat[1][0] = cvRotMat.at<double>(0, 1);
-		worldMat[1][1] = cvRotMat.at<double>(1, 1);
-		worldMat[1][2] = cvRotMat.at<double>(2, 1);
-		worldMat[2][0] = cvRotMat.at<double>(0, 2);
-		worldMat[2][1] = cvRotMat.at<double>(1, 2);
-		worldMat[2][2] = cvRotMat.at<double>(2, 2);
-		worldMat[3][0] = tVec.at<double>(0);
-		worldMat[3][1] = tVec.at<double>(1);
-		worldMat[3][2] = tVec.at<double>(2);
-
-		worldMat = glm::inverse(worldMat);
-		cam1 = worldMat;
-	}
-
-	Job->stStereoCamWorld[0] = cam0;
-	Job->stStereoCamWorld[1] = cam1;
-
-	Job->stCubeWorlds.clear();
-	Job->stPoseToSampleIds.clear();
-
-	for (int i = 0; i < basePoseCount; ++i) {
-		int sampleId;
-		double pose[6];
-		fscanf_s(f, "%d %lf %lf %lf %lf %lf %lf\n", &sampleId, &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
-
-		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
-		rVec.at<double>(0) = pose[0];
-		rVec.at<double>(1) = pose[1];
-		rVec.at<double>(2) = pose[2];
-
-		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
-		tVec.at<double>(0) = pose[3];
-		tVec.at<double>(1) = pose[4];
-		tVec.at<double>(2) = pose[5];
-
-		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rVec, cvRotMat);
-
-		// NOTE: Had Y/Z negated
-		mat4 worldMat = glm::identity<mat4>();
-		worldMat[0][0] = cvRotMat.at<double>(0, 0);
-		worldMat[0][1] = cvRotMat.at<double>(1, 0);
-		worldMat[0][2] = cvRotMat.at<double>(2, 0);
-		worldMat[1][0] = cvRotMat.at<double>(0, 1);
-		worldMat[1][1] = cvRotMat.at<double>(1, 1);
-		worldMat[1][2] = cvRotMat.at<double>(2, 1);
-		worldMat[2][0] = cvRotMat.at<double>(0, 2);
-		worldMat[2][1] = cvRotMat.at<double>(1, 2);
-		worldMat[2][2] = cvRotMat.at<double>(2, 2);
-		worldMat[3][0] = tVec.at<double>(0);
-		worldMat[3][1] = tVec.at<double>(1);
-		worldMat[3][2] = tVec.at<double>(2);
-
-		Job->stPoseToSampleIds.push_back(sampleId);
-		Job->stCubeWorlds.push_back(worldMat);
-
-		mat4d worldMatD = glm::identity<mat4>();
-		worldMatD[0][0] = cvRotMat.at<double>(0, 0);
-		worldMatD[0][1] = cvRotMat.at<double>(1, 0);
-		worldMatD[0][2] = cvRotMat.at<double>(2, 0);
-		worldMatD[1][0] = cvRotMat.at<double>(0, 1);
-		worldMatD[1][1] = cvRotMat.at<double>(1, 1);
-		worldMatD[1][2] = cvRotMat.at<double>(2, 1);
-		worldMatD[2][0] = cvRotMat.at<double>(0, 2);
-		worldMatD[2][1] = cvRotMat.at<double>(1, 2);
-		worldMatD[2][2] = cvRotMat.at<double>(2, 2);
-		worldMatD[3][0] = tVec.at<double>(0);
-		worldMatD[3][1] = tVec.at<double>(1);
-		worldMatD[3][2] = tVec.at<double>(2);
-	}
-
-	std::vector<vec3> cubePoints;
-
-	for (int i = 0; i < cubePointCount; ++i) {
-		int pointId;
-		vec3 pos;
-		fscanf_s(f, "%d %f %f %f\n", &pointId, &pos.x, &pos.y, &pos.z);
-		std::cout << pointId << ": " << pos.x << ", " << pos.y << ", " << pos.z << "\n";
-
-		cubePoints.push_back(pos);
-	}
-
-	calibCubeInit(&Job->opCube);
-	Job->opCube.points = cubePoints;
-	calibCubeCalculateMetrics(&Job->opCube);
-
-	// TODO: Make sure to scale view positions, relative pose, etc.
-	fclose(f);
-}
-
-// Calculate stereo camera intrinsics, extrinsics, and cube transforms.
-void calibStereoCalibrate(ldiCalibrationJob* Job) {
-	std::cout << "Starting stereo calibration: " << getTime() << "\n";
-
-	Job->stereoCalibrated = false;
-	Job->stPoseToSampleIds.clear();
-	Job->stCubeWorlds.clear();
-
-	calibSaveFullBA(Job, "../cache/ba_input.txt");
-
-	STARTUPINFOA si;
-	PROCESS_INFORMATION pi;
-
-	ZeroMemory(&si, sizeof(si));
-	si.cb = sizeof(si);
-	ZeroMemory(&pi, sizeof(pi));
-
-	char args[2048];
-	sprintf_s(args, "python bundleAdjust.py ../../bin/cache/ba_input.txt ../../bin/cache/ba_refined.txt");
-
-	CreateProcessA(
-		NULL,
-		args,
-		NULL,
-		NULL,
-		FALSE,
-		0, //CREATE_NEW_CONSOLE,
-		NULL,
-		"../../assets/bin",
-		&si,
-		&pi
-	);
-
-	WaitForSingleObject(pi.hProcess, INFINITE);
-
-	calibLoadFullBA(Job, "../cache/ba_refined.txt");
-
-	Job->stereoCalibrated = true;
-}
-
-void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
+void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	// Unknown parameters (That need initial estimations):
 	// - X axis direction.
 	// - Y axis direction.
@@ -1806,29 +755,17 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	// - Camera intrinsics (camera matrix, lens distortion).
 	// - Camera extrinsics (position, rotation).
 
-	// TODO: There will eventually only be one camera.
-	int hawkId = 0;
+	ldiCalibCube initialCube;
+	calibCubeInit(&initialCube);
+	Job->cube = initialCube;
 
-	Job->stPoseToSampleIds.clear();
-	Job->stCubeWorlds.clear();
-
+	Job->poseToSampleIds.clear();
+	Job->cubePoses.clear();
+	Job->camVolumeMat = glm::identity<mat4>();
+	
 	//----------------------------------------------------------------------------------------------------
 	// Find a pose for each calibration sample.
 	//----------------------------------------------------------------------------------------------------
-	ldiCalibCube initialCube;
-	calibCubeInit(&initialCube);
-	//calibCubeTransform(&initialCube, glm::rotate(mat4(1.0f), glm::radians(45.0f), vec3Up));
-	Job->opCube = initialCube;
-
-	Job->stStereoCamWorld[0] = glm::identity<mat4>();
-	Job->stStereoCamWorld[1] = glm::identity<mat4>();
-
-	Job->refinedCamMat[0] = Job->defaultCamMat[0].clone();
-	Job->refinedCamDist[0] = Job->defaultCamDist[0].clone();
-
-	Job->refinedCamMat[1] = Job->defaultCamMat[1].clone();
-	Job->refinedCamDist[1] = Job->defaultCamDist[1].clone();
-
 	std::cout << "Find pose for each sample\n";
 
 	std::vector<std::vector<cv::Point2f>> viewObservations;
@@ -1836,14 +773,14 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	std::vector<ldiHorsePositionAbs> viewPositions;
 
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-		ldiCalibStereoSample* sample = &Job->samples[sampleIter];
+		ldiCalibSample* sample = &Job->samples[sampleIter];
 		std::vector<cv::Point2f> imagePoints;
 		std::vector<int> imagePointIds;
 		std::vector<cv::Point3f> worldPoints;
 		
 		cv::Mat poseRT;
 
-		std::vector<ldiCharucoBoard>* boards = &sample->cubes[hawkId].boards;
+		std::vector<ldiCharucoBoard>* boards = &sample->cube.boards;
 		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
 			ldiCharucoBoard* board = &(*boards)[boardIter];
 
@@ -1862,7 +799,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 			cv::Mat r;
 			cv::Mat t;
 
-			if (computerVisionFindGeneralPoseRT(&Job->defaultCamMat[hawkId], &Job->defaultCamDist[hawkId], &imagePoints, &worldPoints, &r, &t)) {
+			if (computerVisionFindGeneralPoseRT(&Job->camMat, &Job->camDist, &imagePoints, &worldPoints, &r, &t)) {
 				std::cout << "Found pose for sample " << sampleIter << "\n";
 
 				poseRT = cv::Mat::zeros(1, 6, CV_64F);
@@ -1876,8 +813,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 				cv::Mat camTransMat = convertRvecTvec(poseRT);
 				//cv::Mat cubeTransMat = camTransMat;//.inv();
 				mat4 cubeMat = convertOpenCvTransMatToGlmMat(camTransMat);
-				Job->stCubeWorlds.push_back(cubeMat);
-				Job->stPoseToSampleIds.push_back(sampleIter);
+				Job->cubePoses.push_back(cubeMat);
+				Job->poseToSampleIds.push_back(sampleIter);
 
 				// Add to BA output.
 				//if (sample->phase == 3) {
@@ -1907,7 +844,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	//----------------------------------------------------------------------------------------------------
 	// Get volume metrics.
 	//----------------------------------------------------------------------------------------------------
-	Job->stereoCalibrated = true;
+	Job->initialEstimations = true;
 	calibBuildCalibVolumeMetrics(Job);
 
 	double rmse = calibGetProjectionRMSE(Job);
@@ -1939,17 +876,17 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job, ldiHawk* Hawks) {
 	
 	// Starting intrinsics.
 	for (int j = 0; j < 9; ++j) {
-		fprintf(f, "%f ", Job->defaultCamMat[hawkId].at<double>(j));
+		fprintf(f, "%f ", Job->camMat.at<double>(j));
 	}
 	fprintf(f, "\n");
 
 	for (int j = 0; j < 8; ++j) {
-		fprintf(f, "%f ", Job->defaultCamDist[hawkId].at<double>(j));
+		fprintf(f, "%f ", Job->camDist.at<double>(j));
 	}
 	fprintf(f, "\n");
 
 	// Starting camera transform.
-	auto invMat = glm::inverse(Job->camVolumeMat[hawkId]);
+	auto invMat = glm::inverse(Job->camVolumeMat);
 	cv::Mat camExt = convertTransformToRT(convertGlmTransMatToOpenCvMat(invMat));
 	// 6 params. r, t
 	for (int i = 0; i < 6; ++i) {
@@ -2019,49 +956,41 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	dist.at<double>(2) = camDist[2];
 	dist.at<double>(3) = camDist[3];
 
-	Job->refinedCamMat[0] = cam;
-	Job->refinedCamDist[0] = dist;
+	Job->camMat = cam;
+	Job->camDist = dist;
 
-	{
-		double pose[6];
-		fscanf_s(f, "%lf %lf %lf %lf %lf %lf\n", &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
+	double pose[6];
+	fscanf_s(f, "%lf %lf %lf %lf %lf %lf\n", &pose[0], &pose[1], &pose[2], &pose[3], &pose[4], &pose[5]);
 
-		cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
-		rVec.at<double>(0) = pose[0];
-		rVec.at<double>(1) = pose[1];
-		rVec.at<double>(2) = pose[2];
+	cv::Mat rVec = cv::Mat::zeros(3, 1, CV_64F);
+	rVec.at<double>(0) = pose[0];
+	rVec.at<double>(1) = pose[1];
+	rVec.at<double>(2) = pose[2];
 
-		cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
-		tVec.at<double>(0) = pose[3];
-		tVec.at<double>(1) = pose[4];
-		tVec.at<double>(2) = pose[5];
+	cv::Mat tVec = cv::Mat::zeros(3, 1, CV_64F);
+	tVec.at<double>(0) = pose[3];
+	tVec.at<double>(1) = pose[4];
+	tVec.at<double>(2) = pose[5];
 
-		cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
-		cv::Rodrigues(rVec, cvRotMat);
+	cv::Mat cvRotMat = cv::Mat::zeros(3, 3, CV_64F);
+	cv::Rodrigues(rVec, cvRotMat);
 
-		mat4 worldMat = glm::identity<mat4>();
-		worldMat[0][0] = cvRotMat.at<double>(0, 0);
-		worldMat[0][1] = cvRotMat.at<double>(1, 0);
-		worldMat[0][2] = cvRotMat.at<double>(2, 0);
-		worldMat[1][0] = cvRotMat.at<double>(0, 1);
-		worldMat[1][1] = cvRotMat.at<double>(1, 1);
-		worldMat[1][2] = cvRotMat.at<double>(2, 1);
-		worldMat[2][0] = cvRotMat.at<double>(0, 2);
-		worldMat[2][1] = cvRotMat.at<double>(1, 2);
-		worldMat[2][2] = cvRotMat.at<double>(2, 2);
-		worldMat[3][0] = tVec.at<double>(0);
-		worldMat[3][1] = tVec.at<double>(1);
-		worldMat[3][2] = tVec.at<double>(2);
+	mat4 worldMat = glm::identity<mat4>();
+	worldMat[0][0] = cvRotMat.at<double>(0, 0);
+	worldMat[0][1] = cvRotMat.at<double>(1, 0);
+	worldMat[0][2] = cvRotMat.at<double>(2, 0);
+	worldMat[1][0] = cvRotMat.at<double>(0, 1);
+	worldMat[1][1] = cvRotMat.at<double>(1, 1);
+	worldMat[1][2] = cvRotMat.at<double>(2, 1);
+	worldMat[2][0] = cvRotMat.at<double>(0, 2);
+	worldMat[2][1] = cvRotMat.at<double>(1, 2);
+	worldMat[2][2] = cvRotMat.at<double>(2, 2);
+	worldMat[3][0] = tVec.at<double>(0);
+	worldMat[3][1] = tVec.at<double>(1);
+	worldMat[3][2] = tVec.at<double>(2);
 
-		worldMat = glm::inverse(worldMat);
-		Job->stStereoCamWorld[0] = worldMat;
-		Job->camVolumeMat[0] = worldMat;
-	}
-
-	//Job->cubeWorlds[0] = glm::identity<mat4>();
-
-	Job->stCubeWorlds.clear();
-	//Job->stPoseToSampleIds.clear();
+	worldMat = glm::inverse(worldMat);
+	Job->camVolumeMat = worldMat;
 
 	// Axis directions.
 	Job->axisX.origin = vec3Zero;
@@ -2088,8 +1017,8 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 		cubePoints.push_back(pos);
 	}
 
-	calibCubeInit(&Job->opCube);
-	Job->opCube.points = cubePoints;
+	calibCubeInit(&Job->cube);
+	Job->cube.points = cubePoints;
 	//calibCubeCalculateMetrics(&Job->opCube);
 
 	fclose(f);
@@ -2133,8 +1062,6 @@ void calibOptimizeVolume(ldiCalibrationJob* Job) {
 	calibLoadNewBA(Job, "../cache/ba_refined.txt");
 }
 
-#include <glm/gtx/vector_angle.hpp>
-
 void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::string& CalibPathB) {
 	ldiCalibrationJob jobA;
 	if (!calibLoadCalibJob(CalibPathA, &jobA)) {
@@ -2142,7 +1069,7 @@ void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::st
 	}
 
 	ldiCalibrationJob jobB;
-	if (calibLoadCalibJob(CalibPathB, &jobB)) {
+	if (!calibLoadCalibJob(CalibPathB, &jobB)) {
 		return;
 	}
 
@@ -2170,8 +1097,8 @@ void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::st
 	std::cout << "Angle YZ: " << aYZ << "\n";
 	std::cout << "Angle XA: " << aXA << "\n";
 	std::cout << "Angle XC: " << aXC << "\n";
-	std::cout << "Cam mat: " << jobA.refinedCamMat[0] << "\n";
-	std::cout << "Cam dist: " << jobA.refinedCamDist[0] << "\n";
+	std::cout << "Cam mat: " << jobA.camMat << "\n";
+	std::cout << "Cam dist: " << jobA.camDist << "\n";
 	
 	std::cout << "Set B:\n";
 	std::cout << "Angle XY: " << bXY << "\n";
@@ -2179,8 +1106,8 @@ void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::st
 	std::cout << "Angle YZ: " << bYZ << "\n";
 	std::cout << "Angle XA: " << bXA << "\n";
 	std::cout << "Angle XC: " << bXC << "\n";
-	std::cout << "Cam mat: " << jobB.refinedCamMat[0] << "\n";
-	std::cout << "Cam dist: " << jobB.refinedCamDist[0] << "\n";
+	std::cout << "Cam mat: " << jobB.camMat << "\n";
+	std::cout << "Cam dist: " << jobB.camDist << "\n";
 
 	std::cout << "Error:\n";
 	std::cout << "Angle XY: " << errorXY << "\n";
@@ -2188,6 +1115,6 @@ void calibCompareVolumeCalibrations(const std::string& CalibPathA, const std::st
 	std::cout << "Angle YZ: " << errorYZ << "\n";
 	std::cout << "Angle XA: " << errorXA << "\n";
 	std::cout << "Angle XC: " << errorXC << "\n";
-	std::cout << "Cam mat: " << (jobA.refinedCamMat[0] - jobB.refinedCamMat[0]) << "\n";
-	std::cout << "Cam dist: " << (jobA.refinedCamDist[0] - jobB.refinedCamDist[0]) << "\n";
+	std::cout << "Cam mat: " << (jobA.camMat - jobB.camMat) << "\n";
+	std::cout << "Cam dist: " << (jobA.camDist - jobB.camDist) << "\n";
 }

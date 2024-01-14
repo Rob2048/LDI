@@ -17,6 +17,8 @@ struct ldiCalibCube {
 	vec3 corners[8];
 };
 
+void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
+
 bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 	//----------------------------------------------------------------------------------------------------
 	// Centroid.
