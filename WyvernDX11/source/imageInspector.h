@@ -298,8 +298,7 @@ void _imageInspectorRenderHawkVolume(ldiImageInspector* Tool, int Width, int Hei
 		gfxCreateRenderView(Tool->appContext, &Tool->hawkViewBuffer, Width, Height);
 	}
 
-	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
-	ldiCalibrationJob* job = &calibContext->calibJob;
+	ldiCalibrationJob* job = &Tool->appContext->calibJob;
 
 	mat4 camWorldMat = job->camVolumeMat;
 	//mat4 camWorldMat = job->opInitialCamWorld[HawkId];
@@ -343,7 +342,7 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int
 		return;
 	}
 
-	ldiCalibrationJob* job = &Tool->appContext->calibrationContext->calibJob;
+	ldiCalibrationJob* job = &Tool->appContext->calibJob;
 	ldiCalibSample* sample;
 
 	if (SelectionType == 0) {
@@ -542,7 +541,7 @@ void imageInspectorDrawCharucoResults(ldiUiPositionInfo uiInfo, ldiCharucoResult
 }
 
 void imageInspectorShowUi(ldiImageInspector* Tool) {
-	ldiCalibrationContext* calibContext = Tool->appContext->calibrationContext;
+	ldiCalibrationJob* calibJob = &Tool->appContext->calibJob;
 
 	{
 		ldiHawk* mvCam = &Tool->appContext->platform->hawk;
@@ -582,14 +581,14 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				horsePos.c = Tool->appContext->platform->testPosC;
 				horsePos.a = Tool->appContext->platform->testPosA;
 
-				mat4 workTrans = horseGetWorkTransform(&calibContext->calibJob, horsePos);
+				mat4 workTrans = horseGetWorkTransform(calibJob, horsePos);
 				mat4 invWorkTrans = glm::inverse(workTrans);
 				
-				ldiPlane scanPlane = horseGetScanPlane(&calibContext->calibJob, horsePos);
+				ldiPlane scanPlane = horseGetScanPlane(calibJob, horsePos);
 				scanPlane.normal = -scanPlane.normal;
 				
 				// Project points onto scan plane.
-				ldiCamera camera = horseGetCamera(&calibContext->calibJob, horsePos, 3280, 2464);
+				ldiCamera camera = horseGetCamera(calibJob, horsePos, 3280, 2464);
 
 				for (size_t pIter = 0; pIter < Tool->hawkScanPoints.size(); ++pIter) {
 					ldiLine ray = screenToRay(&camera, Tool->hawkScanPoints[pIter]);
@@ -616,7 +615,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				cv::Mat image(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
 				cv::Mat outputImage(cv::Size(camImg.width, camImg.height), CV_8UC1);
 
-				cv::undistort(image, outputImage, calibContext->calibJob.camMat, calibContext->calibJob.camDist);
+				cv::undistort(image, outputImage, calibJob->camMat, calibJob->camDist);
 
 				ldiImage tempImg = camImg;
 				tempImg.data = outputImage.data;
@@ -716,7 +715,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ldiCharucoResults* charucos = &Tool->camImageCharucoResults;
 
 				if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1 && Tool->calibJobSelectedSampleType == 0) {
-					charucos = &Tool->appContext->calibrationContext->calibJob.samples[Tool->calibJobSelectedSampleId].cube;
+					charucos = &Tool->appContext->calibJob.samples[Tool->calibJobSelectedSampleId].cube;
 				}
 
 				ldiUiPositionInfo uiInfo = {};
@@ -731,8 +730,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			// Draw reprojection errors.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showReprojection) {
-				if (Tool->appContext->calibrationContext->calibJob.metricsCalculated) {
-					ldiCalibrationJob* job = &Tool->appContext->calibrationContext->calibJob;
+				if (Tool->appContext->calibJob.metricsCalculated) {
+					ldiCalibrationJob* job = &Tool->appContext->calibJob;
 
 					for (size_t i = 0; i < job->projObs.size(); ++i) {
 						ImVec2 uiPos = screenStartPos + (imgOffset + toImVec2(job->projObs[i])) * imgScale;
@@ -756,8 +755,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			{
 				if (Tool->imageMode == IIM_CALIBRATION_JOB && Tool->calibJobSelectedSampleId != -1 && Tool->calibJobSelectedSampleType == 1) {
 
-					if (calibContext->calibJob.scanPoints.size() > 0) {
-						std::vector<vec2>& points = calibContext->calibJob.scanPoints[Tool->calibJobSelectedSampleId];
+					if (Tool->appContext->calibJob.scanPoints.size() > 0) {
+						std::vector<vec2>& points = Tool->appContext->calibJob.scanPoints[Tool->calibJobSelectedSampleId];
 
 						for (size_t i = 0; i < points.size(); ++i) {
 							vec2 point = points[i];
@@ -896,22 +895,20 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 	// Volume calibration.
 	//----------------------------------------------------------------------------------------------------
 	if (ImGui::Begin("Calibration")) {
-		ldiCalibrationJob* job = &calibContext->calibJob;
-
 		if (ImGui::Button("Load job")) {
 			Tool->imageMode = IIM_CALIBRATION_JOB;
 			_imageInspectorSelectCalibJob(Tool, -1, -1);
 
 			std::string filePath;
 			if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Calibration file", L"*.cal")) {
-				calibLoadCalibJob(filePath, job);
+				calibLoadCalibJob(filePath, calibJob);
 			}
 		}
 
 		if (ImGui::Button("Save job")) {
 			std::string filePath;
 			if (showSaveFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, filePath, L"Calibration file", L"*.cal", L"cal")) {
-				calibSaveCalibJob(filePath, job);
+				calibSaveCalibJob(filePath, calibJob);
 			}
 		}
 
@@ -936,16 +933,16 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			std::string directoryPath;
 			if (showOpenDirectoryDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, directoryPath)) {
-				calibFindInitialObservations(job, directoryPath);
+				calibFindInitialObservations(calibJob, directoryPath);
 			}
 		}
 
 		if (ImGui::Button("Initial estimations")) {
-			calibGetInitialEstimations(job);
+			calibGetInitialEstimations(calibJob);
 		}
 
 		if (ImGui::Button("Optimize")) {
-			calibOptimizeVolume(job);
+			calibOptimizeVolume(calibJob);
 		}
 
 		ImGui::Separator();
@@ -956,7 +953,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			std::string directoryPath;
 			if (showOpenDirectoryDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, directoryPath)) {
-				calibCalibrateScanner(job, directoryPath);
+				calibCalibrateScanner(calibJob, directoryPath);
 			}
 		}
 
@@ -968,11 +965,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		ImGui::Separator();
 
-		ImGui::Text("Initial estimations: %s", job->initialEstimations ? "Yes" : "No");
-		ImGui::Text("Metrics calibrated: %s", job->metricsCalculated ? "Yes" : "No");
-		ImGui::Text("Scanner calibrated: %s", job->scannerCalibrated ? "Yes" : "No");
-		ImGui::Text("Galvo calibrated: %s", job->galvoCalibrated ? "Yes" : "No");
-		ImGui::Text("Volume calibration samples: %d", job->samples.size());
+		ImGui::Text("Initial estimations: %s", calibJob->initialEstimations ? "Yes" : "No");
+		ImGui::Text("Metrics calibrated: %s", calibJob->metricsCalculated ? "Yes" : "No");
+		ImGui::Text("Scanner calibrated: %s", calibJob->scannerCalibrated ? "Yes" : "No");
+		ImGui::Text("Galvo calibrated: %s", calibJob->galvoCalibrated ? "Yes" : "No");
+		ImGui::Text("Volume calibration samples: %d", calibJob->samples.size());
 
 		if (ImGui::CollapsingHeader("Volume calibration samples")) {
 			if (ImGui::BeginTable("table_volume_samples", 8, ImGuiTableFlags_Borders)) {
@@ -986,8 +983,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ImGui::TableSetupColumn("Boards", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 				ImGui::TableHeadersRow();
 
-				for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
-					ldiCalibSample* sample = &job->samples[sampleIter];
+				for (size_t sampleIter = 0; sampleIter < calibJob->samples.size(); ++sampleIter) {
+					ldiCalibSample* sample = &calibJob->samples[sampleIter];
 
 					ImGui::TableNextRow();
 
@@ -1037,8 +1034,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				ImGui::TableSetupColumn("C", ImGuiTableColumnFlags_WidthFixed, 50.0f);
 				ImGui::TableHeadersRow();
 
-				for (size_t sampleIter = 0; sampleIter < job->scanSamples.size(); ++sampleIter) {
-					ldiCalibSample* sample = &job->scanSamples[sampleIter];
+				for (size_t sampleIter = 0; sampleIter < calibJob->scanSamples.size(); ++sampleIter) {
+					ldiCalibSample* sample = &calibJob->scanSamples[sampleIter];
 
 					ImGui::TableNextRow();
 

@@ -625,14 +625,14 @@ bool _platformScan2(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 
 				// TODO: Make sure calib context is static here, we are potentially accessing it across threads.
 
-				mat4 workTrans = horseGetWorkTransform(&Platform->appContext->calibrationContext->calibJob, horsePos);
+				mat4 workTrans = horseGetWorkTransform(&Platform->appContext->calibJob, horsePos);
 				mat4 invWorkTrans = glm::inverse(workTrans);
 
-				ldiPlane scanPlane = horseGetScanPlane(&Platform->appContext->calibrationContext->calibJob, horsePos);
+				ldiPlane scanPlane = horseGetScanPlane(&Platform->appContext->calibJob, horsePos);
 				scanPlane.normal = -scanPlane.normal;
 
 				// Project points onto scan plane.
-				ldiCamera camera = horseGetCamera(&Platform->appContext->calibrationContext->calibJob, horsePos, 3280, 2464);
+				ldiCamera camera = horseGetCamera(&Platform->appContext->calibJob, horsePos, 3280, 2464);
 
 				for (size_t pIter = 0; pIter < scanPoints.size(); ++pIter) {
 					ldiLine ray = screenToRay(&camera, scanPoints[pIter]);
@@ -749,7 +749,7 @@ bool _platformScan(ldiPlatform* Platform, ldiPlatformJobScan* Job) {
 		}
 
 		// TODO: Make sure calib context is static here, we are potentially accessing it across threads.
-		ldiCalibrationJob* job = &Platform->appContext->calibrationContext->calibJob;
+		ldiCalibrationJob* job = &Platform->appContext->calibJob;
 
 		mat4 workTrans = horseGetWorkTransform(job, targetPos);
 		mat4 invWorkTrans = glm::inverse(workTrans);
@@ -1068,8 +1068,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		}
 	}
 
-	ldiCalibrationContext* calibContext = appContext->calibrationContext;
-	ldiCalibrationJob* job = &calibContext->calibJob;
+	ldiCalibrationJob* job = &appContext->calibJob;
 	ldiProjectContext* project = Tool->appContext->projectContext;
 	mat4 workTrans = glm::identity<mat4>();
 	mat4 workWorldMat = glm::identity<mat4>();
@@ -1098,7 +1097,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Camera positions.
 			//----------------------------------------------------------------------------------------------------
 			{
-				mat4 camWorldMat = calibContext->calibJob.camVolumeMat;
+				mat4 camWorldMat = job->camVolumeMat;
 				renderOrigin(appContext, Camera, camWorldMat, "Hawk W", TextBuffer);
 
 				vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
@@ -1207,63 +1206,63 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Calibration basis.
 			//----------------------------------------------------------------------------------------------------
 			if (Tool->showCalibVolumeBasis) {
-				for (size_t i = 0; i < calibContext->calibJob.axisXPoints.size(); ++i) {
+				for (size_t i = 0; i < job->axisXPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.axisXPoints[i];
+					vec3 point = job->axisXPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 
-				for (size_t i = 0; i < calibContext->calibJob.axisYPoints.size(); ++i) {
+				for (size_t i = 0; i < job->axisYPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.axisYPoints[i];
+					vec3 point = job->axisYPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 
-				for (size_t i = 0; i < calibContext->calibJob.axisZPoints.size(); ++i) {
+				for (size_t i = 0; i < job->axisZPoints.size(); ++i) {
 					vec3 col(0, 0.5, 0);
 					srand(i);
 					rand();
 					col = getRandomColorHighSaturation();
 
-					vec3 point = calibContext->calibJob.axisZPoints[i];
+					vec3 point = job->axisZPoints[i];
 					pushDebugSphere(&appContext->defaultDebug, point, 0.01, col, 8);
 				}
 
 				{
-					ldiLine line = calibContext->calibJob.axisX;
+					ldiLine line = job->axisX;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(1, 0, 0));
 				}
 
 				{
-					ldiLine line = calibContext->calibJob.axisY;
+					ldiLine line = job->axisY;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 1, 0));
 				}
 
 				{
-					ldiLine line = calibContext->calibJob.axisZ;
+					ldiLine line = job->axisZ;
 					pushDebugLine(&appContext->defaultDebug, line.origin - line.direction * 10.0f, line.origin + line.direction * 10.0f, vec3(0, 0, 1));
 				}
 
 				/*{
-					vec3 line = calibContext->calibJob.basisX;
+					vec3 line = job->basisX;
 					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0.5, 0, 0));
 				}
 
 				{
-					vec3 line = calibContext->calibJob.basisY;
+					vec3 line = job->basisY;
 					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0.5, 0));
 				}
 
 				{
-					vec3 line = calibContext->calibJob.basisZ;
+					vec3 line = job->basisZ;
 					pushDebugLine(&appContext->defaultDebug, line * -10.0f, line * 10.0f, vec3(0, 0, 0.5));
 				}*/
 

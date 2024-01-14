@@ -1,7 +1,5 @@
 #pragma once
 
-#include <fstream>
-
 auto _dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_1000);
 std::vector<cv::Ptr<cv::aruco::CharucoBoard>> _charucoBoards;
 

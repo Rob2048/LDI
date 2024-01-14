@@ -66,7 +66,6 @@ struct ldiPointCloudConstantBuffer {
 struct ldiPhysics;
 struct ldiImageInspector;
 struct ldiProjectContext;
-struct ldiCalibrationContext;
 struct ldiPlatform;
 
 struct ldiDebugPrims {
@@ -172,7 +171,7 @@ struct ldiApp {
 	ldiPlatform*				platform = 0;
 	
 	ldiProjectContext*			projectContext;
-	ldiCalibrationContext*		calibrationContext;
+	ldiCalibrationJob			calibJob;
 };
 
 //----------------------------------------------------------------------------------------------------
@@ -232,7 +231,6 @@ ldiImageInspector		_imageInspector = {};
 ldiModelEditor			_modelEditor = {};
 ldiGalvoInspector		_galvoInspector = {};
 ldiProjectContext		_projectContext = {};
-ldiCalibrationContext	_calibrationContext = {};
 
 //----------------------------------------------------------------------------------------------------
 // Windowing and GUI helpers.
@@ -429,7 +427,7 @@ bool _initResources(ldiApp* AppContext) {
 	std::cout << "Initializing resources\n";
 
 	//----------------------------------------------------------------------------------------------------
-	// Layouts.
+	// Vertex attribute layouts.
 	//----------------------------------------------------------------------------------------------------
 	D3D11_INPUT_ELEMENT_DESC basicLayout[] = {
 		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -876,9 +874,6 @@ int main() {
 	ldiApp* appContext = &_appContext;
 	_initTiming();
 
-	appContext->projectContext = &_projectContext;
-	appContext->calibrationContext = &_calibrationContext;
-
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
 	appContext->currentWorkingDir = std::string(dirBuff);
@@ -907,6 +902,8 @@ int main() {
 	}
 
 	initDebugPrimitives(&appContext->defaultDebug);
+
+	appContext->projectContext = &_projectContext;
 
 	appContext->physics = &_physics;
 	if (physicsInit(appContext, &_physics) != 0) {

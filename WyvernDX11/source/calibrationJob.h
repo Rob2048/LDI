@@ -59,19 +59,6 @@ struct ldiCalibSample {
 	ldiCharucoResults cube;
 };
 
-struct ldiCalibStereoSample {
-	std::string path;
-	int phase;
-	int X;
-	int Y;
-	int Z;
-	int C;
-	int A;
-	bool imageLoaded = false;
-	ldiImage frames[2];
-	ldiCharucoResults cubes[2];
-};
-
 struct ldiCalibrationJob {
 	std::vector<ldiCalibSample> samples;
 
@@ -120,10 +107,6 @@ struct ldiCalibrationJob {
 	std::vector<vec2> projObs;
 	std::vector<cv::Point2f> projReproj;
 	std::vector<double> projError;
-};
-
-struct ldiCalibrationContext {
-	ldiCalibrationJob calibJob;
 };
 
 void calibSaveCalibImage(ldiImage* Image, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib") {
@@ -232,75 +215,6 @@ void calibLoadSampleImages(ldiCalibSample* Sample) {
 
 	fclose(file);
 }
-
-//void calibLoadStereoCalibSampleData(ldiCalibStereoSample* Sample) {
-//	FILE* file;
-//	fopen_s(&file, Sample->path.c_str(), "rb");
-//
-//	fread(&Sample->phase, sizeof(int), 1, file);
-//	fread(&Sample->X, sizeof(int), 1, file);
-//	fread(&Sample->Y, sizeof(int), 1, file);
-//	fread(&Sample->Z, sizeof(int), 1, file);
-//	fread(&Sample->C, sizeof(int), 1, file);
-//	fread(&Sample->A, sizeof(int), 1, file);
-//
-//	int width;
-//	int height;
-//	fread(&width, 4, 1, file);
-//	fread(&height, 4, 1, file);
-//
-//	for (int i = 0; i < 2; ++i) {
-//		Sample->frames[i].data = new uint8_t[width * height];
-//		Sample->frames[i].width = width;
-//		Sample->frames[i].height = height;
-//
-//		fread(Sample->frames[i].data, width * height, 1, file);
-//	}
-//
-//	Sample->imageLoaded = true;
-//
-//	fclose(file);
-//}
-//
-//void calibFreeStereoCalibImages(ldiCalibStereoSample* Sample) {
-//	if (Sample->imageLoaded) {
-//		delete[] Sample->frames[0].data;
-//		delete[] Sample->frames[1].data;
-//		Sample->imageLoaded = false;
-//	}
-//}
-//
-//void calibLoadStereoSampleImages(ldiCalibStereoSample* Sample) {
-//	calibFreeStereoCalibImages(Sample);
-//
-//	FILE* file;
-//	fopen_s(&file, Sample->path.c_str(), "rb");
-//
-//	int dummy;
-//	fread(&dummy, sizeof(int), 1, file);
-//	fread(&dummy, sizeof(int), 1, file);
-//	fread(&dummy, sizeof(int), 1, file);
-//	fread(&dummy, sizeof(int), 1, file);
-//	fread(&dummy, sizeof(int), 1, file);
-//	fread(&dummy, sizeof(int), 1, file);
-//
-//	int width;
-//	int height;
-//	fread(&width, 4, 1, file);
-//	fread(&height, 4, 1, file);
-//
-//	for (int i = 0; i < 2; ++i) {
-//		Sample->frames[i].data = new uint8_t[width * height];
-//		Sample->frames[i].width = width;
-//		Sample->frames[i].height = height;
-//
-//		fread(Sample->frames[i].data, width * height, 1, file);
-//	}
-//
-//	Sample->imageLoaded = true;
-//
-//	fclose(file);
-//}
 
 void calibClearJob(ldiCalibrationJob* Job) {
 	for (size_t i = 0; i < Job->samples.size(); ++i) {
@@ -633,36 +547,6 @@ void calibSaveCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
 
 	fclose(file);
 }
-
-//void calibSplitStereoSamplesJob(ldiCalibrationJob* Job) {
-//	for (int sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-//		ldiCalibStereoSample& sample = Job->samples[sampleIter];
-//		std::cout << sample.path << "\n";
-//
-//		calibLoadStereoSampleImages(&sample);
-//		calibSaveCalibImage(&sample.frames[0], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_0");
-//		calibSaveCalibImage(&sample.frames[1], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, sampleIter, "volume_calib_1");
-//		calibFreeStereoCalibImages(&sample);
-//	}
-//}
-
-//void calibSplitStereoSamplesScanner() {
-//	std::vector<std::string> filePaths = listAllFilesInDirectory("../cache/scanner_calib/");
-//
-//	for (int i = 0; i < filePaths.size(); ++i) {
-//		if (endsWith(filePaths[i], ".dat")) {
-//			ldiCalibStereoSample sample = {};
-//			sample.path = filePaths[i];
-//
-//			calibLoadStereoCalibSampleData(&sample);
-//
-//			calibLoadStereoSampleImages(&sample);
-//			calibSaveCalibImage(&sample.frames[0], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, i, "scanner_calib_0");
-//			calibSaveCalibImage(&sample.frames[1], sample.X, sample.Y, sample.Z, sample.C, sample.A, sample.phase, i, "scanner_calib_1");
-//			calibFreeStereoCalibImages(&sample);
-//		}
-//	}
-//}
 
 // Loads entire state of the calibration job.
 bool calibLoadCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
