@@ -46,20 +46,20 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& Dir
 
 	for (int i = 0; i < filePaths.size(); ++i) {
 		if (endsWith(filePaths[i], ".dat")) {
+			std::cout << "Check file " << (i + 1) << "/" << filePaths.size() << " " << filePaths[i] << "\n";
+
 			ldiCalibSample sample = {};
 			sample.path = filePaths[i];
 
 			calibLoadCalibSampleData(&sample);
-
-			int hawkId = 0;
-
 			computerVisionFindCharuco(sample.frame, &sample.cube, &Job->camMat, &Job->camDist);
-
 			calibFreeCalibImages(&sample);
 
 			Job->samples.push_back(sample);
 		}
 	}
+
+	std::cout << "Initial observations complete\n";
 }
 
 void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)) {
@@ -388,10 +388,6 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	std::cout << "Dist avg X: " << distAvgX << "\n";
 	std::cout << "Dist avg Y: " << distAvgY << "\n";
 	std::cout << "Dist avg Z: " << distAvgZ << "\n";
-
-	//Job->stepsToCm = vec3(distAvgX, distAvgY, distAvgZ);
-	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
-	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
 
 	//----------------------------------------------------------------------------------------------------
 	// Find basis directions.
@@ -762,6 +758,10 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	Job->poseToSampleIds.clear();
 	Job->cubePoses.clear();
 	Job->camVolumeMat = glm::identity<mat4>();
+	Job->initialEstimations = false;
+
+	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
+	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
 	
 	//----------------------------------------------------------------------------------------------------
 	// Find a pose for each calibration sample.
@@ -820,12 +820,10 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 				//if (sample->phase == 3) {
 				{
 					// Save positions in absolute values.
-					double stepsToCm = 1.0 / ((200 * 32) / 0.8);
-
 					ldiHorsePositionAbs platformPos = {};
-					platformPos.x = sample->X * stepsToCm;
-					platformPos.y = sample->Y * stepsToCm;
-					platformPos.z = sample->Z * stepsToCm;
+					platformPos.x = sample->X * Job->stepsToCm.x;
+					platformPos.y = sample->Y * Job->stepsToCm.y;
+					platformPos.z = sample->Z * Job->stepsToCm.z;
 					platformPos.a = sample->A * (360.0 / (32.0 * 200.0 * 90.0));
 					platformPos.c = (sample->C - 13000) * (360.0 / (32.0 * 200.0 * 30.0));
 
@@ -931,8 +929,7 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	int cubePointCount;
 
 	fscanf_s(f, "%d\n", &cubePointCount);
-	std::cout << "Cube point count: " << cubePointCount << "\n";
-
+	
 	// Cam intrinsics
 	double camInts[4];
 	double camDist[4];
@@ -1012,19 +1009,14 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 		int pointId;
 		vec3 pos;
 		fscanf_s(f, "%d %f %f %f\n", &pointId, &pos.x, &pos.y, &pos.z);
-		std::cout << pointId << ": " << pos.x << ", " << pos.y << ", " << pos.z << "\n";
-
 		cubePoints.push_back(pos);
 	}
 
 	calibCubeInit(&Job->cube);
 	Job->cube.points = cubePoints;
-	//calibCubeCalculateMetrics(&Job->opCube);
+	calibCubeCalculateMetrics(&Job->cube, true);
 
 	fclose(f);
-
-	double stepsToCm = 1.0 / ((200 * 32) / 0.8);
-	Job->stepsToCm = glm::f64vec3(stepsToCm, stepsToCm, stepsToCm);
 
 	calibGetProjectionRMSE(Job);
 	calibRealignWorldVolume(Job);

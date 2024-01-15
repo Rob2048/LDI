@@ -19,7 +19,7 @@ struct ldiCalibCube {
 
 void computerVisionFitPlane(std::vector<vec3>& Points, ldiPlane* ResultPlane);
 
-bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
+bool calibCubeCalculateMetrics(ldiCalibCube* Cube, bool PrintDebug = false) {
 	//----------------------------------------------------------------------------------------------------
 	// Centroid.
 	//----------------------------------------------------------------------------------------------------
@@ -110,11 +110,13 @@ bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 	Cube->sides[5].corners[2] = Cube->corners[6];
 	Cube->sides[5].corners[3] = Cube->corners[5];
 
-	std::cout << "Calibration cube corner metrics\n";
-	std::cout << glm::distance(Cube->corners[0], Cube->corners[3]) << "\n";
-	std::cout << glm::distance(Cube->corners[3], Cube->corners[2]) << "\n";
-	std::cout << glm::distance(Cube->corners[2], Cube->corners[1]) << "\n";
-	std::cout << glm::distance(Cube->corners[1], Cube->corners[0]) << "\n";
+	if (PrintDebug) {
+		std::cout << "Calibration cube corner metrics:\n";
+		std::cout << "Distance 0 -> 3: " << glm::distance(Cube->corners[0], Cube->corners[3]) << "\n";
+		std::cout << "Distance 3 -> 2: " << glm::distance(Cube->corners[3], Cube->corners[2]) << "\n";
+		std::cout << "Distance 2 -> 1: " << glm::distance(Cube->corners[2], Cube->corners[1]) << "\n";
+		std::cout << "Distance 1 -> 0: " << glm::distance(Cube->corners[1], Cube->corners[0]) << "\n";
+	}
 
 	//----------------------------------------------------------------------------------------------------
 	// Scale factor.
@@ -150,14 +152,10 @@ bool calibCubeCalculateMetrics(ldiCalibCube* Cube) {
 
 	float distAvg = distAccum / (float)distCount;
 	Cube->scaleFactor = 0.9 / distAvg;
-	std::cout << "Avg dist: " << distAvg << " Scale factor: " << Cube->scaleFactor << "\n";
 
-	/*std::cout << glm::distance(Cube->corners[0], Cube->corners[3]) * Cube->scaleFactor << "\n";
-	std::cout << glm::distance(Cube->corners[3], Cube->corners[2]) * Cube->scaleFactor << "\n";
-	std::cout << glm::distance(Cube->corners[2], Cube->corners[1]) * Cube->scaleFactor << "\n";
-	std::cout << glm::distance(Cube->corners[1], Cube->corners[0]) * Cube->scaleFactor << "\n";*/
-
-	// TODO: Normalize to match scale?
+	if (PrintDebug) {
+		std::cout << "Board corner distance average: " << distAvg << " Scale factor: " << Cube->scaleFactor << "\n";
+	}
 
 	return true;
 }

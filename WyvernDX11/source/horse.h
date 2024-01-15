@@ -191,12 +191,18 @@ void horseGetProjectionCubePoints(ldiCalibrationJob* Job, ldiHorsePosition Posit
 	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
 
 	vec3 refToAxisC = Job->axisC.origin;
+	// NOTE: Match bundle adjust by locking axis.
+	refToAxisC.y = 0.0f;
+
 	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
 	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
 	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
 	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
 
 	vec3 refToAxisA = Job->axisA.origin;
+	// NOTE: Match bundle adjust by locking axis.
+	refToAxisA.x = 0.0f;
+
 	float axisAAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
 	mat4 axisARot = glm::rotate(mat4(1.0f), glm::radians(axisAAngleDeg), Job->axisA.direction);
 	mat4 axisAMat = axisARot * glm::translate(mat4(1.0), -refToAxisA);

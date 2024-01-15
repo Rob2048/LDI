@@ -45,7 +45,6 @@
 #include "ui.h"
 #include "calibrationJob.h"
 
-// TODO: Consider: Per frame, per object, per scene, etc...
 struct ldiBasicConstantBuffer {
 	vec4 screenSize;
 	mat4 mvp;
@@ -201,7 +200,6 @@ void _initTiming() {
 //----------------------------------------------------------------------------------------------------
 // Primary systems.
 //----------------------------------------------------------------------------------------------------
-
 #include "computerVision.h"
 #include "serialPort.h"
 #include "graphics.h"
@@ -232,7 +230,7 @@ ldiModelEditor			_modelEditor = {};
 ldiGalvoInspector		_galvoInspector = {};
 ldiProjectContext		_projectContext = {};
 
-//----------------------------------------------------------------------------------------------------
+//------------------------------------------------------------------------------------------------- ---
 // Windowing and GUI helpers.
 //----------------------------------------------------------------------------------------------------
 vec2 getMousePosition(ldiApp* AppContext) {

@@ -414,7 +414,7 @@ void createCharucos(bool Output) {
 	}
 }
 
-void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
+bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {
 	int offset = 1;
 
 	try {
@@ -443,7 +443,7 @@ void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 		
 		t0 = getTime() - t0;
-		std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
+		//std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
 
 		Results->markers.clear();
 		Results->boards.clear();
@@ -590,30 +590,19 @@ void computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 						Results->boards.push_back(board);
 					} else {
 						Results->rejectedBoards.push_back(board);
-						std::cout << "Board rejected\n";
+						//std::cout << "Board rejected\n";
 					}
 				}
 			}
 		}
 		
-		//for (int i = 0; i < boardCount; ++i) {
-		//	int markerCount = charucoIds[i].size();
-		//	//std::cout << "Board " << i << " markers: " << markerCount << "\n";
-
-		//	for (int j = 0; j < markerCount; ++j) {
-		//		int cornerId = charucoIds[i][j];
-		//		Results->charucoCorners.push_back(vec2(charucoCorners[i][j].x, charucoCorners[i][j].y));
-		//		Results->charucoIds.push_back(cornerId);
-		//		//std::cout << cornerId << ": " << charucoCorners[i][j].x << ", " << charucoCorners[i][j].y << "\n";
-		//	}
-		//}
-
-		/*t0 = getTime() - t0;
-		std::cout << "Find charuco: " << (t0 * 1000.0) << " ms\n";*/
+		return true;
 
 	} catch (cv::Exception e) {
 		std::cout << "Exception: " << e.what() << "\n" << std::flush;
 	}
+
+	return false;
 }
 
 void computerVisionCalibrateCameraCharuco(ldiApp* AppContext, std::vector<ldiCalibSample>* Samples, int ImageWidth, int ImageHeight, cv::Mat* CameraMatrix, cv::Mat* CameraDist) {

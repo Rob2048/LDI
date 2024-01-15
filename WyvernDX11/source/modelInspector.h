@@ -2614,24 +2614,24 @@ int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 		std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 	}*/
 
-	double t0 = getTime();
+	//double t0 = getTime();
 	/*if (!modelInspectorCalculateLaserViewPath(AppContext, ModelInspector)) {
 		return 1;
 	}*/
-	t0 = getTime() - t0;
-	std::cout << "View path: " << t0 * 1000.0f << " ms\n";
+	//t0 = getTime() - t0;
+	//std::cout << "View path: " << t0 * 1000.0f << " ms\n";
 
 	// TODO: Final point distrib from modelInspectorCalculateLaserViewPath.
 	//ModelInspector->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &ModelInspector->pointDistrib);
 	//modelInspectorCalcLaserPath(ModelInspector);
 
-	t0 = getTime();
+	//t0 = getTime();
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 0, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 1, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 2, surfelsMin, surfelsMax, 0.05f);
 	//modelInspectorCalcFullPoisson(AppContext, ModelInspector, 3, surfelsMin, surfelsMax, 0.05f);
-	t0 = getTime() - t0;
-	std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
+	//t0 = getTime() - t0;
+	//std::cout << "Full poisson: " << t0 * 1000.0f << " ms\n";
 
 	/*getColorFromCosAngle(0.0f);
 	getColorFromCosAngle(0.25f);
