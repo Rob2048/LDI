@@ -880,7 +880,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				//params.maxArea = 700;
 
 				cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
-				detector->detect(image, Tool->laserProfileBlobs);
+				//detector->detect(image, Tool->laserProfileBlobs);
 
 				//std::cout << "Blobs: " << Tool->laserProfileBlobs.size() << "\n";
 			}

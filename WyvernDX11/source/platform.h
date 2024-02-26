@@ -81,6 +81,7 @@ struct ldiPlatform {
 	ldiRenderModel				cubeModel;
 
 	bool						showDefaultCube = false;
+	bool						showScaleHelper = false;
 	bool						showMachineFrame = false;
 	bool						showCalibCube = true;
 	bool						showCalibCubeVolume = false;
@@ -1058,6 +1059,28 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 	pushDebugLine(&appContext->defaultDebug, vec3(0, -10, 0), vec3(0, 10, 0), gridColor);
 
+	if (Tool->showScaleHelper) {
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 0, 0), vec3(3, 5, 0), vec3(0.25, 0, 0.25));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 5, 0), vec3(3, 10, 0), vec3(0.5, 0, 0.5));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 10, 0), vec3(3, 12, 0), vec3(0.75, 0, 0.75));
+		pushDebugLine(&appContext->defaultDebug, vec3(3, 12, 0), vec3(3, 15, 0), vec3(1, 0, 1));
+
+		pushDebugBox(&appContext->defaultDebug, vec3(2.5, 10, 0), vec3(0.05, 0.05, 0.05), vec3(1, 0, 1));
+		pushDebugBoxSolid(&appContext->defaultDebug, vec3(1, 10, 0), vec3(0.005, 0.005, 0.005), vec3(1, 0, 1));
+
+		pushDebugBox(&appContext->defaultDebug, vec3(2.5, 10, -1.0), vec3(0.3, 0.3, 0.3), vec3(1, 0, 1));
+
+		for (int i = 0; i < 16; ++i) {
+			pushDebugLine(&appContext->defaultDebug, vec3(0, i, 0), vec3(3.0f, i, 0), vec3(0.5f, 0, 0.5f));
+		}
+
+		displayTextAtPoint(Camera, vec3(3, 0, 0), "0 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(Camera, vec3(3, 5, 0), "50 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(Camera, vec3(3, 10, 0), "100 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(Camera, vec3(3, 12, 0), "120 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+		displayTextAtPoint(Camera, vec3(3, 15, 0), "150 mm", vec4(1.0f, 1.0f, 1.0f, 1.0f), TextBuffer);
+	}
+
 	//----------------------------------------------------------------------------------------------------
 	// Default cube definition.
 	//----------------------------------------------------------------------------------------------------
@@ -1088,9 +1111,6 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		workWorldMat = workTrans;
 	}
 
-	//----------------------------------------------------------------------------------------------------
-	// Calibration job stuff.
-	//----------------------------------------------------------------------------------------------------
 	{	
 		if (job->metricsCalculated) {
 			//----------------------------------------------------------------------------------------------------
@@ -1712,6 +1732,7 @@ void platformShowUi(ldiPlatform* Tool) {
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");
+			ImGui::Checkbox("Show scale helper", &Tool->showScaleHelper);
 			ImGui::Checkbox("Show default cube", &Tool->showDefaultCube);
 			ImGui::Checkbox("Show machine frame", &Tool->showMachineFrame);
 			ImGui::Checkbox("Show calib cube", &Tool->showCalibCube);
