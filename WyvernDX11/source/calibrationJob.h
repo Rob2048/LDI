@@ -107,6 +107,10 @@ struct ldiCalibrationJob {
 	std::vector<vec2> projObs;
 	std::vector<cv::Point2f> projReproj;
 	std::vector<double> projError;
+
+	vec3 calibSensorOrigin;
+	vec3 calibSesnsorRot;
+	mat4 calibSensorMat;
 };
 
 void calibSaveCalibImage(ldiImage* Image, int X, int Y, int Z, int C, int A, int Phase, int ImgId, const std::string& Directory = "volume_calib") {

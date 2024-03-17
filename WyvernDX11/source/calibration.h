@@ -1034,7 +1034,7 @@ void calibOptimizeVolume(ldiCalibrationJob* Job) {
 	ZeroMemory(&pi, sizeof(pi));
 
 	char args[2048];
-	sprintf_s(args, "python bundleAdjust2.py ../../bin/cache/ba_input.txt ../../bin/cache/ba_refined.txt");
+	sprintf_s(args, "python bundleAdjust.py ../../bin/cache/ba_input.txt ../../bin/cache/ba_refined.txt");
 
 	CreateProcessA(
 		NULL,

@@ -84,6 +84,25 @@ vec3 projectPointToPlane(vec3 Point, ldiPlane Plane) {
 	return Point - Plane.normal * dist;
 }
 
+// Intersection of 2-planes: a variation based on the 3-plane version.
+// see: Graphics Gems 1 pg 305
+bool getRayAtPlaneIntersection(ldiPlane& A, ldiPlane& B, vec3& rayOrigin, vec3& rayNormal) {
+	vec3 p3Normal = glm::cross(A.normal, B.normal);
+	float det = glm::length2(p3Normal);
+
+	// If the determinant is 0, that means parallel planes, no intersection.
+	if (det != 0.0) {
+		float aD = glm::dot(-A.point, A.normal);
+		float bD = glm::dot(-B.point, B.normal);
+				
+		rayOrigin = ((glm::cross(p3Normal, B.normal) * aD) + (glm::cross(A.normal, p3Normal) * bD)) / det;
+		rayNormal = p3Normal;
+		return true;
+	} else {
+		return false;
+	}
+}
+
 bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
 	float denom = glm::dot(Plane.normal, Ray.direction);
 	
@@ -99,6 +118,50 @@ bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
 	}
 
 	return false;
+}
+
+//----------------------------------------------------------------------------------------------------
+// Rects.
+//----------------------------------------------------------------------------------------------------
+bool getLineRectIntersectionPoints(vec2 lineOrigin, vec2 lineDirection, vec2 rectMin, vec2 rectMax, vec2& EntryP, vec2& ExitP) {
+	float entryT = 0.0f;
+	float exitT = 0.0f;
+
+	if(lineDirection.x != 0.0f) {
+		float leftTouch = (rectMin.x - lineOrigin.x) / lineDirection.x;
+		float rightTouch = (rectMax.x - lineOrigin.x) / lineDirection.x;
+		entryT = std::fmin(leftTouch, rightTouch);
+		exitT = std::fmax(leftTouch, rightTouch);
+	} else if((lineOrigin.x < rectMin.x) || (lineOrigin.x >= rectMax.x)) {
+		return false;
+	}
+
+	if(lineDirection.y != 0.0f) {
+		float topTouch = (rectMin.y - lineOrigin.y) / lineDirection.y;
+		float bottomTouch = (rectMax.y - lineOrigin.y) / lineDirection.y;
+
+		if(lineDirection.x == 0.0f) {
+			entryT = std::fmin(topTouch, bottomTouch);
+			exitT = std::fmax(topTouch, bottomTouch);
+		} else {
+			float verticalEntry = std::fmin(topTouch, bottomTouch);
+			float verticalExit = std::fmax(topTouch, bottomTouch);
+
+			if((verticalExit < entryT) || (exitT < verticalEntry)) {
+				return false;
+			}
+
+			entryT = std::fmax(verticalEntry, entryT);
+			exitT = std::fmin(verticalExit, exitT);
+		}
+	} else if((lineOrigin.y < rectMin.y) || (lineOrigin.y > rectMax.y)) {
+		return false; 
+	}
+
+	EntryP = lineOrigin + lineDirection * entryT;
+	ExitP = lineOrigin + lineDirection * exitT;
+
+	return true;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -421,6 +484,14 @@ inline vec3 toVec3(cv::Point3f A) {
 
 inline vec3d toVec3(cv::Point3d A) {
 	return vec3d(A.x, A.y, A.z);
+}
+
+inline std::string GetStr(vec2 V) {
+	std::stringstream str;
+
+	str << V.x << ", " << V.y;
+
+	return str.str();
 }
 
 inline std::string GetStr(vec3 V) {

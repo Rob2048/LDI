@@ -1,5 +1,7 @@
 #pragma once
 
+#include "calibrationSensor.h"
+
 enum ldiPlatformJobType {
 	PJT_MOVE_AXIS,
 	PJT_DIAG,
@@ -83,12 +85,13 @@ struct ldiPlatform {
 	bool						showDefaultCube = false;
 	bool						showScaleHelper = false;
 	bool						showMachineFrame = false;
-	bool						showCalibCube = true;
+	bool						showCalibCube = false;
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = false;
-	bool						showScanPlane = false;
+	bool						showScanPlane = true;
 	bool						liveAxisUpdate = false;
+	bool						showCalibSensor = true;
 
 	bool						showSourceModelShaded = true;
 	bool						showSourceModelWireframe = false;
@@ -114,6 +117,8 @@ struct ldiPlatform {
 	vec3						scanBoundsMax = vec3(5, 5, 5);
 
 	ldiAnalogScope				scope;
+
+	ldiCalibSensor				calibSensor = {};
 };
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
@@ -872,6 +877,8 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 
 	calibCubeInit(&Tool->defaultCube);
 
+	calibSensorInit(&Tool->calibSensor);
+
 	horseInit(&Tool->horse);
 
 	if (!pantherInit(AppContext, &Tool->panther)) {
@@ -1197,6 +1204,77 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					for (size_t i = 0; i < job->scanRays.size(); ++i) {
 						ldiLine line = job->scanRays[i];
 						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
+					}
+				}
+
+				//----------------------------------------------------------------------------------------------------
+				// Calibration sensor.
+				//----------------------------------------------------------------------------------------------------
+				if (Tool->showCalibSensor) {
+					// TODO: Just for testing, should get actual transform from real calibration.
+					ldiTransform sensorTrans = {};
+					sensorTrans.world = workTrans * Tool->calibSensor.calibSensorMat;
+					mat4 sensorWorldInv = glm::inverse(sensorTrans.world);
+
+					vec3 sensorOrigin = transformGetWorldPoint(&sensorTrans, vec3(0, 0, 0));
+					vec3 sensorNormal = transformGetWorldPoint(&sensorTrans, vec3(0, 0, -1)) - sensorOrigin;
+					vec3 sensorAxisY = transformGetWorldPoint(&sensorTrans, vec3(0, 1, 0)) - sensorOrigin;
+					vec3 sensorAxisX = transformGetWorldPoint(&sensorTrans, vec3(1, 0, 0)) - sensorOrigin;
+					ldiPlane sensorPlane = { sensorOrigin, sensorNormal };
+					//pushDebugPlane(&appContext->defaultDebug, sensorPlane.point, sensorPlane.normal, 2, vec3(1, 0, 1));
+
+					// 1280px x 800px
+					// 3896um x 2453um = 1298.666666666667 x 817.6666666666667
+					// 3840um x 2400um
+					float sensorWidth = 0.3840;
+					float sensorHeight = 0.2400;
+
+					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(sensorWidth, sensorHeight), vec3(0, 0.5, 1.0));
+					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(4, 4), vec3(0, 0.5, 0.5));
+					renderTransformOrigin(Tool->appContext, Camera, &sensorTrans, "Sensor", TextBuffer);
+
+					vec3 topLeft = (sensorAxisX * (sensorWidth * -0.5f)) + (sensorAxisY * (sensorHeight * -0.5f)) + sensorOrigin;
+					displayTextAtPoint(Camera, topLeft, "0", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+					vec3 bottomRight = (sensorAxisX * (sensorWidth * 0.5f)) + (sensorAxisY * (sensorHeight * 0.5f)) + sensorOrigin;
+					displayTextAtPoint(Camera, bottomRight, "1280 x 800", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+
+					ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
+					//pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 2, vec3(1, 0, 1));
+
+					vec3 p0;
+					vec3 p1;
+					getRayAtPlaneIntersection(sensorPlane, scanPlane, p0, p1);
+					pushDebugLine(&appContext->defaultDebug, p0 - p1, p0 + p1, vec3(1, 0, 0));
+
+					// Convert plane instersection back to sensor pixel space.
+					vec3 p0Pixel = calibSensorFromWorldToPixel(&Tool->calibSensor, sensorWorldInv, p0);
+					vec3 p1Pixel = calibSensorFromWorldToPixel(&Tool->calibSensor, sensorWorldInv, p0 + p1);
+					vec3 lineDir = glm::normalize(p1Pixel - p0Pixel);
+					
+					Tool->calibSensor.intersectionLineP0 = p0Pixel;
+					Tool->calibSensor.intersectionLineP1 = p1Pixel;
+
+					// Convert sensor plane back to world space.
+					vec3 p0World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, p0Pixel);
+					vec3 p1World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, p1Pixel);
+					pushDebugSphere(&appContext->defaultDebug, p0World, 0.01, vec3(1, 0, 0), 6);
+					pushDebugSphere(&appContext->defaultDebug, p1World, 0.01, vec3(0, 1, 0), 6);
+
+					// Get the clip points of the line vs sensor in pixel space.
+					vec2 entryP;
+					vec2 exitP;
+					if (getLineRectIntersectionPoints(p0Pixel, lineDir, vec2(0, 0), vec2(Tool->calibSensor.widthPixels, Tool->calibSensor.heightPixels), entryP, exitP)) {
+						std::cout << "Hit " << GetStr(entryP) << " :: " << GetStr(exitP) << "\n";
+						Tool->calibSensor.hit = true;
+						Tool->calibSensor.hitP0 = entryP;
+						Tool->calibSensor.hitP1 = exitP;
+
+						vec3 hit0World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, vec3(entryP, 0));
+						vec3 hit1World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, vec3(exitP, 0));
+						pushDebugSphere(&appContext->defaultDebug, hit0World, 0.01, vec3(0, 0, 1), 6);
+						pushDebugSphere(&appContext->defaultDebug, hit1World, 0.01, vec3(0, 0, 1), 6);
+					} else {
+						Tool->calibSensor.hit = false;
 					}
 				}
 			}
@@ -1727,11 +1805,17 @@ void platformShowUi(ldiPlatform* Tool) {
 	ImGui::End();
 		
 	if (ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse)) {
+		if (ImGui::CollapsingHeader("Calibration sensor")) {
+			ImGui::DragFloat3("Pos", (float*)&Tool->calibSensor.calibSensorOrigin, 0.1f);
+			ImGui::DragFloat3("Rot", (float*)&Tool->calibSensor.calibSensorRot);
+		}
+
 		if (ImGui::CollapsingHeader("Viewport")) {
 			ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");
+			ImGui::Checkbox("Show calibration sensor", &Tool->showCalibSensor);
 			ImGui::Checkbox("Show scale helper", &Tool->showScaleHelper);
 			ImGui::Checkbox("Show default cube", &Tool->showDefaultCube);
 			ImGui::Checkbox("Show machine frame", &Tool->showMachineFrame);
@@ -2027,6 +2111,13 @@ void platformShowUi(ldiPlatform* Tool) {
 	}
 
 	ImGui::End();
+
+	//----------------------------------------------------------------------------------------------------
+	// Update calibration sensor TEMP.
+	//----------------------------------------------------------------------------------------------------
+	if (Tool->showCalibSensor) {
+		Tool->calibSensor.calibSensorMat = glm::translate(Tool->calibSensor.calibSensorOrigin) * glm::toMat4(quat(glm::radians(Tool->calibSensor.calibSensorRot)));
+	}
 
 	//----------------------------------------------------------------------------------------------------
 	// Platform 3D view.

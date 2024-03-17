@@ -166,6 +166,21 @@ inline void pushDebugPlane(ldiDebugPrims* Prims, vec3 Origin, vec3 Normal, float
 	pushDebugLine(Prims, v3, v0, Color);
 }
 
+inline void pushDebugRect(ldiDebugPrims* Prims, vec3 Origin, vec3 AxisX, vec3 AxisY, vec2 Size, vec3 Color) {
+	float hSizeX = Size.x * 0.5f;
+	float hSizeY = Size.y * 0.5f;
+
+	vec3 v0 = -AxisX * hSizeX - AxisY * hSizeY + Origin;
+	vec3 v1 = AxisX * hSizeX - AxisY * hSizeY + Origin;
+	vec3 v2 = AxisX * hSizeX + AxisY * hSizeY + Origin;
+	vec3 v3 = -AxisX * hSizeX + AxisY * hSizeY + Origin;
+
+	pushDebugLine(Prims, v0, v1, Color);
+	pushDebugLine(Prims, v1, v2, Color);
+	pushDebugLine(Prims, v2, v3, Color);
+	pushDebugLine(Prims, v3, v0, Color);
+}
+
 inline void pushDebugBox(ldiDebugPrims* Prims, vec3 Origin, vec3 Size, vec3 Color) {
 	vec3 halfSize = Size * 0.5f;
 	vec3 v0 = Origin + vec3(-halfSize.x, -halfSize.y, -halfSize.z);

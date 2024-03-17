@@ -1550,6 +1550,37 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		//----------------------------------------------------------------------------------------------------
+		// Calibration sensor temp.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->appContext->platform->showCalibSensor) {
+			ImVec2 imgOffset = toImVec2(Tool->imgOffset);
+			float imgScale = Tool->imgScale;
+
+			ldiCalibSensor* sensor = &Tool->appContext->platform->calibSensor;
+
+			ImVec2 sensorMin = screenStartPos + (imgOffset + ImVec2(0, 0)) * imgScale;
+			ImVec2 sensorMax = screenStartPos + (imgOffset + ImVec2(sensor->widthPixels, sensor->heightPixels)) * imgScale;
+			draw_list->AddRect(sensorMin, sensorMax, ImColor(255, 255, 255));
+
+			ImVec2 p0 = screenStartPos + (imgOffset + toImVec2(sensor->intersectionLineP0)) * imgScale;
+			draw_list->AddCircle(p0, 4.0f, ImColor(255, 0, 0));
+
+			ImVec2 p1 = screenStartPos + (imgOffset + toImVec2(sensor->intersectionLineP1)) * imgScale;
+			draw_list->AddCircle(p1, 4.0f, ImColor(0, 255, 0));
+
+			draw_list->AddLine(p0, p1, ImColor(170, 0, 0));
+
+			if (sensor->hit) {
+				ImVec2 h0 = screenStartPos + (imgOffset + toImVec2(sensor->hitP0)) * imgScale;
+				ImVec2 h1 = screenStartPos + (imgOffset + toImVec2(sensor->hitP1)) * imgScale;
+
+				draw_list->AddCircle(h0, 4.0f, ImColor(0, 0, 255));
+				draw_list->AddCircle(h1, 4.0f, ImColor(0, 0, 255));
+				draw_list->AddLine(h0, h1, ImColor(0, 0, 200));
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
 		// Draw cursor.
 		//----------------------------------------------------------------------------------------------------
 		if (surfaceResult.isHovered) {
