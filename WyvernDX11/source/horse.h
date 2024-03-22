@@ -57,7 +57,9 @@ void renderOrigin(ldiApp* AppContext, ldiCamera* Camera, mat4 WorldMatrix, std::
 	pushDebugLine(&AppContext->defaultDebug, root, p1, vec3(0, 1, 0));
 	pushDebugLine(&AppContext->defaultDebug, root, p2, vec3(0, 0, 1));
 
-	displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	if (!Text.empty()) {
+		displayTextAtPoint(Camera, root, Text, vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+	}
 }
 
 //----------------------------------------------------------------------------------------------------

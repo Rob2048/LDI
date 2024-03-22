@@ -123,7 +123,7 @@ bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
 //----------------------------------------------------------------------------------------------------
 // Rects.
 //----------------------------------------------------------------------------------------------------
-bool getLineRectIntersectionPoints(vec2 lineOrigin, vec2 lineDirection, vec2 rectMin, vec2 rectMax, vec2& EntryP, vec2& ExitP) {
+bool getLineRectIntersection(vec2 lineOrigin, vec2 lineDirection, vec2 rectMin, vec2 rectMax, vec2& EntryP, vec2& ExitP) {
 	float entryT = 0.0f;
 	float exitT = 0.0f;
 

@@ -206,6 +206,7 @@ void _initTiming() {
 #include "debugPrims.h"
 #include "spatialGrid.h"
 #include "physics.h"
+#include "verletPhysics.h"
 #include "hawk.h"
 #include "horse.h"
 #include "analogScope.h"

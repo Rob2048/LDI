@@ -118,7 +118,15 @@ struct ldiPlatform {
 
 	ldiAnalogScope				scope;
 
+	ldiCalibSensorCalibration	calibSensorCalibration = {};
 	ldiCalibSensor				calibSensor = {};
+	ldiVerletPhysics			verletPhysics = {};
+
+	vec3 newSensorOrigin = {};
+	vec3 newSensorAxisX = {};
+	vec3 newSensorAxisY = {};
+	vec3 newSensorAxisZ = {};
+	mat4 newSensorMat = {};
 };
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
@@ -878,6 +886,9 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	calibCubeInit(&Tool->defaultCube);
 
 	calibSensorInit(&Tool->calibSensor);
+	calibSensorCalibrationInit(&Tool->calibSensorCalibration, &Tool->calibSensor);
+
+	verletPhysicsInit(&Tool->verletPhysics);
 
 	horseInit(&Tool->horse);
 
@@ -1189,94 +1200,143 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			//----------------------------------------------------------------------------------------------------
 			// Scan calibration.
 			//----------------------------------------------------------------------------------------------------
-			if (job->metricsCalculated) {
-				if (Tool->showScanPlane) {
-					{
-						ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
-						pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
-					}
-
-					for (size_t i = 0; i < job->scanWorldPoints.size(); ++i) {
-						vec3 point = job->scanWorldPoints[i];
-						pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
-					}
-
-					for (size_t i = 0; i < job->scanRays.size(); ++i) {
-						ldiLine line = job->scanRays[i];
-						pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
-					}
-				}
-
-				//----------------------------------------------------------------------------------------------------
-				// Calibration sensor.
-				//----------------------------------------------------------------------------------------------------
-				if (Tool->showCalibSensor) {
-					// TODO: Just for testing, should get actual transform from real calibration.
-					ldiTransform sensorTrans = {};
-					sensorTrans.world = workTrans * Tool->calibSensor.calibSensorMat;
-					mat4 sensorWorldInv = glm::inverse(sensorTrans.world);
-
-					vec3 sensorOrigin = transformGetWorldPoint(&sensorTrans, vec3(0, 0, 0));
-					vec3 sensorNormal = transformGetWorldPoint(&sensorTrans, vec3(0, 0, -1)) - sensorOrigin;
-					vec3 sensorAxisY = transformGetWorldPoint(&sensorTrans, vec3(0, 1, 0)) - sensorOrigin;
-					vec3 sensorAxisX = transformGetWorldPoint(&sensorTrans, vec3(1, 0, 0)) - sensorOrigin;
-					ldiPlane sensorPlane = { sensorOrigin, sensorNormal };
-					//pushDebugPlane(&appContext->defaultDebug, sensorPlane.point, sensorPlane.normal, 2, vec3(1, 0, 1));
-
-					// 1280px x 800px
-					// 3896um x 2453um = 1298.666666666667 x 817.6666666666667
-					// 3840um x 2400um
-					float sensorWidth = 0.3840;
-					float sensorHeight = 0.2400;
-
-					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(sensorWidth, sensorHeight), vec3(0, 0.5, 1.0));
-					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(4, 4), vec3(0, 0.5, 0.5));
-					renderTransformOrigin(Tool->appContext, Camera, &sensorTrans, "Sensor", TextBuffer);
-
-					vec3 topLeft = (sensorAxisX * (sensorWidth * -0.5f)) + (sensorAxisY * (sensorHeight * -0.5f)) + sensorOrigin;
-					displayTextAtPoint(Camera, topLeft, "0", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
-					vec3 bottomRight = (sensorAxisX * (sensorWidth * 0.5f)) + (sensorAxisY * (sensorHeight * 0.5f)) + sensorOrigin;
-					displayTextAtPoint(Camera, bottomRight, "1280 x 800", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
-
+			if (Tool->showScanPlane) {
+				{
 					ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
-					//pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 2, vec3(1, 0, 1));
+					pushDebugPlane(&appContext->defaultDebug, scanPlane.point, scanPlane.normal, 10, vec3(1.0f, 0.0f, 0.0f));
+				}
 
-					vec3 p0;
-					vec3 p1;
-					getRayAtPlaneIntersection(sensorPlane, scanPlane, p0, p1);
-					pushDebugLine(&appContext->defaultDebug, p0 - p1, p0 + p1, vec3(1, 0, 0));
+				for (size_t i = 0; i < job->scanWorldPoints.size(); ++i) {
+					vec3 point = job->scanWorldPoints[i];
+					pushDebugSphere(&appContext->defaultDebug, point, 0.001, vec3(1, 0.4, 1), 6);
+				}
 
-					// Convert plane instersection back to sensor pixel space.
-					vec3 p0Pixel = calibSensorFromWorldToPixel(&Tool->calibSensor, sensorWorldInv, p0);
-					vec3 p1Pixel = calibSensorFromWorldToPixel(&Tool->calibSensor, sensorWorldInv, p0 + p1);
-					vec3 lineDir = glm::normalize(p1Pixel - p0Pixel);
-					
-					Tool->calibSensor.intersectionLineP0 = p0Pixel;
-					Tool->calibSensor.intersectionLineP1 = p1Pixel;
+				for (size_t i = 0; i < job->scanRays.size(); ++i) {
+					ldiLine line = job->scanRays[i];
+					pushDebugLine(&appContext->defaultDebug, line.origin, line.origin + line.direction * 50.0f, vec3(1.0f, 0.4f, 0.1f));
+				}
+			}
 
-					// Convert sensor plane back to world space.
-					vec3 p0World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, p0Pixel);
-					vec3 p1World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, p1Pixel);
-					pushDebugSphere(&appContext->defaultDebug, p0World, 0.01, vec3(1, 0, 0), 6);
-					pushDebugSphere(&appContext->defaultDebug, p1World, 0.01, vec3(0, 1, 0), 6);
+			//----------------------------------------------------------------------------------------------------
+			// Calibration sensor.
+			//----------------------------------------------------------------------------------------------------
+			if (Tool->showCalibSensor) {
+				ldiCalibSensorCalibration* c = &Tool->calibSensorCalibration;
+				ldiCalibSensor* s = &Tool->calibSensor;
+				ldiCalibSensor* e = &c->startingSensor;
 
-					// Get the clip points of the line vs sensor in pixel space.
-					vec2 entryP;
-					vec2 exitP;
-					if (getLineRectIntersectionPoints(p0Pixel, lineDir, vec2(0, 0), vec2(Tool->calibSensor.widthPixels, Tool->calibSensor.heightPixels), entryP, exitP)) {
-						std::cout << "Hit " << GetStr(entryP) << " :: " << GetStr(exitP) << "\n";
-						Tool->calibSensor.hit = true;
-						Tool->calibSensor.hitP0 = entryP;
-						Tool->calibSensor.hitP1 = exitP;
+				{
+					mat4 sensorWorld = workTrans * s->mat;
+					vec3 sensorOrigin = sensorWorld * vec4(0, 0, 0, 1.0f);
+					vec3 sensorAxisX = (vec3)(sensorWorld * vec4(1, 0, 0, 0.0f));
+					vec3 sensorAxisY = (vec3)(sensorWorld * vec4(0, 1, 0, 0.0f));
 
-						vec3 hit0World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, vec3(entryP, 0));
-						vec3 hit1World = calibSensorFromPixelToWorld(&Tool->calibSensor, sensorTrans.world, vec3(exitP, 0));
-						pushDebugSphere(&appContext->defaultDebug, hit0World, 0.01, vec3(0, 0, 1), 6);
-						pushDebugSphere(&appContext->defaultDebug, hit1World, 0.01, vec3(0, 0, 1), 6);
-					} else {
-						Tool->calibSensor.hit = false;
+					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(s->worldWidth, s->worldHeight), vec3(0, 0.5, 1.0));
+					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(4, 4), vec3(0, 0.5, 0.5));
+					renderOrigin(Tool->appContext, Camera, sensorWorld, "Sensor", TextBuffer);
+
+					//vec3 topLeft = (sensorAxisX * (s->worldWidth * -0.5f)) + (sensorAxisY * (s->worldHeight * -0.5f)) + sensorOrigin;
+					//displayTextAtPoint(Camera, topLeft, "0", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+					//vec3 bottomRight = (sensorAxisX * (s->worldWidth * 0.5f)) + (sensorAxisY * (s->worldHeight * 0.5f)) + sensorOrigin;
+					//displayTextAtPoint(Camera, bottomRight, "1280 x 800", vec4(1.0f, 1.0f, 1.0f, 0.6f), TextBuffer);
+				}
+
+				{
+					mat4 sensorWorld = workTrans * e->mat;
+					vec3 sensorOrigin = sensorWorld * vec4(0, 0, 0, 1.0f);
+					vec3 sensorAxisX = (vec3)(sensorWorld * vec4(1, 0, 0, 0.0f));
+					vec3 sensorAxisY = (vec3)(sensorWorld * vec4(0, 1, 0, 0.0f));
+
+					pushDebugRect(&appContext->defaultDebug, sensorOrigin, sensorAxisX, sensorAxisY, vec2(e->worldWidth, e->worldHeight), vec3(1.0, 0.5, 0.0));
+					renderOrigin(Tool->appContext, Camera, sensorWorld, "", TextBuffer);
+
+					mat4 sWorld = workTrans * s->mat;
+					mat4 eWorld = sensorWorld;
+
+					// Draw each sample in calib sensor calibration.
+					for (size_t i = 0; i < c->samples.size(); ++i) {
+						ldiCalibSensorCalibSample* sample = &c->samples[i];
+
+						ldiPlane worldPlane = sample->scanPlaneWorkSpace;
+						worldPlane.point = workTrans * vec4(worldPlane.point, 1.0f);
+						worldPlane.normal = workTrans * vec4(worldPlane.normal, 0.0f);
+						pushDebugPlane(&appContext->defaultDebug, worldPlane.point, worldPlane.normal, 10, vec3(1, 1, 0.0f));
+
+						{
+							vec3 p0 = calibSensorFromPixelToWorld(s, sWorld, sample->scanLineP0);
+							vec3 p1 = calibSensorFromPixelToWorld(s, sWorld, sample->scanLineP1);
+							pushDebugSphere(&appContext->defaultDebug, p0, 0.001, vec3(0, 0, 1), 4);
+							pushDebugSphere(&appContext->defaultDebug, p1, 0.001, vec3(0, 0, 1), 4);
+							pushDebugLine(&appContext->defaultDebug, p0, p1, vec3(0, 0, 0.5));
+
+							//vec3 proj0 = projectPointToPlane(p0, worldPlane);
+							//pushDebugSphere(&appContext->defaultDebug, proj0, 0.01, vec3(1, 1, 0), 6);
+							//pushDebugLine(&appContext->defaultDebug, p0, proj0, vec3(0.5, 0.5, 0));
+
+							//vec3 proj1 = projectPointToPlane(p1, worldPlane);
+							//pushDebugSphere(&appContext->defaultDebug, proj1, 0.01, vec3(1, 1, 0), 6);
+							//pushDebugLine(&appContext->defaultDebug, p1, proj1, vec3(0.5, 0.5, 0));
+
+							//float expectedDist = glm::distance(p0, p1);
+							//float actualDist = glm::distance(proj0, proj1);
+							////std::cout << expectedDist << " : " << actualDist << "\n";
+
+							//vec3 projMid = (proj1 - proj0) * 0.5f + proj0;
+							//pushDebugSphere(&appContext->defaultDebug, projMid, 0.0075, vec3(1, 0.5, 0), 6);
+							//vec3 projDir = glm::normalize(proj1 - proj0);
+
+							//vec3 target0 = projMid + projDir * (expectedDist * 0.5f);
+							//vec3 target1 = projMid - projDir * (expectedDist * 0.5f);
+							//pushDebugSphere(&appContext->defaultDebug, target0, 0.005, vec3(1, 0, 0), 6);
+							//pushDebugSphere(&appContext->defaultDebug, target1, 0.005, vec3(1, 0, 0), 6);
+						}
+
+						{
+							vec3 p0 = calibSensorFromPixelToWorld(e, eWorld, sample->scanLineP0);
+							vec3 p1 = calibSensorFromPixelToWorld(e, eWorld, sample->scanLineP1);
+							pushDebugSphere(&appContext->defaultDebug, p0, 0.001, vec3(0, 1, 0), 4);
+							pushDebugSphere(&appContext->defaultDebug, p1, 0.001, vec3(0, 1, 0), 4);
+							pushDebugLine(&appContext->defaultDebug, p0, p1, vec3(0, 0.5, 0));
+
+							//vec3 proj0 = projectPointToPlane(p0, worldPlane);
+							////pushDebugSphere(&appContext->defaultDebug, proj0, 0.01, vec3(1, 1, 0), 6);
+							////pushDebugLine(&appContext->defaultDebug, p0, proj0, vec3(0.5, 0.5, 0));
+
+							//vec3 proj1 = projectPointToPlane(p1, worldPlane);
+							////pushDebugSphere(&appContext->defaultDebug, proj1, 0.01, vec3(1, 1, 0), 6);
+							////pushDebugLine(&appContext->defaultDebug, p1, proj1, vec3(0.5, 0.5, 0));
+
+							//float expectedDist = glm::distance(p0, p1);
+							//float actualDist = glm::distance(proj0, proj1);
+							////std::cout << expectedDist << " : " << actualDist << "\n";
+
+							//vec3 projMid = (proj1 - proj0) * 0.5f + proj0;
+							//vec3 projDir = glm::normalize(proj1 - proj0);
+							////pushDebugSphere(&appContext->defaultDebug, projMid, 0.0075, vec3(1, 0.5, 0), 6);
+
+							//vec3 target0 = projMid + projDir * (expectedDist * 0.5f);
+							//vec3 target1 = projMid - projDir * (expectedDist * 0.5f);
+							//pushDebugSphere(&appContext->defaultDebug, target0, 0.005, vec3(1, 0, 0), 6);
+							//pushDebugSphere(&appContext->defaultDebug, target1, 0.005, vec3(1, 0, 0), 6);
+
+							//pushDebugLine(&appContext->defaultDebug, p0, target1, vec3(0.5, 0.5, 0));
+							//pushDebugLine(&appContext->defaultDebug, p1, target0, vec3(0.5, 0.5, 0));
+						}
 					}
 				}
+
+				pushDebugLine(&appContext->defaultDebug, s->worldScanIntP0, s->worldScanIntP1, vec3(1, 0, 0));
+
+				if (s->hit) {
+					pushDebugSphere(&appContext->defaultDebug, s->hitWorldP0, 0.01, vec3(0, 0, 1), 6);
+					pushDebugSphere(&appContext->defaultDebug, s->hitWorldP1, 0.01, vec3(0, 0, 1), 6);
+				}
+
+				verletPhysicsRender(&appContext->defaultDebug, &Tool->verletPhysics, workTrans);
+
+				pushDebugLine(&appContext->defaultDebug,  workTrans * vec4(Tool->newSensorOrigin, 1.0f), workTrans * vec4(Tool->newSensorOrigin + Tool->newSensorAxisX, 1.0f), vec3(1, 0, 0));
+				pushDebugLine(&appContext->defaultDebug,  workTrans * vec4(Tool->newSensorOrigin, 1.0f), workTrans * vec4(Tool->newSensorOrigin + Tool->newSensorAxisY, 1.0f), vec3(0, 1, 0));
+				pushDebugLine(&appContext->defaultDebug,  workTrans * vec4(Tool->newSensorOrigin, 1.0f), workTrans * vec4(Tool->newSensorOrigin + Tool->newSensorAxisZ, 1.0f), vec3(0, 0, 1));
 			}
 			
 			//----------------------------------------------------------------------------------------------------
@@ -1806,8 +1866,162 @@ void platformShowUi(ldiPlatform* Tool) {
 		
 	if (ImGui::Begin("Platform controls", 0, ImGuiWindowFlags_NoCollapse)) {
 		if (ImGui::CollapsingHeader("Calibration sensor")) {
-			ImGui::DragFloat3("Pos", (float*)&Tool->calibSensor.calibSensorOrigin, 0.1f);
-			ImGui::DragFloat3("Rot", (float*)&Tool->calibSensor.calibSensorRot);
+			ImGui::DragFloat3("Pos", (float*)&Tool->calibSensor.position, 0.1f);
+			ImGui::DragFloat3("Rot", (float*)&Tool->calibSensor.rotation);
+
+			if (ImGui::Button("Run simulated gather")) {
+				calibSensorRunSimulatedGather(&Tool->calibSensorCalibration, &appContext->calibJob, &Tool->calibSensor);
+				verletPhysicsInit(&Tool->verletPhysics);
+
+				/*
+				int p0 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(-1, 2, -1));
+				int p1 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(1, 2, -1));
+				int p2 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(1, 2, 1));
+				int p3 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(-1, 2, 1));
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p0, p1, 2.0f);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p1, p2, 2.0f);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p2, p3, 2.0f);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p3, p0, 2.0f);
+
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p0, p2, glm::distance(vec3(-1, 2, -1), vec3(1, 2, 1)));
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p1, p3, glm::distance(vec3(-1, 2, -1), vec3(1, 2, 1)));*/
+
+				/*
+				int p4 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(-2, 1, -1), true);
+				int p5 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(2, 1, -1), true);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p0, p4, 0.0f);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p1, p5, 0.0f);
+
+				int p6 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(-2, 0, 1), true);
+				int p7 = verletPhysicsCreatePoint(&Tool->verletPhysics, vec3(2, 2, 1), true);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p2, p7, 0.0f);
+				verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, p3, p6, 0.0f);*/
+
+				/*int p4 = verletPhysicsCreateAttractor(&Tool->verletPhysics, p0, vec3(-2, 5, 0));
+				int p5 = verletPhysicsCreateAttractor(&Tool->verletPhysics, p1, vec3(2, 1, 0));*/
+
+				// Create physics sim based on sensor results.
+				if (true) {
+					ldiCalibSensorCalibration* c = &Tool->calibSensorCalibration;
+					ldiCalibSensor* s = &Tool->calibSensor;
+					ldiCalibSensor* e = &c->startingSensor;
+
+					mat4 sWorld = s->mat;
+					mat4 eWorld = e->mat;
+
+					mat4 sensorWorld = e->mat;
+					vec3 origin = sensorWorld * vec4(0, 0, 0, 1.0f);
+					vec3 axisX = (vec3)(sensorWorld * vec4(1, 0, 0, 0.0f));
+					vec3 axisY = (vec3)(sensorWorld * vec4(0, 1, 0, 0.0f));
+					//sensorOrigin, sensorAxisX, sensorAxisY
+
+					float hSizeX = e->worldWidth * 0.5f;
+					float hSizeY = e->worldHeight * 0.5f;
+
+					vec3 v0 = -axisX * hSizeX - axisY * hSizeY + origin;
+					vec3 v1 = axisX * hSizeX - axisY * hSizeY + origin;
+					vec3 v2 = axisX * hSizeX + axisY * hSizeY + origin;
+					vec3 v3 = -axisX * hSizeX + axisY * hSizeY + origin;
+
+					int vp0 = verletPhysicsCreatePoint(&Tool->verletPhysics, v0);
+					int vp1 = verletPhysicsCreatePoint(&Tool->verletPhysics, v1);
+					int vp2 = verletPhysicsCreatePoint(&Tool->verletPhysics, v2);
+					int vp3 = verletPhysicsCreatePoint(&Tool->verletPhysics, v3);
+
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp0, vp1, e->worldWidth);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp1, vp2, e->worldHeight);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp2, vp3, e->worldWidth);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp3, vp0, e->worldHeight);
+
+					float crossDist = sqrt(e->worldWidth * e->worldWidth + e->worldHeight * e->worldHeight);
+
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp0, vp2, crossDist);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp1, vp3, crossDist);
+
+					for (size_t i = 0; i < c->samples.size(); ++i) {
+						ldiCalibSensorCalibSample* sample = &c->samples[i];
+
+						ldiPlane worldPlane = sample->scanPlaneWorkSpace;
+					
+						{
+							vec3 p0 = calibSensorFromPixelToWorld(s, eWorld, sample->scanLineP0);
+							vec3 p1 = calibSensorFromPixelToWorld(s, eWorld, sample->scanLineP1);
+							//p0 += vec3(0, 0.01f, 0);
+							//p1 += vec3(0, 0.01f, 0);
+
+							vec3 proj0 = projectPointToPlane(p0, worldPlane);
+							vec3 proj1 = projectPointToPlane(p1, worldPlane);
+
+							float expectedDist = glm::distance(p0, p1);
+							float actualDist = glm::distance(proj0, proj1);
+
+							vec3 projMid = (proj1 - proj0) * 0.5f + proj0;
+							vec3 projDir = glm::normalize(proj1 - proj0);
+
+							vec3 target0 = projMid - projDir * (expectedDist * 0.5f);
+							vec3 target1 = projMid + projDir * (expectedDist * 0.5f);
+
+							{						
+								int vP = verletPhysicsCreatePoint(&Tool->verletPhysics, p0);
+								//int vT = verletPhysicsCreatePoint(&Tool->verletPhysics, target0, true);
+
+								// Which side are we on?
+								if (sample->scanLineP0.x <= 1.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p0, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p0, v3));
+								} else if (sample->scanLineP0.x >= 1279.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p0, v1));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p0, v2));
+								} else if (sample->scanLineP0.y <= 1.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p0, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p0, v1));
+								} else {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p0, v2));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p0, v3));
+								}
+
+								//verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vT, 0.0f);
+								verletPhysicsCreateAttractor(&Tool->verletPhysics, vP, target0);
+							}
+
+							{						
+								int vP = verletPhysicsCreatePoint(&Tool->verletPhysics, p1);
+								//int vT = verletPhysicsCreatePoint(&Tool->verletPhysics, target1, true);
+
+								// Which side are we on?
+								if (sample->scanLineP1.x <= 1.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p1, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p1, v3));
+								} else if (sample->scanLineP1.x >= 1279.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p1, v1));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p1, v2));
+								} else if (sample->scanLineP1.y <= 1.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p1, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p1, v1));
+								} else {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p1, v2));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p1, v3));
+								}
+
+								//verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vT, 0.0f);
+								verletPhysicsCreateAttractor(&Tool->verletPhysics, vP, target1);
+							}
+						}
+					}
+				}
+			}
+
+			if (ImGui::Button("Capture calib sample")) {
+				ldiHorsePosition horsePos = {};
+				horsePos.x = Tool->testPosX;
+				horsePos.y = Tool->testPosY;
+				horsePos.z = Tool->testPosZ;
+				horsePos.c = Tool->testPosC;
+				horsePos.a = Tool->testPosA;
+
+				Tool->calibSensorCalibration.simSensor = Tool->calibSensor;
+				calibSensorCaptureSample(&Tool->calibSensorCalibration, &appContext->calibJob, horsePos);
+			}
 		}
 
 		if (ImGui::CollapsingHeader("Viewport")) {
@@ -2116,7 +2330,164 @@ void platformShowUi(ldiPlatform* Tool) {
 	// Update calibration sensor TEMP.
 	//----------------------------------------------------------------------------------------------------
 	if (Tool->showCalibSensor) {
-		Tool->calibSensor.calibSensorMat = glm::translate(Tool->calibSensor.calibSensorOrigin) * glm::toMat4(quat(glm::radians(Tool->calibSensor.calibSensorRot)));
+		ldiHorsePosition horsePos = {};
+		horsePos.x = Tool->testPosX;
+		horsePos.y = Tool->testPosY;
+		horsePos.z = Tool->testPosZ;
+		horsePos.c = Tool->testPosC;
+		horsePos.a = Tool->testPosA;
+
+		calibSensorUpdate(&Tool->calibSensor, &appContext->calibJob, horsePos);
+
+		for (int subSamps = 0; subSamps < 100; ++subSamps) {
+			float energy = verletPhysicsUpdate(&Tool->verletPhysics);
+		
+			if (energy > 0.0001) {
+				//std::cout << "Movement: " << energy << "\n";
+			} else {
+				//std::cout << "Recalculate\n";
+			
+				if (Tool->verletPhysics.points.size() >= 4) {
+					// Calculate new sensor plane from updated physics sim.
+					vec3 p0 = Tool->verletPhysics.points[0].position;
+					vec3 p1 = Tool->verletPhysics.points[1].position;
+					vec3 p2 = Tool->verletPhysics.points[2].position;
+					vec3 p3 = Tool->verletPhysics.points[3].position;
+
+					Tool->newSensorOrigin = (p0 + p1 + p2 + p3) / 4.0f;
+					vec3 p0p1 = p1 - p0;
+					vec3 p0p3 = p3 - p0;
+
+					Tool->newSensorAxisZ = glm::normalize(glm::cross(p0p1, p0p3));
+					Tool->newSensorAxisY = glm::normalize(glm::cross(Tool->newSensorAxisZ, p0p1));
+					Tool->newSensorAxisX = glm::normalize(glm::cross(Tool->newSensorAxisY, Tool->newSensorAxisZ));
+
+					Tool->newSensorMat = mat4(1.0);
+					Tool->newSensorMat[0] = vec4(Tool->newSensorAxisX, 0.0f);
+					Tool->newSensorMat[1] = vec4(Tool->newSensorAxisY, 0.0f);
+					Tool->newSensorMat[2] = vec4(Tool->newSensorAxisZ, 0.0f);
+					Tool->newSensorMat[3] = vec4(Tool->newSensorOrigin, 1.0f);
+
+					//std::cout << "O: " << GetStr(&Tool->calibSensor.mat) << "\n";
+					//std::cout << "N: " << GetStr(&Tool->newSensorMat) << "\n";
+				}
+
+				// Recalculate targets.
+				if (true) {
+					Tool->verletPhysics.attractors.clear();
+
+					ldiCalibSensorCalibration* c = &Tool->calibSensorCalibration;
+					ldiCalibSensor* e = &c->startingSensor;
+
+					mat4 sensorWorld = Tool->newSensorMat; //e->mat;
+					vec3 origin = sensorWorld * vec4(0, 0, 0, 1.0f);
+					vec3 axisX = (vec3)(sensorWorld * vec4(1, 0, 0, 0.0f));
+					vec3 axisY = (vec3)(sensorWorld * vec4(0, 1, 0, 0.0f));
+					//sensorOrigin, sensorAxisX, sensorAxisY
+
+					float hSizeX = e->worldWidth * 0.5f;
+					float hSizeY = e->worldHeight * 0.5f;
+
+					vec3 v0 = -axisX * hSizeX - axisY * hSizeY + origin;
+					vec3 v1 = axisX * hSizeX - axisY * hSizeY + origin;
+					vec3 v2 = axisX * hSizeX + axisY * hSizeY + origin;
+					vec3 v3 = -axisX * hSizeX + axisY * hSizeY + origin;
+
+					int pCount = 4;
+
+					/*int vp0 = verletPhysicsCreatePoint(&Tool->verletPhysics, v0);
+					int vp1 = verletPhysicsCreatePoint(&Tool->verletPhysics, v1);
+					int vp2 = verletPhysicsCreatePoint(&Tool->verletPhysics, v2);
+					int vp3 = verletPhysicsCreatePoint(&Tool->verletPhysics, v3);
+
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp0, vp1, e->worldWidth);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp1, vp2, e->worldHeight);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp2, vp3, e->worldWidth);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp3, vp0, e->worldHeight);*/
+
+					/*float crossDist = sqrt(e->worldWidth * e->worldWidth + e->worldHeight * e->worldHeight);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp0, vp2, crossDist);
+					verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vp1, vp3, crossDist);*/
+
+					for (size_t i = 0; i < c->samples.size(); ++i) {
+						ldiCalibSensorCalibSample* sample = &c->samples[i];
+
+						ldiPlane worldPlane = sample->scanPlaneWorkSpace;
+
+						{
+							vec3 p0 = calibSensorFromPixelToWorld(e, sensorWorld, sample->scanLineP0);
+							vec3 p1 = calibSensorFromPixelToWorld(e, sensorWorld, sample->scanLineP1);
+							//p0 += vec3(0, 0.01f, 0);
+							//p1 += vec3(0, 0.01f, 0);
+
+							vec3 proj0 = projectPointToPlane(p0, worldPlane);
+							vec3 proj1 = projectPointToPlane(p1, worldPlane);
+
+							float expectedDist = glm::distance(p0, p1);
+							float actualDist = glm::distance(proj0, proj1);
+
+							vec3 projMid = (proj1 - proj0) * 0.5f + proj0;
+							vec3 projDir = glm::normalize(proj1 - proj0);
+
+							vec3 target0 = projMid - projDir * (expectedDist * 0.5f);
+							vec3 target1 = projMid + projDir * (expectedDist * 0.5f);
+
+							//target0 += glm::normalize(target0 - p0) * 0.01f;
+							//target1 += glm::normalize(target1 - p1) * 0.01f;
+							//target0 += worldPlane.normal * -0.1f;
+							//target1 += worldPlane.normal * -0.1f;
+
+							{						
+								//int vP = verletPhysicsCreatePoint(&Tool->verletPhysics, p0);
+								int vP = pCount++;
+								//int vT = verletPhysicsCreatePoint(&Tool->verletPhysics, target0, true);
+
+								// Which side are we on?
+								/*if (sample->scanLineP0.x == 0.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p0, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p0, v3));
+								} else if (sample->scanLineP0.x == 1280.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p0, v1));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p0, v2));
+								} else if (sample->scanLineP0.y == 0.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p0, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p0, v1));
+								} else {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p0, v2));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p0, v3));
+								}*/
+
+								verletPhysicsCreateAttractor(&Tool->verletPhysics, vP, target0);
+							}
+
+							{						
+								//int vP = verletPhysicsCreatePoint(&Tool->verletPhysics, p1);
+								int vP = pCount++;
+								//int vT = verletPhysicsCreatePoint(&Tool->verletPhysics, target1, true);
+
+								// Which side are we on?
+								/*if (sample->scanLineP1.x == 0.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p1, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p1, v3));
+								} else if (sample->scanLineP1.x == 1280.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p1, v1));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p1, v2));
+								} else if (sample->scanLineP1.y == 0.0f) {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp0, glm::distance(p1, v0));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp1, glm::distance(p1, v1));
+								} else {
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp2, glm::distance(p1, v2));
+									verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vp3, glm::distance(p1, v3));
+								}*/
+
+								//verletPhysicsCreateDistanceConstraint(&Tool->verletPhysics, vP, vT, 0.0f);
+								verletPhysicsCreateAttractor(&Tool->verletPhysics, vP, target1);
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------

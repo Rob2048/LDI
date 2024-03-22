@@ -210,6 +210,7 @@
     <ClInclude Include="source\stb_image.h" />
     <ClInclude Include="source\stb_image_write.h" />
     <ClInclude Include="source\stlLoader.h" />
+    <ClInclude Include="source\verletPhysics.h" />
     <ClInclude Include="source\voxelGrid.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
