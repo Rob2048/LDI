@@ -36,16 +36,30 @@ struct ldiCalibSensorCalibSample {
 };
 
 struct ldiCalibSensorCalibration {
-	ldiCalibSensor startingSensor;
 	ldiCalibSensor simSensor;
+	ldiCalibSensor calibratedSensor;
 	std::vector<ldiCalibSensorCalibSample> samples;
 };
 
 void calibSensorUpdateTransform(ldiCalibSensor* Sensor) {
 	Sensor->mat = glm::translate(Sensor->position) * glm::toMat4(quat(glm::radians(Sensor->rotation)));
-	//normal Sensor-> = (vec3)(sensorWorld * vec4(0, 0, -1, 0.0f));
 	Sensor->axisX = (vec3)(Sensor->mat * vec4(1, 0, 0, 0.0f));
 	Sensor->axisY = (vec3)(Sensor->mat * vec4(0, 1, 0, 0.0f));
+}
+
+void calibSensorSetTransform(ldiCalibSensor* Sensor, mat4& Mat) {
+	Sensor->mat = Mat;
+
+	Sensor->position = vec3(Mat[3]);
+	quat q = glm::toQuat(Mat);
+	Sensor->rotation = glm::degrees(glm::eulerAngles(q));
+
+	std::cout << "calibSensorSetTransform\n";
+	std::cout << GetStr(Sensor->rotation) << "\n";
+	std::cout << GetStr(&Sensor->mat) << "\n";
+
+	calibSensorUpdateTransform(Sensor);
+	std::cout << GetStr(&Sensor->mat) << "\n";
 }
 
 void calibSensorInit(ldiCalibSensor* Sensor) {
@@ -78,12 +92,12 @@ vec3 calibSensorFromPixelToWorld(ldiCalibSensor* Sensor, mat4 World, vec2 P) {
 }
 
 void calibSensorCalibrationInit(ldiCalibSensorCalibration* Calib, ldiCalibSensor* SimSensor) {
-	calibSensorInit(&Calib->startingSensor);
+	calibSensorInit(&Calib->calibratedSensor);
 	//Calib->startingSensor.position = vec3(1, 1, 1);
 	//Calib->startingSensor.rotation = vec3(45, 90, 0);
-	Calib->startingSensor.position = vec3(0, 0, 0);
-	Calib->startingSensor.rotation = vec3(90, 115, 0);
-	calibSensorUpdateTransform(&Calib->startingSensor);
+	Calib->calibratedSensor.position = vec3(0, 0.5, 0);
+	Calib->calibratedSensor.rotation = vec3(90, 115, 0);
+	calibSensorUpdateTransform(&Calib->calibratedSensor);
 
 	Calib->simSensor = *SimSensor;
 	Calib->samples.clear();
@@ -153,13 +167,94 @@ void calibSensorCaptureSample(ldiCalibSensorCalibration* Calib, ldiCalibrationJo
 		sample.scanPlaneWorkSpace = scanPlane;
 		sample.scanLineP0 = Calib->simSensor.hitP0;
 		sample.scanLineP1 = Calib->simSensor.hitP1;
-		
+
 		Calib->samples.push_back(sample);
 	}
 }
 
+struct ldiCalibSensorScanCalibContext {
+	vec2 center;
+	float centerCounts;
+	vec2 normal;
+	float countProportion;
+};
+
+ldiCalibSensorScanCalibContext calibSensorGetScanCalibContext(std::vector<ldiCalibSensorCalibSample>& CalibSamples) {
+	ldiCalibSensorScanCalibContext result = {};
+
+	float avgCount = 0.0f;
+	for (size_t sampIter = 0; sampIter < CalibSamples.size(); ++sampIter) {
+		ldiCalibSensorCalibSample* s = &CalibSamples[sampIter];
+
+		vec2 dir = s->scanLineP0 - s->scanLineP1;
+		vec2 normal = glm::normalize(vec2(-dir.y, dir.x));
+		result.normal += normal;
+
+		vec2 center = (s->scanLineP0 + s->scanLineP1) * 0.5f;
+		result.center += center;
+
+		result.centerCounts += s->horsePosition.x;
+
+		avgCount += 1.0f;
+
+		std::cout << sampIter << ": P0: " << GetStr(s->scanLineP0) << " P1: " << GetStr(s->scanLineP1) << "\n";
+		std::cout << sampIter << ": Normal: " << GetStr(normal) << "\n";
+	}
+
+	result.normal = glm::normalize(result.normal / avgCount);
+	result.center /= avgCount;
+	result.centerCounts /= avgCount;
+	std::cout << "Avg normal: " << GetStr(result.normal) << " Avg center: " << GetStr(result.center) << " Avg counts: " << result.centerCounts << "\n";
+
+	float avgPropCount = 0.0;
+	for (size_t sampIter = 1; sampIter < CalibSamples.size(); ++sampIter) {
+		ldiCalibSensorCalibSample* s0 = &CalibSamples[sampIter - 1];
+		ldiCalibSensorCalibSample* s1 = &CalibSamples[sampIter - 0];
+
+		vec2 center0 = (s0->scanLineP0 + s0->scanLineP1) * 0.5f;
+		float d0 = glm::dot(-center0, result.normal);
+
+		vec2 center1 = (s1->scanLineP0 + s1->scanLineP1) * 0.5f;
+		float d1 = glm::dot(-center1, result.normal);
+
+		result.countProportion += (s1->horsePosition.x - s0->horsePosition.x) / (d1 - d0);
+		avgPropCount += 1.0;
+	}
+
+	result.countProportion /= avgPropCount;
+	std::cout << "Average proportion: " << result.countProportion << "\n";
+
+	return result;
+}
+
+int calibSensorGetCountsFromPixelPos(ldiCalibSensorScanCalibContext Context, vec2 PixelPos) {
+	vec2 delta = PixelPos - Context.center;
+	float dist = glm::dot(delta, Context.normal);
+	float result = -dist * Context.countProportion + Context.centerCounts;
+
+	return (int)(roundf(result));
+}
+
+struct ldiCalibSensorPoint {
+	vec2 pixelPos;
+	vec3 workPos;
+	std::vector<ldiPlane> scanPlanes;
+};
+
 void calibSensorRunSimulatedGather(ldiCalibSensorCalibration* Calib, ldiCalibrationJob* MachineCalib, ldiCalibSensor* SimSensor) {
 	std::cout << "Running calibration sensor gather simulation\n";
+
+	std::vector<ldiCalibSensorPoint> points;
+
+	ldiCalibSensorPoint point = {};
+	point.pixelPos = vec2(1280.0 * 0.5, 800 * 0.5);
+	points.push_back(point);
+
+	point.pixelPos = vec2(1280.0, 800 * 0.5);
+	points.push_back(point);
+
+	point.pixelPos = vec2(1280.0 * 0.5, 800);
+	points.push_back(point);
 
 	calibSensorCalibrationInit(Calib, SimSensor);
 
@@ -170,70 +265,10 @@ void calibSensorRunSimulatedGather(ldiCalibSensorCalibration* Calib, ldiCalibrat
 	horsePos.c = 13000;
 	horsePos.a = 0;
 
-	/*
-	{
-		horsePos.c = 13000;
-		int steps = 3;
-		int start = -1400;
-		int stop = 1400;
-		for (int i = 0; i <= steps; ++i) {
-			int step = (stop - start) / steps;
-			horsePos.x = start + i * step;
-			std::cout << "X: " << horsePos.x;
-			calibSensorCaptureSample(Calib, MachineCalib, horsePos);
-		}
-	}
-
-	{
-		horsePos.c = -60000;
-		int steps = 2;
-		int start = -2000;
-		int stop = 2200;
-		for (int i = 0; i <= steps; ++i) {
-			int step = (stop - start) / steps;
-			horsePos.x = start + i * step;
-			std::cout << "X: " << horsePos.x;
-			calibSensorCaptureSample(Calib, MachineCalib, horsePos);
-		}
-	}
-	*/
-	
-	/*{
-		horsePos.c = 13000;
-		int steps = 16;
-		int start = -1400;
-		int stop = 1400;
-		for (int i = 0; i <= steps; ++i) {
-			int step = (stop - start) / steps;
-			horsePos.x = start + i * step;
-			calibSensorCaptureSample(Calib, MachineCalib, horsePos);
-		}
-	}
-
-	{
-		horsePos.c = -60000;
-		int steps = 16;
-		int start = -2000;
-		int stop = 2200;
-		for (int i = 0; i <= steps; ++i) {
-			int step = (stop - start) / steps;
-			horsePos.x = start + i * step;
-			calibSensorCaptureSample(Calib, MachineCalib, horsePos);
-		}
-	}
-
-	{
-		horsePos.c = -115000;
-		int steps = 16;
-		int start = -2000;
-		int stop = 2200;
-		for (int i = 0; i <= steps; ++i) {
-			int step = (stop - start) / steps;
-			horsePos.x = start + i * step;
-			calibSensorCaptureSample(Calib, MachineCalib, horsePos);
-		}
-	}*/
-
+	//----------------------------------------------------------------------------------------------------
+	// Sweep A.
+	//----------------------------------------------------------------------------------------------------
+	size_t samplesStart = Calib->samples.size();
 	{
 		horsePos.c = 13000;
 		int steps = 16;
@@ -246,6 +281,30 @@ void calibSensorRunSimulatedGather(ldiCalibSensorCalibration* Calib, ldiCalibrat
 		}
 	}
 
+	std::vector<ldiCalibSensorCalibSample> samples = { Calib->samples.begin() + samplesStart, Calib->samples.end() };
+	ldiCalibSensorScanCalibContext context = calibSensorGetScanCalibContext(samples);
+
+	for (size_t i = 0; i < points.size(); ++i) {
+		int counts = calibSensorGetCountsFromPixelPos(context, points[i].pixelPos);
+		//std::cout << "Point " << GetStr(points[i].pixelPos) << ": " << counts << "\n";
+
+		ldiHorsePosition localHorse = horsePos;
+		localHorse.x = counts;
+		
+		mat4 workTrans = horseGetWorkTransform(MachineCalib, localHorse);
+		mat4 invWorkTrans = glm::inverse(workTrans);
+
+		ldiPlane scanPlane = horseGetScanPlane(MachineCalib, localHorse);
+		scanPlane.point = invWorkTrans * vec4(scanPlane.point, 1.0f);
+		scanPlane.normal = invWorkTrans * vec4(scanPlane.normal, 0.0f);
+		
+		points[i].scanPlanes.push_back(scanPlane);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Sweep B.
+	//----------------------------------------------------------------------------------------------------
+	samplesStart = Calib->samples.size();
 	{
 		horsePos.c = -60000;
 		int steps = 16;
@@ -258,6 +317,30 @@ void calibSensorRunSimulatedGather(ldiCalibSensorCalibration* Calib, ldiCalibrat
 		}
 	}
 
+	samples = { Calib->samples.begin() + samplesStart, Calib->samples.end() };
+	context = calibSensorGetScanCalibContext(samples);
+
+	for (size_t i = 0; i < points.size(); ++i) {
+		int counts = calibSensorGetCountsFromPixelPos(context, points[i].pixelPos);
+		std::cout << "Point " << GetStr(points[i].pixelPos) << ": " << counts << "\n";
+
+		ldiHorsePosition localHorse = horsePos;
+		localHorse.x = counts;
+
+		mat4 workTrans = horseGetWorkTransform(MachineCalib, localHorse);
+		mat4 invWorkTrans = glm::inverse(workTrans);
+
+		ldiPlane scanPlane = horseGetScanPlane(MachineCalib, localHorse);
+		scanPlane.point = invWorkTrans * vec4(scanPlane.point, 1.0f);
+		scanPlane.normal = invWorkTrans * vec4(scanPlane.normal, 0.0f);
+
+		points[i].scanPlanes.push_back(scanPlane);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Sweep C.
+	//----------------------------------------------------------------------------------------------------
+	samplesStart = Calib->samples.size();
 	{
 		horsePos.c = -115000;
 		int steps = 16;
@@ -270,5 +353,95 @@ void calibSensorRunSimulatedGather(ldiCalibSensorCalibration* Calib, ldiCalibrat
 		}
 	}
 
+	samples = { Calib->samples.begin() + samplesStart, Calib->samples.end() };
+	context = calibSensorGetScanCalibContext(samples);
+
+	for (size_t i = 0; i < points.size(); ++i) {
+		int counts = calibSensorGetCountsFromPixelPos(context, points[i].pixelPos);
+		std::cout << "Point " << GetStr(points[i].pixelPos) << ": " << counts << "\n";
+
+		ldiHorsePosition localHorse = horsePos;
+		localHorse.x = counts;
+
+		mat4 workTrans = horseGetWorkTransform(MachineCalib, localHorse);
+		mat4 invWorkTrans = glm::inverse(workTrans);
+
+		ldiPlane scanPlane = horseGetScanPlane(MachineCalib, localHorse);
+		scanPlane.point = invWorkTrans * vec4(scanPlane.point, 1.0f);
+		scanPlane.normal = invWorkTrans * vec4(scanPlane.normal, 0.0f);
+
+		points[i].scanPlanes.push_back(scanPlane);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Calculate new sensor plane.
+	//----------------------------------------------------------------------------------------------------
+	for (size_t i = 0; i < points.size(); ++i) {
+		ldiCalibSensorPoint& p = points[i];
+
+		//std::cout << "Plane " << i << ": " << points[i].scanPlanes.size() << "\n";
+
+		// TODO: Gather multiple sets of 3 planes and take average position.
+		vec3 intersectPoint;
+		if (getPointAtIntersectionOfPlanes(p.scanPlanes[0], p.scanPlanes[1], p.scanPlanes[2], &intersectPoint)) {
+			p.workPos = intersectPoint;
+		}
+	}
+
+	vec3 p0 = points[0].workPos;
+	vec3 p1 = points[1].workPos;
+	vec3 p2 = points[2].workPos;
+
+	vec3 p0p1 = p1 - p0;
+	vec3 p0p2 = p2 - p0;
+
+	vec3 axisZ = glm::normalize(glm::cross(p0p1, p0p2));
+	vec3 axisY = glm::normalize(glm::cross(axisZ, p0p1));
+	vec3 axisX = glm::normalize(glm::cross(axisY, axisZ));
+
+	mat4 newSensorMat = mat4(1.0);
+	newSensorMat[0] = vec4(axisX, 0.0f);
+	newSensorMat[1] = vec4(axisY, 0.0f);
+	newSensorMat[2] = vec4(axisZ, 0.0f);
+	newSensorMat[3] = vec4(p0, 1.0f);
+
+	calibSensorSetTransform(&Calib->calibratedSensor, newSensorMat);
+
+	//----------------------------------------------------------------------------------------------------
+	// Calculate error.
+	//----------------------------------------------------------------------------------------------------
+	float se = 0.0f;
+	int seCount = 0;
+
+	for (size_t sampIter = 0; sampIter < Calib->samples.size(); ++sampIter) {
+		ldiCalibSensorCalibSample* s = &Calib->samples[sampIter];
+
+		calibSensorUpdate(&Calib->calibratedSensor, MachineCalib, s->horsePosition);
+
+		if (Calib->calibratedSensor.hit) {
+			{
+				vec2 p0 = Calib->calibratedSensor.hitP0;
+				//std::cout << "Compare: " << GetStr(s->scanLineP0) << " " << GetStr(p0) << "\n";
+				float err2 = glm::distance2(p0, s->scanLineP0);
+				se += err2;
+				++seCount;
+			}
+
+			{			
+				vec2 p1 = Calib->calibratedSensor.hitP1;
+				//std::cout << "Compare: " << GetStr(s->scanLineP1) << " " << GetStr(p1) << "\n";
+				float err2 = glm::distance2(p1, s->scanLineP1);
+				se += err2;
+				++seCount;
+			}
+		} else {
+			//std::cout << "No hit\n";
+		}
+	}
+
+	float mse = se / (float)seCount;
+	float rmse = sqrt(mse);
+
+	std::cout << "RMSE: " << rmse << "\n";
 	std::cout << "Completed calibration sensor gather simulation\n";
 }

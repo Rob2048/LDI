@@ -654,13 +654,10 @@ bool calibLoadCalibJob(const std::string& FilePath, ldiCalibrationJob* Job) {
 		Job->scanSamples[sampleIter] = sample;
 	}
 
-	fread(&Job->scanPlane, sizeof(ldiPlane), 1, file);
-	// 5 deg
-	//Job->scanPlane.normal = glm::normalize(vec3(0.99619, -0.087156, 0.0));
-	// 10 deg
-	Job->scanPlane.normal = glm::normalize(vec3(0.98481, -0.17365, 0.0));
-	// 20 deg
-	//Job->scanPlane.normal = glm::normalize(vec3(0.93969, -0.34202, 0.0));
+	fread(&Job->scanPlane, sizeof(ldiPlane), 1, file);	
+	//Job->scanPlane.normal = glm::normalize(vec3(0.99619, -0.087156, 0.0)); // 5 deg
+	Job->scanPlane.normal = glm::normalize(vec3(0.98481, -0.17365, 0.0)); // 10 deg
+	//Job->scanPlane.normal = glm::normalize(vec3(0.93969, -0.34202, 0.0)); // 20 deg
 	
 	fread(&Job->initialEstimations, sizeof(bool), 1, file);
 	fread(&Job->metricsCalculated, sizeof(bool), 1, file);

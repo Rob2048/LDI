@@ -29,6 +29,14 @@ float lerp(float A, float B, float T) {
 	return A + (B - A) * T;
 }
 
+double map(double A0, double B0, double A1, double B1, double T) {
+	double aRange = B0 - A0;
+	double bRange = B1 - A1;
+	double bProp = bRange / aRange;
+
+	return (T - A0) * bProp + A1;
+}
+
 //----------------------------------------------------------------------------------------------------
 // Planes.
 //----------------------------------------------------------------------------------------------------
@@ -494,7 +502,23 @@ inline std::string GetStr(vec2 V) {
 	return str.str();
 }
 
+inline std::string GetStr(vec2d V) {
+	std::stringstream str;
+
+	str << V.x << ", " << V.y;
+
+	return str.str();
+}
+
 inline std::string GetStr(vec3 V) {
+	std::stringstream str;
+
+	str << V.x << ", " << V.y << ", " << V.z;
+
+	return str.str();
+}
+
+inline std::string GetStr(vec3d V) {
 	std::stringstream str;
 
 	str << V.x << ", " << V.y << ", " << V.z;
