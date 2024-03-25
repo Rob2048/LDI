@@ -921,7 +921,15 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		//}
 
 		if (ImGui::Button("Compare calibrations")) {
-			calibCompareVolumeCalibrations("../cache/calib_hawk0_optimized.cal", "../cache/calib_hawk1_optimized.cal");
+			std::string jobPathA;
+			if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, jobPathA, L"Calibration file", L"*.cal")) {
+
+				std::string jobPathB;
+				if (showOpenFileDialog(Tool->appContext->hWnd, Tool->appContext->currentWorkingDir, jobPathB, L"Calibration file", L"*.cal")) {
+					calibCompareVolumeCalibrations(jobPathA, jobPathB);
+					//calibCompareVolumeCalibrations("../cache/calib_hawk0_optimized.cal", "../cache/calib_hawk1_optimized.cal");
+				}
+			}
 		}
 
 		ImGui::Separator();

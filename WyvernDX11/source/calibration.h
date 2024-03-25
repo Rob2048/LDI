@@ -19,7 +19,7 @@
 
 // NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
 
-// Takes stereo image sample files and generates the initial calibration samples for a job.
+// Takes image sample files and generates the initial calibration samples for a job.
 void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
 	calibClearJob(Job);
 
@@ -62,8 +62,8 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& Dir
 	std::cout << "Initial observations complete\n";
 }
 
+// Align basis to world as reasonably as possible.
 void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)) {
-	// Align basis to world as reasonably as possible.
 	Job->basisX = Job->axisX.direction;
 	Job->basisY = glm::normalize(glm::cross(Job->basisX, Job->axisZ.direction));
 	Job->basisZ = glm::normalize(glm::cross(Job->basisX, Job->basisY));
@@ -90,7 +90,7 @@ void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)
 	calibCubeTransform(&Job->cube, cubeTransform);
 
 	//----------------------------------------------------------------------------------------------------
-	// Transform all volume elements into world space.
+	// Transform all volume elements to realigned world space.
 	//----------------------------------------------------------------------------------------------------
 	{
 		// Axis directions.
@@ -609,7 +609,7 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 	return meanError;
 }
 
-// Takes stereo image sample files and generates scanner calibration.
+// Takes image sample files and generates scanner calibration.
 void calibCalibrateScanner(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
 	for (size_t i = 0; i < Job->scanSamples.size(); ++i) {
 		calibFreeCalibImages(&Job->scanSamples[i]);
@@ -729,13 +729,18 @@ void calibCalibrateScanner(ldiCalibrationJob* Job, const std::string& DirectoryP
 		}
 	}
 
-	std::vector<vec3> allWorldPoints;
-	allWorldPoints.reserve(Job->scanWorldPoints.size() + Job->scanWorldPoints.size());
-	allWorldPoints.insert(allWorldPoints.begin(), Job->scanWorldPoints.begin(), Job->scanWorldPoints.end());
-	//allWorldPoints.insert(allWorldPoints.begin() + Job->scanWorldPoints[0].size(), Job->scanWorldPoints[1].begin(), Job->scanWorldPoints[1].end());
+	computerVisionFitPlane(Job->scanWorldPoints, &Job->scanPlane);
 
-	ldiPlane scanPlane;
-	computerVisionFitPlane(allWorldPoints, &Job->scanPlane);
+	// Calculate RMSE.
+	double se = 0.0f;
+
+	for (size_t i = 0; i < Job->scanWorldPoints.size(); ++i) {
+		float dist = glm::dot(Job->scanWorldPoints[i] - Job->scanPlane.point, Job->scanPlane.normal);
+		se += dist * dist;
+	}
+
+	double rmse = sqrt(se / (double)Job->scanWorldPoints.size());
+	std::cout << "Scan plane to points RMSE: " << rmse << "\n";
 
 	Job->scannerCalibrated = true;
 }
@@ -1024,7 +1029,7 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 }
 
 void calibOptimizeVolume(ldiCalibrationJob* Job) {
-	std::cout << "Starting stereo calibration: " << getTime() << "\n";
+	std::cout << "Starting volume calibration optimization: " << getTime() << "\n";
 
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;

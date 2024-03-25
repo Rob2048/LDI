@@ -1192,6 +1192,18 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					pushDebugSphere(&appContext->defaultDebug, cubeCorners[i], 0.001, vec3(0, 1, 1), 8);
 					displayTextAtPoint(Camera, cubeCorners[i], std::to_string(i), vec4(1, 1, 1, 1), TextBuffer);
 				}
+
+				// NOTE: Scan plane vs top cube face.
+				if (job->scannerCalibrated) {
+					horseGetRefinedCubeAtPosition(job, horsePos, cubePoints, cubeSides, cubeCorners);
+					ldiPlane scanPlane = horseGetScanPlane(job, horsePos);
+
+					vec3 rayOrigin;
+					vec3 rayNormal;
+					getRayAtPlaneIntersection(cubeSides[1].plane, scanPlane, rayOrigin, rayNormal);
+
+					pushDebugLine(&appContext->defaultDebug, rayOrigin - rayNormal * 4.0f, rayOrigin + rayNormal * 4.0f, vec3(1.0, 0.5, 0));
+				}
 			}
 			
 			//----------------------------------------------------------------------------------------------------
@@ -1924,8 +1936,8 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::Checkbox("Show surfels high", &Tool->showSurfeslHigh);
 			
 			ImGui::Separator();
-			ImGui::Text("Simulated position");
-			ImGui::Checkbox("Update live", &Tool->liveAxisUpdate);
+			ImGui::Text("Machine position");
+			ImGui::Checkbox("Get from live machine", &Tool->liveAxisUpdate);
 			ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
 			ImGui::SliderInt("PosY", &Tool->testPosY, -48000, 48000);
 			ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
