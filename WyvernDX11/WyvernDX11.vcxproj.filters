@@ -182,5 +182,11 @@
     <ClInclude Include="source\verletPhysics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="source\webcam.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="source\antOptimizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -173,6 +173,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\analogScope.h" />
+    <ClInclude Include="source\antOptimizer.h" />
     <ClInclude Include="source\calibCube.h" />
     <ClInclude Include="source\calibration.h" />
     <ClInclude Include="source\calibrationJob.h" />
@@ -212,6 +213,7 @@
     <ClInclude Include="source\stlLoader.h" />
     <ClInclude Include="source\verletPhysics.h" />
     <ClInclude Include="source\voxelGrid.h" />
+    <ClInclude Include="source\webcam.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

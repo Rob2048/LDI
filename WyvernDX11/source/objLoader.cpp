@@ -109,14 +109,14 @@ struct HashNode
 #define HASHMAP_SIZE	64007
 
 HashNode** hashMap = new HashNode*[HASHMAP_SIZE];
-HashNode* hashNodes = new HashNode[1000000];
+HashNode* hashNodes = new HashNode[4000000];
 int hashNodeCount = 0;
 
-ldiMeshVertex*	verts = new ldiMeshVertex[1000000];
-vec3*			tempVerts = new vec3[1000000];
-vec2*			tempUVs = new vec2[1000000];
-vec3*			tempNormals = new vec3[1000000];
-uint32_t*		tris = new uint32_t[4000000];
+ldiMeshVertex*	verts = new ldiMeshVertex[4000000];
+vec3*			tempVerts = new vec3[4000000];
+vec2*			tempUVs = new vec2[4000000];
+vec3*			tempNormals = new vec3[4000000];
+uint32_t*		tris = new uint32_t[8000000];
 
 int			tempVertCount = 0;
 int			tempUVCount = 0;

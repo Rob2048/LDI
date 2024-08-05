@@ -22,6 +22,7 @@
 #define TEST_CAM_HEIGHT 1300
 
 #include "rotaryMeasurement.h"
+#include "webcam.h"
 
 enum ldiImageInspectorMode {
 	IIM_LIVE_CAMERA,
@@ -60,6 +61,7 @@ struct ldiImageInspector {
 	uint8_t						calibJobImage[CAM_IMG_WIDTH * CAM_IMG_HEIGHT];
 
 	ldiRotaryResults			rotaryResults;
+	ldiWebcam					webcam;
 
 	std::vector<ldiCameraCalibSample> cameraCalibSamples;
 	int							cameraCalibImageWidth;
@@ -192,6 +194,11 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	// Rotary measurment.
 	//----------------------------------------------------------------------------------------------------
 	rotaryMeasurementInit(&Tool->rotaryResults);
+
+	//----------------------------------------------------------------------------------------------------
+	// Webcam.
+	//----------------------------------------------------------------------------------------------------
+	webcamInit(&Tool->webcam);
 
 	//----------------------------------------------------------------------------------------------------
 	// Machine vision.
@@ -835,6 +842,13 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
 		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 640, 480, Tool->rotaryResults.greyFrame });
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Webcam.
+	//----------------------------------------------------------------------------------------------------
+	if (webcamProcess(&Tool->webcam)) {
+		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 1280, 720, Tool->webcam.greyFrame });
 	}
 
 	//----------------------------------------------------------------------------------------------------

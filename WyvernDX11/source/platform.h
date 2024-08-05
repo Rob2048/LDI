@@ -126,6 +126,8 @@ struct ldiPlatform {
 	vec3 newSensorAxisY = {};
 	vec3 newSensorAxisZ = {};
 	mat4 newSensorMat = {};
+
+	ldiAntOptimizer				antOptimizer;
 };
 
 void platformWorkerThreadJobComplete(ldiPlatform* Platform) {
@@ -909,6 +911,11 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	//----------------------------------------------------------------------------------------------------
 	//analogScopeInit(AppContext, &Tool->scope);
 	//analogScopeConnect(&Tool->scope, "\\\\.\\COM13");
+
+	//----------------------------------------------------------------------------------------------------
+	// Ant optimizer.
+	//----------------------------------------------------------------------------------------------------
+	//antInit(&Tool->antOptimizer);
 
 	return 0;
 }
@@ -1759,6 +1766,13 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 			//gfxRenderModel(appContext, &project->registeredRenderModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
 		}
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Ant optimizer.
+	//----------------------------------------------------------------------------------------------------
+	{
+		//antRender(&appContext->defaultDebug, &Tool->antOptimizer, mat4(1.0));
 	}
 
 	//----------------------------------------------------------------------------------------------------

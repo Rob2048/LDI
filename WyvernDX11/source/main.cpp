@@ -137,6 +137,7 @@ struct ldiApp {
 	ID3D11RasterizerState*		doubleSidedRasterizerState;
 	ID3D11RasterizerState*		wireframeRasterizerState;
 	ID3D11DepthStencilState*	defaultDepthStencilState;
+	ID3D11DepthStencilState*	replaceDepthStencilState;
 	ID3D11DepthStencilState*	noDepthState;
 	ID3D11DepthStencilState*	wireframeDepthStencilState;
 	ID3D11DepthStencilState*	nowriteDepthStencilState;
@@ -207,6 +208,7 @@ void _initTiming() {
 #include "spatialGrid.h"
 #include "physics.h"
 #include "verletPhysics.h"
+#include "antOptimizer.h"
 #include "hawk.h"
 #include "horse.h"
 #include "analogScope.h"
@@ -221,15 +223,15 @@ void _initTiming() {
 #include "modelEditor.h"
 #include "galvoInspector.h"
 
-ldiPhysics				_physics = {};
-ldiApp					_appContext = {};
-ldiModelInspector		_modelInspector = {};
-ldiSamplerTester		_samplerTester = {};
-ldiPlatform				_platform = {};
-ldiImageInspector		_imageInspector = {};
-ldiModelEditor			_modelEditor = {};
-ldiGalvoInspector		_galvoInspector = {};
-ldiProjectContext		_projectContext = {};
+ldiPhysics*				_physics = new ldiPhysics();
+ldiApp*					_appContext = new ldiApp();
+ldiModelInspector*		_modelInspector = new ldiModelInspector();
+ldiSamplerTester*		_samplerTester = new ldiSamplerTester();
+ldiPlatform*			_platform = new ldiPlatform();
+ldiImageInspector*		_imageInspector = new ldiImageInspector();
+ldiModelEditor*			_modelEditor = new ldiModelEditor();
+ldiGalvoInspector*		_galvoInspector = new ldiGalvoInspector();
+ldiProjectContext*		_projectContext = new ldiProjectContext();
 
 //------------------------------------------------------------------------------------------------- ---
 // Windowing and GUI helpers.
@@ -349,13 +351,13 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			uint32_t height = (UINT)HIWORD(lParam);
 			//std::cout << "Resize: " << width << ", " << height << "\n";
 
-			_appContext.windowWidth = width;
-			_appContext.windowHeight = height;
+			_appContext->windowWidth = width;
+			_appContext->windowHeight = height;
 
-			if (_appContext.d3dDevice != NULL && wParam != SIZE_MINIMIZED) {
-				gfxCleanupPrimaryBackbuffer(&_appContext);
-				_appContext.SwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
-				gfxCreatePrimaryBackbuffer(&_appContext);
+			if (_appContext->d3dDevice != NULL && wParam != SIZE_MINIMIZED) {
+				gfxCleanupPrimaryBackbuffer(_appContext);
+				_appContext->SwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+				gfxCreatePrimaryBackbuffer(_appContext);
 			}
 			return 0;
 		}
@@ -716,6 +718,15 @@ bool _initResources(ldiApp* AppContext) {
 		desc.BackFace = desc.FrontFace;*/
 		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->defaultDepthStencilState);
 	}
+
+	{
+		D3D11_DEPTH_STENCIL_DESC desc = {};
+		desc.DepthEnable = true;
+		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		desc.StencilEnable = false;
+		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->replaceDepthStencilState);
+	}
 	
 	{
 		D3D11_DEPTH_STENCIL_DESC desc = {};
@@ -870,89 +881,83 @@ int main() {
 	//			- print progress
 
 	std::cout << "Starting WyvernDX11\n";
-	ldiApp* appContext = &_appContext;
 	_initTiming();
 
 	char dirBuff[512];
 	GetCurrentDirectory(sizeof(dirBuff), dirBuff);
-	appContext->currentWorkingDir = std::string(dirBuff);
-	std::cout << "Working directory: " << appContext->currentWorkingDir << "\n";
+	_appContext->currentWorkingDir = std::string(dirBuff);
+	std::cout << "Working directory: " << _appContext->currentWorkingDir << "\n";
 
-	_createWindow(appContext);
+	_createWindow(_appContext);
 
 	// Initialize Direct3D.
-	if (!gfxCreateDeviceD3D(appContext)) {
-		gfxCleanupDeviceD3D(appContext);
-		_unregisterWindow(appContext);
+	if (!gfxCreateDeviceD3D(_appContext)) {
+		gfxCleanupDeviceD3D(_appContext);
+		_unregisterWindow(_appContext);
 		return 1;
 	}
 
-	ShowWindow(appContext->hWnd, SW_SHOWDEFAULT);
-	UpdateWindow(appContext->hWnd);
+	ShowWindow(_appContext->hWnd, SW_SHOWDEFAULT);
+	UpdateWindow(_appContext->hWnd);
 
-	_initImgui(appContext);
+	_initImgui(_appContext);
 
 	// TODO: Move to callibration machine vision setup.
 	createCharucos(false);
 	cameraCalibCreateTarget(9, 6, 1.0f, 64);
 	
-	if (!_initResources(appContext)) {
+	if (!_initResources(_appContext)) {
 		return 1;
 	}
 
-	initDebugPrimitives(&appContext->defaultDebug);
+	initDebugPrimitives(&_appContext->defaultDebug);
 
-	appContext->projectContext = &_projectContext;
+	_appContext->projectContext = _projectContext;
 
-	appContext->physics = &_physics;
-	if (physicsInit(appContext, &_physics) != 0) {
+	_appContext->physics = _physics;
+	if (physicsInit(_appContext, _physics) != 0) {
 		std::cout << "PhysX init failed\n";
 		return 1;
 	}
 
-	ldiModelInspector* modelInspector = &_modelInspector;
-	if (modelInspectorInit(appContext, modelInspector) != 0) {
+	if (modelInspectorInit(_appContext, _modelInspector) != 0) {
 		std::cout << "Could not init model inspector\n";
 		return 1;
 	}
 
-	if (modelInspectorLoad(appContext, modelInspector) != 0) {
+	if (modelInspectorLoad(_appContext, _modelInspector) != 0) {
 		std::cout << "Could not load model inspector\n";
 		return 1;
 	}
 
-	ldiSamplerTester* samplerTester = &_samplerTester;
-	if (samplerTesterInit(appContext, samplerTester) != 0) {
+	if (samplerTesterInit(_appContext, _samplerTester) != 0) {
 		std::cout << "Could not init sampler tester\n";
 		return 1;
 	}
 
-	ldiPlatform* platform = &_platform;
-	appContext->platform = platform;
-	if (platformInit(appContext, platform) != 0) {
+	_appContext->platform = _platform;
+	if (platformInit(_appContext, _platform) != 0) {
 		std::cout << "Could not init platform\n";
 		return 1;
 	}
 
-	appContext->imageInspector = &_imageInspector;
-	if (imageInspectorInit(appContext, &_imageInspector) != 0) {
+	_appContext->imageInspector = _imageInspector;
+	if (imageInspectorInit(_appContext, _imageInspector) != 0) {
 		std::cout << "Could not init image inspector\n";
 		return 1;
 	}
 
-	ldiModelEditor* modelEditor = &_modelEditor;
-	if (modelEditorInit(appContext, modelEditor) != 0) {
+	if (modelEditorInit(_appContext, _modelEditor) != 0) {
 		std::cout << "Could not init model editor\n";
 		return 1;
 	}
 
-	ldiGalvoInspector* galvoInspector = &_galvoInspector;
-	if (galvoInspectorInit(appContext, galvoInspector) != 0) {
+	if (galvoInspectorInit(_appContext, _galvoInspector) != 0) {
 		std::cout << "Could not init galvo inspector\n";
 		return 1;
 	}
 
-	//if (modelEditorLoad(appContext, modelEditor) != 0) {
+	//if (modelEditorLoad(_appContext, modelEditor) != 0) {
 	//	std::cout << "Could not load model editor\n";
 	//	// TODO: Platform should be detroyed properly when ANY system failed to load.
 	//	platformDestroy(platform);
@@ -963,7 +968,7 @@ int main() {
 	ImGui::DockBuilderDockWindow();
 	ImGui::DockBuilderFinish();*/
 
-	//if (!networkInit(&appContext->server, "20000")) {
+	//if (!networkInit(_appContext->server, "20000")) {
 	//	std::cout << "Networking failure\n";
 	//	return 1;
 	//}
@@ -986,33 +991,33 @@ int main() {
 		if (ImGui::BeginMainMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
 				if (ImGui::MenuItem("New project")) {
-					projectInit(appContext, appContext->projectContext);
+					projectInit(_appContext, _appContext->projectContext);
 				}
 
 				if (ImGui::MenuItem("Open project")) {
 					std::string filePath;
-					if (showOpenFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj")) {
-						projectLoad(appContext, appContext->projectContext, filePath);
+					if (showOpenFileDialog(_appContext->hWnd, _appContext->currentWorkingDir, filePath, L"Project file", L"*.prj")) {
+						projectLoad(_appContext, _appContext->projectContext, filePath);
 					}
 				}
 
 				if (ImGui::MenuItem("Save project")) {
-					if (appContext->projectContext->path.empty()) {
+					if (_appContext->projectContext->path.empty()) {
 						std::string filePath;
-						if (showSaveFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
-							appContext->projectContext->path = filePath;
-							projectSave(appContext, appContext->projectContext);
+						if (showSaveFileDialog(_appContext->hWnd, _appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
+							_appContext->projectContext->path = filePath;
+							projectSave(_appContext, _appContext->projectContext);
 						}
 					} else {
-						projectSave(appContext, appContext->projectContext);
+						projectSave(_appContext, _appContext->projectContext);
 					}
 				}
 
 				if (ImGui::MenuItem("Save project as...")) {
 					std::string filePath;
-					if (showSaveFileDialog(appContext->hWnd, appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
-						appContext->projectContext->path = filePath;
-						projectSave(appContext, appContext->projectContext);
+					if (showSaveFileDialog(_appContext->hWnd, _appContext->currentWorkingDir, filePath, L"Project file", L"*.prj", L"prj")) {
+						_appContext->projectContext->path = filePath;
+						projectSave(_appContext, _appContext->projectContext);
 					}
 				}
 
@@ -1045,37 +1050,37 @@ int main() {
 			}*/
 
 			if (ImGui::BeginMenu("Window")) {
-				if (ImGui::MenuItem("ImGUI demo window", NULL, appContext->showDemoWindow)) {
-					appContext->showDemoWindow = !appContext->showDemoWindow;
+				if (ImGui::MenuItem("ImGUI demo window", NULL, _appContext->showDemoWindow)) {
+					_appContext->showDemoWindow = !_appContext->showDemoWindow;
 				}
 				
 				ImGui::Separator();				
-				if (ImGui::MenuItem("Project inspector", NULL, appContext->showProjectInspector)) {
-					appContext->showProjectInspector = !appContext->showProjectInspector;
+				if (ImGui::MenuItem("Project inspector", NULL, _appContext->showProjectInspector)) {
+					_appContext->showProjectInspector = !_appContext->showProjectInspector;
 				}
 
-				if (ImGui::MenuItem("Platform controls", NULL, appContext->showPlatformWindow)) {
-					appContext->showPlatformWindow = !appContext->showPlatformWindow;
+				if (ImGui::MenuItem("Platform controls", NULL, _appContext->showPlatformWindow)) {
+					_appContext->showPlatformWindow = !_appContext->showPlatformWindow;
 				}
 				
-				if (ImGui::MenuItem("Model inspector", NULL, appContext->showModelInspector)) {
-					appContext->showModelInspector = !appContext->showModelInspector;
+				if (ImGui::MenuItem("Model inspector", NULL, _appContext->showModelInspector)) {
+					_appContext->showModelInspector = !_appContext->showModelInspector;
 				}
 				
-				if (ImGui::MenuItem("Sampler tester", NULL, appContext->showSamplerTester)) {
-					appContext->showSamplerTester = !appContext->showSamplerTester;
+				if (ImGui::MenuItem("Sampler tester", NULL, _appContext->showSamplerTester)) {
+					_appContext->showSamplerTester = !_appContext->showSamplerTester;
 				}
 				
-				if (ImGui::MenuItem("Image inspector", NULL, appContext->showImageInspector)) {
-					appContext->showImageInspector = !appContext->showImageInspector;
+				if (ImGui::MenuItem("Image inspector", NULL, _appContext->showImageInspector)) {
+					_appContext->showImageInspector = !_appContext->showImageInspector;
 				}
 
-				if (ImGui::MenuItem("Model editor", NULL, appContext->showModelEditor)) {
-					appContext->showModelEditor = !appContext->showModelEditor;
+				if (ImGui::MenuItem("Model editor", NULL, _appContext->showModelEditor)) {
+					_appContext->showModelEditor = !_appContext->showModelEditor;
 				}
 
-				if (ImGui::MenuItem("Galvo inspector", NULL, appContext->showGalvoInspector)) {
-					appContext->showGalvoInspector = !appContext->showGalvoInspector;
+				if (ImGui::MenuItem("Galvo inspector", NULL, _appContext->showGalvoInspector)) {
+					_appContext->showGalvoInspector = !_appContext->showGalvoInspector;
 				}
 
 				ImGui::EndMenu();
@@ -1086,39 +1091,39 @@ int main() {
 
 		ImGui::DockSpaceOverViewport();
 
-		if (appContext->showDemoWindow) {
-			ImGui::ShowDemoWindow(&appContext->showDemoWindow);
+		if (_appContext->showDemoWindow) {
+			ImGui::ShowDemoWindow(&_appContext->showDemoWindow);
 		}
 
-		if (appContext->showPlatformWindow) {
-			platformShowUi(platform);
+		if (_appContext->showPlatformWindow) {
+			platformShowUi(_platform);
 		}
 
-		if (appContext->showImageInspector) {
-			imageInspectorShowUi(appContext->imageInspector);
+		if (_appContext->showImageInspector) {
+			imageInspectorShowUi(_appContext->imageInspector);
 		}
 
-		if (appContext->showModelInspector) {
-			modelInspectorShowUi(modelInspector);
+		if (_appContext->showModelInspector) {
+			modelInspectorShowUi(_modelInspector);
 		}
 
-		if (appContext->showSamplerTester) {
-			samplerTesterShowUi(samplerTester);
+		if (_appContext->showSamplerTester) {
+			samplerTesterShowUi(_samplerTester);
 		}
 
-		if (appContext->showModelEditor) {
-			modelEditorShowUi(modelEditor);
+		if (_appContext->showModelEditor) {
+			modelEditorShowUi(_modelEditor);
 		}
 
-		if (appContext->showGalvoInspector) {
-			galvoInspectorShowUi(galvoInspector);
+		if (_appContext->showGalvoInspector) {
+			galvoInspectorShowUi(_galvoInspector);
 		}
 
-		if (appContext->showProjectInspector) {
-			projectShowUi(appContext, appContext->projectContext);
+		if (_appContext->showProjectInspector) {
+			projectShowUi(_appContext, _appContext->projectContext);
 		}
 
-		_renderImgui(&_appContext);
+		_renderImgui(_appContext);
 	}
 
 	// TODO: Release all the things. (Probably never going to happen).
@@ -1126,11 +1131,11 @@ int main() {
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	gfxCleanupDeviceD3D(&_appContext);
-	DestroyWindow(_appContext.hWnd);
-	_unregisterWindow(&_appContext);
+	gfxCleanupDeviceD3D(_appContext);
+	DestroyWindow(_appContext->hWnd);
+	_unregisterWindow(_appContext);
 
-	platformDestroy(platform);
+	platformDestroy(_platform);
 
 	return 0;
 }

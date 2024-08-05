@@ -276,7 +276,7 @@ void renderDebugPrimitives(ldiApp* AppContext, ldiDebugPrims* Prims, bool Depth 
 	const float blendFactor[4] = { 0.f, 0.f, 0.f, 0.f };
 
 	if (Depth) {
-		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->replaceDepthStencilState, 0);
 	} else {
 		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
 	}
