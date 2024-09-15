@@ -1,28 +1,19 @@
 #pragma once
 
-// Bundle adjust and non-linear optimization:
- 
-// https://github.com/Tetragramm/opencv_contrib/blob/master/modules/mapping3d/include/opencv2/mapping3d.hpp#L131
+// Bundle adjust and non-linear optimization references:
 
-// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
 // https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
-// https://bitbucket.org/kaess/isam/src/master/examples/stereo.cpp
+// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
 // http://people.csail.mit.edu/kaess/isam/
-// https://github.com/mprib/pyxy3d/blob/main/pyxy3d/calibration/capture_volume/capture_volume.py
-
-// https://colmap.github.io/tutorial.html
+// https://bitbucket.org/kaess/isam/src/master/examples/stereo.cpp
 // https://www.cs.cornell.edu/~snavely/bundler/
 // https://users.ics.forth.gr/~lourakis/sba/
 // https://www.informatik.uni-marburg.de/~thormae/paper/MIRA11_2.pdf
-// https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
 // https://pypi.org/project/pyba/
 
 // NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
 
-// Takes image sample files and generates the initial calibration samples for a job.
-void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
-	calibClearJob(Job);
-
+void calibSetDefaultCamera(ldiCalibrationJob* Job) {
 	Job->camMat = cv::Mat::eye(3, 3, CV_64F);
 	Job->camMat.at<double>(0, 0) = 2666.92;
 	Job->camMat.at<double>(0, 1) = 0.0;
@@ -39,6 +30,13 @@ void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& Dir
 	Job->camDist.at<double>(1) = -0.3512980043888092;
 	Job->camDist.at<double>(2) = 0.002319999970495701;
 	Job->camDist.at<double>(3) = 0.00217368989251554;
+}
+
+// Takes image sample files and generates the initial calibration samples for a job.
+void calibFindInitialObservations(ldiCalibrationJob* Job, const std::string& DirectoryPath) {
+	calibClearJob(Job);
+
+	calibSetDefaultCamera(Job);
 
 	std::vector<std::string> filePaths = listAllFilesInDirectory(DirectoryPath);
 
@@ -546,13 +544,7 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 	Job->projError.clear();
 	
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
-	//for (size_t sampleIter = 0; sampleIter < Job->initialPoseToSampleIds.size(); ++sampleIter) {
-		//ldiCalibStereoSample* sample = &Job->samples[Job->initialPoseToSampleIds[sampleIter]];
 		ldiCalibSample* sample = &Job->samples[sampleIter];
-
-		/*if (sample->phase != 3) {
-			continue;
-		}*/
 
 		ldiHorsePosition pos = {};
 		pos.x = sample->X;
@@ -596,6 +588,108 @@ double calibGetProjectionRMSE(ldiCalibrationJob* Job) {
 	double meanError = 0.0;
 	
 	for (size_t i = 0; i < Job->projObs.size(); ++i) {
+		double err = glm::length(Job->projObs[i] - toVec2(Job->projReproj[i]));
+		meanError += err * err;
+		Job->projError.push_back(err);
+	}
+
+	meanError /= (double)Job->projObs.size();
+	meanError = sqrt(meanError);
+
+	std::cout << "Reprojection RMSE: " << meanError << "\n";
+
+	return meanError;
+}
+
+double calibGetProjectionRMSETest(ldiCalibrationJob* Job, std::vector<vec2d>& OutPoints) {
+	std::vector<cv::Point3f> projPoints;
+
+	Job->projObs.clear();
+	Job->projReproj.clear();
+	Job->projError.clear();
+
+	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
+		ldiCalibSample* sample = &Job->samples[sampleIter];
+
+		ldiHorsePosition pos = {};
+		pos.x = sample->X;
+		pos.y = sample->Y;
+		pos.z = sample->Z;
+		pos.a = sample->A;
+		pos.c = sample->C;
+
+		std::vector<vec3> points;
+		horseGetProjectionCubePoints(Job, pos, points);
+
+		std::vector<ldiCharucoBoard>* boards = &sample->cube.boards;
+		for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
+			ldiCharucoBoard* board = &(*boards)[boardIter];
+
+			for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
+				ldiCharucoCorner* corner = &board->corners[cornerIter];
+				int cornerGlobalId = (board->id * 9) + corner->id;
+
+				Job->projObs.push_back(corner->position);
+				projPoints.push_back(toPoint3f(points[cornerGlobalId]));
+			}
+		}
+	}
+
+	std::cout << "RMSE proj points: " << projPoints.size() << "\n";
+
+	mat4 camMat = glm::inverse(Job->camVolumeMat);
+	cv::Mat rtMat = convertTransformToRT(convertGlmTransMatToOpenCvMat(camMat));
+
+	cv::Mat r = cv::Mat::zeros(1, 3, CV_64F);
+	r.at<double>(0) = rtMat.at<double>(0);
+	r.at<double>(1) = rtMat.at<double>(1);
+	r.at<double>(2) = rtMat.at<double>(2);
+
+	cv::Mat t = cv::Mat::zeros(1, 3, CV_64F);
+	t.at<double>(0) = rtMat.at<double>(3);
+	t.at<double>(1) = rtMat.at<double>(4);
+	t.at<double>(2) = rtMat.at<double>(5);
+
+	cv::projectPoints(projPoints, r, t, Job->camMat, Job->camDist, Job->projReproj);
+
+	//----------------------------------------------------------
+	{
+		ldiHorsePosition pos = {};
+		pos.x = 0;
+		pos.y = 0;
+		pos.z = 0;
+		pos.a = 0;
+		pos.c = 0;
+
+		std::vector<vec3> points;
+		std::vector<cv::Point3f> projPoints;
+		std::vector<cv::Point2f> projReproj;
+
+		horseGetProjectionCubePointsTest(Job, pos, points);
+		for (size_t i = 0; i < points.size(); ++i) {
+			projPoints.push_back(toPoint3f(points[i]));
+			//std::cout << i << ": " << Job->cube.points[i].x << ", " << Job->cube.points[i].y << ", " << Job->cube.points[i].z << "\n";
+			std::cout << i << ": " << points[i].x << ", " << points[i].y << ", " << points[i].z << "\n";
+		}
+
+		cv::projectPoints(projPoints, r, t, Job->camMat, Job->camDist, projReproj);
+
+		/*std::cout << "Test proj points:\n";
+		for (size_t i = 0; i < projReproj.size(); ++i) {
+			std::cout << i << ": " << projReproj[i].x << ", " << projReproj[i].y << "\n";
+		}*/
+	}
+	//----------------------------------------------------------
+
+
+	double meanError = 0.0;
+
+	for (size_t i = 0; i < Job->projObs.size(); ++i) {
+		vec2d vec;
+		vec.x = Job->projReproj[i].x;
+		vec.y = Job->projReproj[i].y;
+		OutPoints.push_back(vec);
+
 		double err = glm::length(Job->projObs[i] - toVec2(Job->projReproj[i]));
 		meanError += err * err;
 		Job->projError.push_back(err);
@@ -670,15 +764,13 @@ void calibCalibrateScanner(ldiCalibrationJob* Job, const std::string& DirectoryP
 			boundPlanes[3].point = cubeCorners[3] + dir30 * 3.0f;
 
 			{
-				cv::Mat srcImage(cv::Size(sample.frame.width, sample.frame.height), CV_8UC1, sample.frame.data);
-				cv::Mat downscaleImage;
-				cv::Mat upscaleImage;
-
-				cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-				cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
-
-				std::vector<vec2> points = computerVisionFindScanLine({ sample.frame.width / 2, sample.frame.height / 2, downscaleImage.data });
-				//std::vector<vec2> points = computerVisionFindScanLine(sample.frame);
+				//cv::Mat srcImage(cv::Size(sample.frame.width, sample.frame.height), CV_8UC1, sample.frame.data);
+				//cv::Mat downscaleImage;
+				//cv::Mat upscaleImage;
+				//cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+				//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+				//std::vector<vec2> points = computerVisionFindScanLine({ sample.frame.width / 2, sample.frame.height / 2, downscaleImage.data });
+				std::vector<vec2> points = computerVisionFindScanLine(sample.frame);
 
 				std::vector<cv::Point2f> distortedPoints;
 				std::vector<cv::Point2f> undistortedPoints;
@@ -756,6 +848,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	// - Camera intrinsics (camera matrix, lens distortion).
 	// - Camera extrinsics (position, rotation).
 
+	calibSetDefaultCamera(Job);
+
 	ldiCalibCube initialCube;
 	calibCubeInit(&initialCube);
 	Job->cube = initialCube;
@@ -776,6 +870,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	std::vector<std::vector<cv::Point2f>> viewObservations;
 	std::vector<std::vector<int>> viewPointIds;
 	std::vector<ldiHorsePositionAbs> viewPositions;
+
+	int acceptedObservations = 0;
 
 	for (size_t sampleIter = 0; sampleIter < Job->samples.size(); ++sampleIter) {
 		ldiCalibSample* sample = &Job->samples[sampleIter];
@@ -835,14 +931,18 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 					viewObservations.push_back(imagePoints);
 					viewPointIds.push_back(imagePointIds);
 					viewPositions.push_back(platformPos);
+
+					acceptedObservations += imagePoints.size();
 				}
 			} else {
-				//std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+				std::cout << "Rejected " << sampleIter << ": No pose found\n";
 			}
 		} else {
-			//std::cout << "Find pose - Sample: " << sampleIter << ": Not found\n";
+			std::cout << "Rejected " << sampleIter << ": Too few points\n";
 		}
 	}
+
+	std::cout << "Accepted observations: " << acceptedObservations << "\n";
 
 	//----------------------------------------------------------------------------------------------------
 	// Get volume metrics.
@@ -851,6 +951,9 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	calibBuildCalibVolumeMetrics(Job);
 
 	double rmse = calibGetProjectionRMSE(Job);
+
+	std::vector<vec2d> reprojPoints;
+	calibGetProjectionRMSETest(Job, reprojPoints);
 
 	//----------------------------------------------------------------------------------------------------
 	// Create BA file.
@@ -864,7 +967,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	}
 
 	// Header.
-	fprintf(f, "%d %d\n", (int)initialCube.points.size(), (int)viewPositions.size());
+	fprintf(f, "%d %d\n", (int)Job->cube.points.size(), (int)viewPositions.size());
 
 	// Axis directions.
 	fprintf(f, "%f %f %f\n", Job->axisX.direction.x, Job->axisX.direction.y, Job->axisX.direction.z);
@@ -898,8 +1001,8 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	fprintf(f, "\n");
 
 	// 3D points.
-	for (size_t pointIter = 0; pointIter < initialCube.points.size(); ++pointIter) {
-		vec3 point = initialCube.points[pointIter];
+	for (size_t pointIter = 0; pointIter < Job->cube.points.size(); ++pointIter) {
+		vec3 point = Job->cube.points[pointIter];
 		fprintf(f, "%f %f %f\n", point.x, point.y, point.z);
 	}
 
@@ -915,6 +1018,12 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 
 			fprintf(f, "%d %f %f\n", pointId, point.x, point.y);
 		}
+	}
+
+	// Test proj points
+	fprintf(f, "%d\n", reprojPoints.size());
+	for (size_t pointIter = 0; pointIter < reprojPoints.size(); ++pointIter) {
+		fprintf(f, "%f %f\n", reprojPoints[pointIter].x, reprojPoints[pointIter].y);
 	}
 
 	fclose(f);

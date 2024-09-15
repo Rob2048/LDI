@@ -233,7 +233,7 @@ ldiModelEditor*			_modelEditor = new ldiModelEditor();
 ldiGalvoInspector*		_galvoInspector = new ldiGalvoInspector();
 ldiProjectContext*		_projectContext = new ldiProjectContext();
 
-//------------------------------------------------------------------------------------------------- ---
+//----------------------------------------------------------------------------------------------------
 // Windowing and GUI helpers.
 //----------------------------------------------------------------------------------------------------
 vec2 getMousePosition(ldiApp* AppContext) {
@@ -957,10 +957,10 @@ int main() {
 		return 1;
 	}
 
-	//if (modelEditorLoad(_appContext, modelEditor) != 0) {
+	//if (modelEditorLoad(_appContext, _modelEditor) != 0) {
 	//	std::cout << "Could not load model editor\n";
 	//	// TODO: Platform should be detroyed properly when ANY system failed to load.
-	//	platformDestroy(platform);
+	//	//platformDestroy(platform);
 	//	return 1;
 	//}
 

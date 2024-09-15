@@ -170,6 +170,8 @@ void calibCubeInit(ldiCalibCube* Cube) {
 	Cube->points.resize(Cube->totalPoints, vec3(0.0f, 0.0f, 0.0f));
 
 	float ps = Cube->cellSize;
+	vec3 offset(-(-ps * 1 - 1.1f), -ps * 1, ps * 1);
+
 	// Board 0.
 	Cube->points[0] = { 0.0f, ps * 0, -ps * 0 };
 	Cube->points[3] = { 0.0f, ps * 0, -ps * 1 };
@@ -191,6 +193,18 @@ void calibCubeInit(ldiCalibCube* Cube) {
 	Cube->points[ 9] = { -ps * 2 - 1.1f, 2.9f, -ps * 0 };
 	Cube->points[10] = { -ps * 2 - 1.1f, 2.9f, -ps * 1 };
 	Cube->points[11] = { -ps * 2 - 1.1f, 2.9f, -ps * 2 };
+
+	// Board 2.
+	// NOTE: Not on physical cube.
+	Cube->points[18] = -offset;
+	Cube->points[19] = -offset;
+	Cube->points[20] = -offset;
+	Cube->points[21] = -offset;
+	Cube->points[22] = -offset;
+	Cube->points[23] = -offset;
+	Cube->points[24] = -offset;
+	Cube->points[25] = -offset;
+	Cube->points[26] = -offset;
 
 	// Board 3.
 	Cube->points[27] = { -ps * 0 - 1.1f, ps * 0, -2.9f + 4.0f };
@@ -224,8 +238,6 @@ void calibCubeInit(ldiCalibCube* Cube) {
 	Cube->points[47] = { -ps * 0 - 1.1f, ps * 2, -2.9f };
 	Cube->points[50] = { -ps * 1 - 1.1f, ps * 2, -2.9f };
 	Cube->points[53] = { -ps * 2 - 1.1f, ps * 2, -2.9f };
-
-	vec3 offset(-(-ps * 1 - 1.1f), -ps * 1, ps * 1);
 
 	for (size_t i = 0; i < Cube->points.size(); ++i) {
 		Cube->points[i] += offset;

@@ -71,13 +71,7 @@ def read_input(filePath):
 				obs_point_indices = np.append(obs_point_indices, int(view_obs[0]))
 				obs_points_2d = np.append(obs_points_2d, [[float(view_obs[1]), float(view_obs[2])]], axis=0)
 
-		reproj_count = int(file.readline())
-		reproj_points = np.empty((reproj_count, 2))
-		for i in range(reproj_count):
-			point = file.readline().split()
-			reproj_points[i] = [float(point[0]), float(point[1])]
-
-	return cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d, reproj_points
+	return cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d
 
 # Rotate points by given Rodrigues rotation vectors.
 def rotate(points, rot_vecs):
@@ -152,6 +146,9 @@ def buildTranslateMat(pos):
 
 # Project 3D points to 2D image.
 def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices):
+	p0 = profile_start()
+	final_obs = np.empty((obs_pose_indices.shape[0], 2))
+	
 	# Unpack intrinsics.
 	cam_mat = np.array([[packed_intrins[0], 0, packed_intrins[2]], [0, packed_intrins[1], packed_intrins[3]], [0, 0, 1]])
 	cam_dist = np.array([packed_intrins[4], packed_intrins[5], packed_intrins[6], packed_intrins[7]])
@@ -169,7 +166,8 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 	mech_trans = np.empty((pose_positions.shape[0], 3))
 	axis_c_rotmat = np.empty((pose_positions.shape[0], 4, 4))
 	axis_a_rotmat = np.empty((pose_positions.shape[0], 4, 4))
-	
+	# pose_mask = np.empty((pose_positions.shape[0]))
+
 	axis_c_origin[1] = 0.0
 	axis_c_refmat = buildTranslateMat(axis_c_origin)
 	axis_c_refmat_neg = buildTranslateMat(-axis_c_origin)
@@ -177,6 +175,8 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 	axis_a_origin[0] = 0.0
 	axis_a_refmat = buildTranslateMat(axis_a_origin)
 	axis_a_refmat_neg = buildTranslateMat(-axis_a_origin)
+
+	p0 = profile_stop(p0, "Preparation")
 
 	for i in range(pose_positions.shape[0]):
 		offset_x = pose_positions[i, 0]
@@ -186,109 +186,64 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 		mech_trans[i, 0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
 		mech_trans[i, 1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
 		mech_trans[i, 2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
+
+		# if pose_positions[i, 4] != 0.0:
+		# 	pose_mask[i] = 1.0
 		
 		# Create axis A rotation matrix
-		axis_a_rotmat[i] = buildRotMat(norm_axis_a, pose_positions[i, 3])
+		axis_a_rotmat[i] =  buildRotMat(norm_axis_a, pose_positions[i, 3])
 
 		# Create axis C rotation matrix
-		axis_c_rotmat[i] = buildRotMat(norm_axis_c, -pose_positions[i, 4])
+		# axis_c_rotmat[i] = buildRotMat(norm_axis_c, -pose_positions[i, 4])
+		axis_c_rotmat[i] =  buildRotMat(norm_axis_c, -pose_positions[i, 4])
+		# axis_c_rotmat[i] = axis_c_rotmat[i] @ buildTranslateMat(axis_c_origin) 
+		# axis_c_rotmat[i] = buildRotMat(norm_axis_c, -pose_positions[i, 4] * 1) 
 
-	full_points = np.empty((obs_pose_indices.shape[0], 4))
-	
-	# Each observation has a match to the cube.
-	full_points[:, :3] = points_3d[obs_point_indices]
-	full_points[:, 3] = 1
-	full_points = (axis_c_rotmat[obs_pose_indices] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
-	full_points[:, 3] = 1
-	full_points = (axis_a_rotmat[obs_pose_indices] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
-	full_points = full_points[:, :3]
-	full_points = full_points + mech_trans[obs_pose_indices]
-	
-	
-	# full_points2 = np.empty((obs_pose_indices.shape[0], 4))
-	# print(f"Full points: {full_points2}")
+	p0 = profile_stop(p0, "Transforms")
 
-	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
-	final_obs = final_obs.reshape((-1, 2))
+	avg_proj_time = 0.0
+					
+	# For each observation point
+	for i in range(obs_pose_indices.shape[0]):
+		
 
-	return final_obs
+		pose_index = obs_pose_indices[i]
+		point_index = obs_point_indices[i]
+		point = np.copy(points_3d[point_index])
+		
+		# Transform the point.
+		# print(axis_c_rotmat[pose_index])
+		# print(np.append(point, 1))
 
-def project_test(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices):
-	# Unpack intrinsics.
-	cam_mat = np.array([[packed_intrins[0], 0, packed_intrins[2]], [0, packed_intrins[1], packed_intrins[3]], [0, 0, 1]])
-	cam_dist = np.array([packed_intrins[4], packed_intrins[5], packed_intrins[6], packed_intrins[7]])
+		# point = np.matmul(axis_c_rotmat[pose_index], np.append(point, 1))
+		# point = np.matmul(axis_c_rotmat[pose_index], np.append(point, 1))
+		
+		# point = (axis_c_rotmat[pose_index] @ (np.append(point, 1) @ axis_c_refmat_neg)) @ axis_c_refmat
 
-	# Make sure the axis directions are normalized.
-	norm_axis_x = axis_dirs[0] / np.linalg.norm(axis_dirs[0])
-	norm_axis_y = axis_dirs[1] / np.linalg.norm(axis_dirs[1])
-	norm_axis_z = axis_dirs[2] / np.linalg.norm(axis_dirs[2])
-	axis_a_origin = axis_dirs[3]
-	norm_axis_a = axis_dirs[4] / np.linalg.norm(axis_dirs[4])
-	axis_c_origin = axis_dirs[5]
-	norm_axis_c = axis_dirs[6] / np.linalg.norm(axis_dirs[6])
+		
+		point = (axis_c_rotmat[pose_index] @ (np.append(point, 1) @ axis_c_refmat_neg)) @ axis_c_refmat
+		point[3] = 1
+		point = (axis_a_rotmat[pose_index] @ (point @ axis_a_refmat_neg)) @ axis_a_refmat
+		point = point[:3] + mech_trans[pose_index]
+		
+		# Project the point.
+		p0 = profile_start()
+		points_2d, _ = cv2.projectPoints(point, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
+		avg_proj_time += profile_stop_num(p0)
+		points_2d = points_2d.reshape((-1, 2))
+		
+		final_obs[i] = points_2d
+		# if pose_mask[pose_index] == 1.0:
+			# final_obs = np.append(final_obs, points_2d, axis=0)
 
-	# Build the transform for each pose.
-	mech_trans = np.empty((3))
-	axis_c_rotmat = np.empty((1, 4, 4))
-	axis_a_rotmat = np.empty((1, 4, 4))
-	
-	axis_c_origin[1] = 0.0
-	axis_c_refmat = buildTranslateMat(axis_c_origin)
-	axis_c_refmat_neg = buildTranslateMat(-axis_c_origin)
-
-	axis_a_origin[0] = 0.0
-	axis_a_refmat = buildTranslateMat(axis_a_origin)
-	axis_a_refmat_neg = buildTranslateMat(-axis_a_origin)
-
-	trans_x = 0
-	trans_y = 0
-	trans_z = 0
-	rot_a = 0 * (360.0 / (32.0 * 200.0 * 90.0))
-	rot_c = (0 - 13000) * (360.0 / (32.0 * 200.0 * 30.0))
-
-	offset_x = trans_x
-	offset_y = trans_y
-	offset_z = trans_z
-
-	mech_trans[0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
-	mech_trans[1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
-	mech_trans[2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
-	
-	# Create axis A rotation matrix
-	axis_a_rotmat = buildRotMat(norm_axis_a, rot_a)
-
-	# Create axis C rotation matrix
-	axis_c_rotmat = buildRotMat(norm_axis_c, -rot_c)
-	print(f"axis_c_deg: {rot_c}")
-	print(f"axis_c_dir: {norm_axis_c}")
-	print(f"axis_c_rotmat: {axis_c_rotmat}")
-
-	full_points = np.empty((points_3d.shape[0], 4))
-
-	# Each observation has a match to the cube.
-	full_points[:, :3] = points_3d
-	full_points[:, 3] = 1
-	# full_points = (axis_c_rotmat[0] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
-	full_points = ((full_points @ axis_c_refmat_neg) @ axis_c_rotmat) @ axis_c_refmat
-	full_points[:, 3] = 1
-	# full_points = (axis_a_rotmat[0] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
-	# full_points = ((full_points @ axis_a_refmat_neg) @ axis_a_rotmat) @ axis_a_refmat
-	full_points = full_points[:, :3]
-	full_points = full_points + mech_trans
-
-	# print(f"Points 3D: {points_3d}")
-	print(f"Full points: {full_points}")
-	
-	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
-	final_obs = final_obs.reshape((-1, 2))
-
-	# print(f"Test points: {final_obs}")
+	# avg_proj_time /= obs_pose_indices.shape[0]
+	print(f"Average projection time: {avg_proj_time * 1000:.3f} ms")
 
 	return final_obs
 
 # Compute new residuals.
 def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indices, points_2d):
-	# p0 = profile_start()
+	p0 = profile_start()
 
 	axis_dirs = params[:21].reshape((7, 3))
 	points_3d = params[21: 21 + n_points * 3].reshape((n_points, 3))
@@ -300,7 +255,7 @@ def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indi
 	result = (proj_p - points_2d).ravel()
 	# print("RMSE: {}".format(np.sqrt(np.mean(result**2))))
 
-	# profile_stop(p0, "Residuals")
+	profile_stop(p0, "Residuals")
 	
 	return result
 
@@ -315,6 +270,7 @@ def bundle_adjustment_sparsity(n_points, n_observations, obs_point_indices, obs_
 	for s in range(9):
 		A[2 * i, s] = 1
 		A[2 * i + 1, s] = 1
+
 
 	# Axis A/C origin/direction.
 	for obs in range(n_observations):
@@ -356,7 +312,7 @@ for i in range(len(sys.argv)):
 
 show_debug_plots = True
 
-cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d, reproj_points = read_input(sys.argv[1])
+cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d = read_input(sys.argv[1])
 
 cam_mat_0 = cam_intrins[0]
 cam_dist_0 = cam_intrins[1]
@@ -374,11 +330,6 @@ x0 = np.hstack((axis_dirs.ravel(), points_3d.ravel(), packed_intrins_0.ravel(), 
 # f0 = residuals(x0, n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d)
 A = bundle_adjustment_sparsity(n_points, n_observations, obs_point_indices, obs_pose_indices, pose_positions)
 
-f0 = residuals(x0, n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d)
-print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
-
-# exit()
-
 #------------------------------------------------------------------------------------------------------------------------
 # Plot initial points and cameras.
 #------------------------------------------------------------------------------------------------------------------------
@@ -388,13 +339,10 @@ if show_debug_plots:
 	# plt.spy(A, markersize=1, aspect='auto')
 	# plt.show()
 
-	test_p = project_test(points_3d, axis_dirs, packed_intrins_0, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
-	
 	all_p = project(points_3d, axis_dirs, packed_intrins_0, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
 
 	plt.plot(obs_points_2d[:,0], obs_points_2d[:,1], 'bo', markersize=1)
 	plt.plot(all_p[:,0], all_p[:,1], 'ro', markersize=1)
-	plt.plot(reproj_points[:,0], reproj_points[:,1], 'go', markersize=1)
 	
 	plt.xlim([0, 3280])
 	plt.ylim([2464, 0])
@@ -407,13 +355,12 @@ if show_debug_plots:
 	# ax.set_aspect('equal')
 	# plt.show()
 
-exit()
+# exit()
 #------------------------------------------------------------------------------------------------------------------------
 # Optimize.
 #------------------------------------------------------------------------------------------------------------------------
 t0 = time.time()
-# res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-6, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
-res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-4, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
+res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-6, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
 # res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, max_nfev=60, xtol=1e-10, loss='soft_l1', f_scale=1, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
 # least_squares(residuals, x0, verbose=2, method ='trf', xtol=1e-10, loss='soft_l1', f_scale=0.1, args=(obj_pts, left_pts, right_pts))
 t1 = time.time()
@@ -473,6 +420,47 @@ if show_debug_plots:
 	ax.scatter(points_3d_optimized[:, 0], points_3d_optimized[:, 1], points_3d_optimized[:, 2], c='r', marker='o')
 	ax.set_aspect('equal')
 	plt.show()
+
+	# Plot all cubes with optimized model.
+	# fig = plt.figure()
+	# ax = fig.add_subplot(111, projection='3d')
+	
+	# norm_axis_x = axis_dirs_optimized[0]
+	# norm_axis_y = axis_dirs_optimized[1]
+	# norm_axis_z = axis_dirs_optimized[2]
+
+	# for i in range(n_views):
+	# 	# Build the transform for each pose.
+	# 	offset_x = pose_positions[i, 0]
+	# 	offset_y = pose_positions[i, 1]
+	# 	offset_z = pose_positions[i, 2]
+
+	# 	pose_translation = np.empty(3)
+	# 	pose_translation[0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
+	# 	pose_translation[1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
+	# 	pose_translation[2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
+
+	# 	# Transform the point.
+	# 	points_3d_transformed = points_3d_optimized + pose_translation
+
+	# 	# Project the point.
+	# 	ax.scatter(points_3d_transformed[:, 0], points_3d_transformed[:, 1], points_3d_transformed[:, 2], c='r', marker='o')
+
+	# ax.set_aspect('equal')
+	# plt.show()
+
+	# Plot optimized points and cameras.
+	# fig = plt.figure()
+	# ax = fig.add_subplot(111, projection='3d')
+	# ax.scatter(view_params_optimized[:, 3], view_params_optimized[:, 4], view_params_optimized[:, 5], c='r', marker='o')
+	# ax.set_aspect('equal')
+	# plt.show()
+
+	# Plot rotation vectors for each view.
+	# plt.plot(view_params_optimized[:, 0], 'ro', markersize=1)
+	# plt.plot(view_params_optimized[:, 1], 'go', markersize=1)
+	# plt.plot(view_params_optimized[:, 2], 'bo', markersize=1)
+	# plt.show()
 
 #------------------------------------------------------------------------------------------------------------------------
 # Save results.

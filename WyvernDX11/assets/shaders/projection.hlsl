@@ -12,7 +12,7 @@ struct PS_INPUT {
 sampler sampler0;
 sampler samplerWrap;
 Texture2D<float> texture0 : register(t0);
-Texture2D decalTex0 : register(t1);
+Texture2D<float> decalTex0 : register(t1);
 
 PS_INPUT mainVs(vertexInputMesh input) {
 	PS_INPUT output;

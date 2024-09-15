@@ -33,6 +33,10 @@ void webcamWorkerThread(ldiWebcam* Webcam) {
 
 	std::cout << "Webcam backend: " << Webcam->webcamCapture.getBackendName() << "\n";
 
+	//Webcam->webcamCapture.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+	//Webcam->webcamCapture.set(cv::CAP_PROP_AUTO_EXPOSURE, 1);
+	Webcam->webcamCapture.set(cv::CAP_PROP_EXPOSURE, -100);
+
 	for (int i = 0; i < 71; ++i) {
 		std::cout << i << ": " << Webcam->webcamCapture.get(i) << "\n";
 	}

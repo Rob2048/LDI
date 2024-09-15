@@ -499,28 +499,28 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 
 		float* sdfVolume = new float[sdfWidth * sdfHeight * sdfDepth];
 
-		/*vec3 sphereOrigin(sdfWidth / 2.0f, sdfHeight / 2.0f, sdfDepth / 2.0f);
-		float sphereRadius = 8.0f;
+		// vec3 sphereOrigin(sdfWidth / 2.0f, sdfHeight / 2.0f, sdfDepth / 2.0f);
+		// float sphereRadius = 128.0f;
 
-		for (int iZ = 0; iZ < sdfDepth; ++iZ) {
-			for (int iY = 0; iY < sdfHeight; ++iY) {
-				for (int iX = 0; iX < sdfWidth; ++iX) {
-					int idx = iX + iY * sdfWidth + iZ * sdfWidth * sdfHeight;
+		// for (int iZ = 0; iZ < sdfDepth; ++iZ) {
+		// 	for (int iY = 0; iY < sdfHeight; ++iY) {
+		// 		for (int iX = 0; iX < sdfWidth; ++iX) {
+		// 			int idx = iX + iY * sdfWidth + iZ * sdfWidth * sdfHeight;
 
-					vec3 pos(iX + 0.5f, iY + 0.5f, iZ + 0.5f);
-					float dist = glm::length(pos - sphereOrigin) - sphereRadius;
+		// 			vec3 pos(iX + 0.5f, iY + 0.5f, iZ + 0.5f);
+		// 			float dist = glm::length(pos - sphereOrigin) - sphereRadius;
 
-					sdfVolume[idx] = dist;
-				}
-			}
-		}*/
+		// 			sdfVolume[idx] = dist;
+		// 		}
+		// 	}
+		// }
 
-		/*FILE* sdfFile;
-		fopen_s(&sdfFile, "../../assets/models/derg256.sdf", "rb");
+		// FILE* sdfFile;
+		// fopen_s(&sdfFile, "../../assets/models/derg256.sdf", "rb");
 
-		fread(sdfVolume, 4, sdfWidth * sdfHeight * sdfDepth, sdfFile);
+		// fread(sdfVolume, 4, sdfWidth * sdfHeight * sdfDepth, sdfFile);
 
-		fclose(sdfFile);*/
+		// fclose(sdfFile);
 
 		D3D11_SUBRESOURCE_DATA sub = {};
 		sub.pSysMem = sdfVolume;
@@ -561,13 +561,13 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 		}
 
 		ldiModel dergnModel = objLoadModel("../../assets/models/dergn.obj");
-		//ldiModel dergnModel = objLoadModel("../../assets/models/test.obj");
+		// ldiModel dergnModel = objLoadModel("../../assets/models/test.obj");
 
-		float scale = 10;
+		float scale = 24;
 		for (int i = 0; i < dergnModel.verts.size(); ++i) {
 			ldiMeshVertex* vert = &dergnModel.verts[i];
 			vert->pos = vert->pos * scale;
-			vert->pos += vec3(80.0f / 2.0f, -100 / 2.0f, 256.0f / 2.0f);
+			vert->pos += vec3(128.0f, 0.0f, 128.0f);
 		}
 
 		// Create tri list.
@@ -624,15 +624,33 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 		}
 
 		double t0 = getTime();
-		
-		/*AppContext->d3dDeviceContext->CSSetShader(Tool->sdfVolumeCompute, 0, 0);
+
+		D3D11_QUERY_DESC queryDesc = {};
+		queryDesc.Query = D3D11_QUERY_EVENT;
+
+		ID3D11Query* query;
+		if (AppContext->d3dDevice->CreateQuery(&queryDesc, &query) != S_OK) {
+			return false;
+		}
+
+		AppContext->d3dDeviceContext->CSSetShader(Tool->sdfVolumeCompute, 0, 0);
 		AppContext->d3dDeviceContext->CSSetShaderResources(0, 1, &triListResourceView);
 		AppContext->d3dDeviceContext->CSSetUnorderedAccessViews(0, 1, &Tool->sdfVolumeUav, 0);
 		AppContext->d3dDeviceContext->CSSetConstantBuffers(0, 1, &constantBuffer);
 		AppContext->d3dDeviceContext->Dispatch(sdfWidth / 8, sdfHeight / 8, sdfDepth / 8);
 		AppContext->d3dDeviceContext->CSSetShader(0, 0, 0);
 		ID3D11UnorderedAccessView* ppUAViewnullptr[1] = { 0 };
-		AppContext->d3dDeviceContext->CSSetUnorderedAccessViews(0, 1, ppUAViewnullptr, 0);*/
+		AppContext->d3dDeviceContext->CSSetUnorderedAccessViews(0, 1, ppUAViewnullptr, 0);
+
+		AppContext->d3dDeviceContext->End(query);
+		BOOL queryData;
+
+		while (S_OK != AppContext->d3dDeviceContext->GetData(query, &queryData, sizeof(BOOL), 0)) {
+		}
+
+		if (queryData != TRUE) {
+			return false;
+		}
 
 		t0 = getTime() - t0;
 		std::cout << "SDF compute time: " << (t0 * 1000.0) << " ms\n";
@@ -809,7 +827,8 @@ int modelEditorLoad(ldiApp* AppContext, ldiModelEditor* Tool) {
 			tex2dDesc.Height = dispTex.height;
 			tex2dDesc.MipLevels = 1;
 			tex2dDesc.ArraySize = 1;
-			tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			// tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			tex2dDesc.Format = DXGI_FORMAT_R32_FLOAT;
 			tex2dDesc.SampleDesc.Count = 1;
 			tex2dDesc.SampleDesc.Quality = 0;
 			tex2dDesc.Usage = D3D11_USAGE_DEFAULT;

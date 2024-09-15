@@ -117,24 +117,69 @@ float4 map(float3 pos) {
 	// 	sphereSdf(pos, float3(1, 1, 0), 1),
 	// 	1.0));
 
-	float3 volOrigin = float3(0, 64.0 / 20.0, 0);
-	float3 volSize = float3(128, 128, 128) / 20.0;
-	float3 volCorner = volOrigin - volSize / 2.0;
-	float volDist = sdBox(pos, volOrigin, volSize / 2.0);
+	// float3 volOrigin = float3(0, 64.0 / 20.0, 0);
+	// float3 volSize = float3(128, 128, 128) / 20.0;
+	// float3 volCorner = volOrigin - volSize / 2.0;
+	// float volDist = sdBox(pos, volOrigin, volSize / 2.0);
 
-	if (volDist <= 0.01) {
-		// We consider being within the 3d volume.
+	// if (volDist <= 0.01) {
+	// 	// We consider being within the 3d volume.
 
-		// Read dist from position.
-		float3 volPos = saturate((pos - volCorner) / volSize);
-		float4 volTex = texture0.Sample(sampler0, volPos);
+	// 	// Read dist from position.
+	// 	float3 volPos = saturate((pos - volCorner) / volSize);
+	// 	float4 volTex = texture0.Sample(sampler0, volPos);
 
-		// NOTE: For precomupted field / 2.
-		// NOTE: For 128 grid: 20
-		t = float4(0.8, 0.3, 0.8, volTex.r / 10.0);
-	} else {
-		t = float4(0, 0, 0, volDist);
+	// 	// NOTE: For precomupted field / 2.
+	// 	// NOTE: For 128 grid: 20
+	// 	t = float4(0.8, 0.3, 0.8, volTex.r / 2.0);
+	// } else {
+	// 	t = float4(0, 0, 0, volDist);
+	// }
+
+	t = float4(0, 0, 0, 1.0);
+
+	{
+		float3 volOrigin = float3(0, 128.0 / 40.0, 0);
+		float3 volSize = float3(256, 256, 256) / 40.0;
+		float3 volCorner = volOrigin - volSize / 2.0;
+		float volDist = sdBox(pos, volOrigin, volSize / 2.0);
+
+		if (volDist <= 0.01) {
+			// We consider being within the 3d volume.
+
+			// Read dist from position.
+			float3 volPos = saturate((pos - volCorner) / volSize);
+			float volDist = texture0.Sample(sampler0, volPos).r / 40.0;
+
+			// NOTE: For precomupted field / 2.
+			// NOTE: For 128 grid: 20
+			t = float4(0.8, 0.3, 0.8, volDist);
+		}
 	}
+
+	{
+		float3 volOrigin = float3(1.0, 128.0 / 40.0, 0);
+		float3 volSize = float3(256, 256, 256) / 40.0;
+		float3 volCorner = volOrigin - volSize / 2.0;
+		float volDist = sdBox(pos, volOrigin, volSize / 2.0);
+
+		if (volDist <= 0.01) {
+			// We consider being within the 3d volume.
+
+			// Read dist from position.
+			float3 volPos = saturate((pos - volCorner) / volSize);
+			float volDist = texture0.Sample(sampler0, volPos).r / 40.0;
+
+			// NOTE: For precomupted field / 2.
+			// NOTE: For 128 grid: 20
+			// t = opU(t, float4(0.8, 0.3, 0.3, volDist));
+			t = smoothUnionColor(t, float4(0.3, 0.3, 0.8, volDist), 0.05);
+		}
+	}
+	
+	// else {
+	//	t = float4(0, 0, 0, volDist);
+	//}
 
 	// t = smoothUnionColor(
 	// 	float4(1, 0.5, 0.2, sphereSdf(pos, float3(sin(time), 1, cos(time)), 1)),
@@ -182,9 +227,10 @@ float4 map(float3 pos) {
 	// dist = saturate(dist * 4 + 0.3);
 	// t = opU(t, float4(dist, dist, dist, planeSdf(pos + 0.01)));
 
-	float dist = t.w % 0.2;
-	dist = saturate(dist  +0.35);
-	t = opU(t, float4(dist, dist, dist, planeSdf(pos + 0.01)));
+	// float dist = t.w % 0.2;
+	// dist = saturate(dist + 0.35);
+	// t = opU(t, float4(dist, dist, dist, planeSdf(pos + 0.01)));
+	t = opU(t, float4(0.5, 0.5, 0.5, planeSdf(pos + 0.01)));
 
 	return t;
 }

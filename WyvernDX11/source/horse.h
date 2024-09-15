@@ -223,6 +223,45 @@ void horseGetProjectionCubePoints(ldiCalibrationJob* Job, ldiHorsePosition Posit
 	}
 }
 
+void horseGetProjectionCubePointsTest(ldiCalibrationJob* Job, ldiHorsePosition Position, std::vector<vec3>& Points) {
+	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
+	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
+
+	vec3 refToAxisC = Job->axisC.origin;
+	// NOTE: Match bundle adjust by locking axis.
+	refToAxisC.y = 0.0f;
+
+	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
+	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
+	std::cout << "AxisCDeg: " << axisCAngleDeg << "\n";
+	std::cout << "AxisCDir: " << GetStr(Job->axisC.direction) << "\n";
+	std::cout << "axisCRot: " << GetStr(&axisCRot) << "\n";
+
+	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
+	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
+
+	vec3 refToAxisA = Job->axisA.origin;
+	// NOTE: Match bundle adjust by locking axis.
+	refToAxisA.x = 0.0f;
+
+	float axisAAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
+	mat4 axisARot = glm::rotate(mat4(1.0f), glm::radians(axisAAngleDeg), Job->axisA.direction);
+	mat4 axisAMat = axisARot * glm::translate(mat4(1.0), -refToAxisA);
+	axisAMat = glm::translate(mat4(1.0), refToAxisA) * axisAMat;
+
+	// Transform points.
+	Points.resize(Job->cube.points.size(), vec3(0.0f, 0.0f, 0.0f));
+	for (size_t i = 0; i < Job->cube.points.size(); ++i) {
+		if (i >= 18 && i <= 26) {
+			continue;
+		}
+
+		Points[i] = axisCMat * vec4(Job->cube.points[i], 1.0f);
+		//Points[i] = axisAMat * vec4(Points[i], 1.0f);
+		//Points[i] += mechTrans;
+	}
+}
+
 mat4 horseGetWorkTransform(ldiCalibrationJob* Job, ldiHorsePosition Position) {
 	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
 	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;

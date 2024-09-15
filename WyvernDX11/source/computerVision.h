@@ -421,11 +421,10 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 		double t0 = getTime();
 
 		cv::Mat srcImage(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
-		cv::Mat downscaleImage;
-		cv::Mat upscaleImage;
-
-		cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-		cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+		//cv::Mat downscaleImage;
+		//cv::Mat upscaleImage;
+		//cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+		//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
 
 		auto parameters = cv::aruco::DetectorParameters();
 		parameters.minMarkerPerimeterRate = 0.015;
@@ -436,7 +435,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 
 		std::vector<int> markerIds;
 		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedMarkers;
-		arucoDetector.detectMarkers(upscaleImage, markerCorners, markerIds, rejectedMarkers);
+		//arucoDetector.detectMarkers(upscaleImage, markerCorners, markerIds, rejectedMarkers);
+		arucoDetector.detectMarkers(srcImage, markerCorners, markerIds, rejectedMarkers);
 
 		// TODO: Use refine strategy to detect more markers.
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
@@ -480,7 +480,7 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 				std::vector<int> charucoIds;
 
 				cv::aruco::CharucoDetector charucoDetector(*(_charucoBoards[i]).get(), cv::aruco::CharucoParameters(), parameters);
-				charucoDetector.detectBoard(upscaleImage, charucoCorners, charucoIds, markerCorners, markerIds);
+				charucoDetector.detectBoard(srcImage, charucoCorners, charucoIds, markerCorners, markerIds);
 				//std::cout << "    " << i << " Charucos: " << charucoIds.size() << "\n";
 
 				// Board is valid if it has at least one corner.

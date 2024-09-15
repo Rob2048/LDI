@@ -373,15 +373,15 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int
 		calibImg.data = outputImage.data;
 		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
 	} else {
-		cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
-		cv::Mat downscaleImage;
-		cv::Mat upscaleImage;
+		//cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
+		//cv::Mat downscaleImage;
+		//cv::Mat upscaleImage;
 
 		// TODO: Remove me.
-		cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-		cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+		//cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+		//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+		//calibImg.data = upscaleImage.data;
 
-		calibImg.data = upscaleImage.data;
 		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
 	}
 
@@ -1151,6 +1151,20 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 			ImGui::InputFloat("Stopped limit: ", &Tool->rotaryResults.stdDevStoppedLimit);
 			ImGui::Text("Std dev: %.3f", Tool->rotaryResults.stdDev);
 			ImGui::Text("Process time: %.3f ms", Tool->rotaryResults.processTime);
+		}
+
+		{
+			ldiHawk* mvCam = &Tool->testCam;
+
+			if (ImGui::CollapsingHeader("Test cam")) {
+				if (ImGui::SliderInt("Shutter speed", &mvCam->uiShutterSpeed, 1, 66000)) {
+					hawkCommitValues(mvCam);
+				}
+
+				if (ImGui::SliderInt("Analog gain", &mvCam->uiAnalogGain, 0, 100)) {
+					hawkCommitValues(mvCam);
+				}
+			}
 		}
 
 		{
