@@ -1,5 +1,6 @@
 # Starting point: https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
 
+import math
 import os
 import sys
 import time
@@ -71,51 +72,7 @@ def read_input(filePath):
 				obs_point_indices = np.append(obs_point_indices, int(view_obs[0]))
 				obs_points_2d = np.append(obs_points_2d, [[float(view_obs[1]), float(view_obs[2])]], axis=0)
 
-		reproj_count = int(file.readline())
-		reproj_points = np.zeros((reproj_count, 2))
-		for i in range(reproj_count):
-			point = file.readline().split()
-			reproj_points[i] = [float(point[0]), float(point[1])]
-
-	return cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d, reproj_points
-
-# Rotate points by given Rodrigues rotation vectors.
-def rotate(points, rot_vecs):
-	theta = np.linalg.norm(rot_vecs, axis=1)[:, np.newaxis]
-	
-	with np.errstate(invalid='ignore'):
-		v = rot_vecs / theta
-		v = np.nan_to_num(v)
-
-	dot = np.sum(points * v, axis=1)[:, np.newaxis]
-	cos_theta = np.cos(theta)
-	sin_theta = np.sin(theta)
-
-	return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
-
-# Convert a Rodrigues rotation vector and a translation vector to a 4x4 transformation matrix.
-def buildMatFromVecs(rvec, tvec):
-	r, _ = cv2.Rodrigues(rvec)
-
-	world_mat = np.zeros([4, 4])
-	world_mat[0, 0] = r[0, 0]
-	world_mat[0, 1] = r[1, 0]
-	world_mat[0, 2] = r[2, 0]
-
-	world_mat[1, 0] = r[0, 1]
-	world_mat[1, 1] = r[1, 1]
-	world_mat[1, 2] = r[2, 1]
-
-	world_mat[2, 0] = r[0, 2]
-	world_mat[2, 1] = r[1, 2]
-	world_mat[2, 2] = r[2, 2]
-
-	world_mat[3, 0] = tvec[0]
-	world_mat[3, 1] = tvec[1]
-	world_mat[3, 2] = tvec[2]
-	world_mat[3, 3] = 1.0
-	
-	return world_mat
+	return cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d
 
 def buildRotMat(axis, angle_degrees):
 	result = np.zeros([4, 4])
@@ -209,80 +166,9 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 
 	return final_obs
 
-# def project_test(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices):
-# 	# Unpack intrinsics.
-# 	cam_mat = np.array([[packed_intrins[0], 0, packed_intrins[2]], [0, packed_intrins[1], packed_intrins[3]], [0, 0, 1]])
-# 	cam_dist = np.array([packed_intrins[4], packed_intrins[5], packed_intrins[6], packed_intrins[7]])
-
-# 	# Make sure the axis directions are normalized.
-# 	norm_axis_x = axis_dirs[0] / np.linalg.norm(axis_dirs[0])
-# 	norm_axis_y = axis_dirs[1] / np.linalg.norm(axis_dirs[1])
-# 	norm_axis_z = axis_dirs[2] / np.linalg.norm(axis_dirs[2])
-# 	axis_a_origin = axis_dirs[3]
-# 	norm_axis_a = axis_dirs[4] / np.linalg.norm(axis_dirs[4])
-# 	axis_c_origin = axis_dirs[5]
-# 	norm_axis_c = axis_dirs[6] / np.linalg.norm(axis_dirs[6])
-
-# 	# Build the transform for each pose.
-# 	mech_trans = np.zeros((3))
-# 	axis_c_rotmat = np.zeros((1, 4, 4))
-# 	axis_a_rotmat = np.zeros((1, 4, 4))
-	
-# 	axis_c_origin[1] = 0.0
-# 	axis_c_refmat = buildTranslateMat(axis_c_origin)
-# 	axis_c_refmat_neg = buildTranslateMat(-axis_c_origin)
-
-# 	axis_a_origin[0] = 0.0
-# 	axis_a_refmat = buildTranslateMat(axis_a_origin)
-# 	axis_a_refmat_neg = buildTranslateMat(-axis_a_origin)
-
-# 	stepsToCm = 1.0 / ((200 * 32) / 0.8);
-# 	trans_x = 2000 * stepsToCm
-# 	trans_y = -3000 * stepsToCm
-# 	trans_z = 6000 * stepsToCm
-# 	rot_a = 5000 * (360.0 / (32.0 * 200.0 * 90.0))
-# 	rot_c = (7000 - 13000) * (360.0 / (32.0 * 200.0 * 30.0))
-
-# 	offset_x = trans_x
-# 	offset_y = trans_y
-# 	offset_z = trans_z
-
-# 	mech_trans[0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
-# 	mech_trans[1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
-# 	mech_trans[2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
-
-# 	# Create axis C rotation matrix
-# 	axis_c_rotmat = buildRotMat(norm_axis_c, -rot_c)
-# 	axis_c_rotmat = (axis_c_refmat_neg @ axis_c_rotmat) @ axis_c_refmat
-	
-# 	# Create axis A rotation matrix
-# 	axis_a_rotmat = buildRotMat(norm_axis_a, rot_a)
-# 	axis_a_rotmat = (axis_a_refmat_neg @ axis_a_rotmat) @ axis_a_refmat
-	
-# 	full_points = np.zeros((points_3d.shape[0], 4))
-
-# 	# Each observation has a match to the cube.
-# 	full_points[:, :3] = points_3d
-# 	full_points[:, 3] = 1
-# 	# full_points = (axis_c_rotmat[0] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
-# 	full_points = full_points @ axis_c_rotmat
-# 	# full_points[:, 3] = 1
-# 	full_points = full_points @ axis_a_rotmat
-# 	# full_points = (axis_a_rotmat[0] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
-# 	# full_points = ((full_points @ axis_a_refmat_neg) @ axis_a_rotmat) @ axis_a_refmat
-# 	full_points = full_points[:, :3]
-# 	full_points = full_points + mech_trans
-
-# 	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
-# 	final_obs = final_obs.reshape((-1, 2))
-
-# 	print(f"Projected points: {final_obs}")
-
-# 	return final_obs
-
 # Compute new residuals.
 def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indices, points_2d):
-	p0 = profile_start()
+	# p0 = profile_start()
 
 	axis_dirs = params[:21].reshape((7, 3))
 	points_3d = params[21: 21 + n_points * 3].reshape((n_points, 3))
@@ -292,10 +178,10 @@ def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indi
 	proj_p = project(points_3d, axis_dirs, cam_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
 
 	result = (proj_p - points_2d).ravel()
-	# print("RMSE: {}".format(np.sqrt(np.mean(result**2))))
 
-	profile_stop(p0, "Residuals")
-	
+	# print("RMSE: {}".format(np.sqrt(np.mean(result**2))))
+	# profile_stop(p0, "Residuals")
+
 	return result
 
 def bundle_adjustment_sparsity(n_points, n_observations, obs_point_indices, obs_pose_indices, pose_positions):
@@ -348,9 +234,9 @@ print("Arguments:")
 for i in range(len(sys.argv)):
 	print("  {}: {}".format(i, sys.argv[i]))
 
-show_debug_plots = True
+show_debug_plots = False
 
-cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d, reproj_points = read_input(sys.argv[1])
+cam_intrins, cam_extrins, axis_dirs, points_3d, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d = read_input(sys.argv[1])
 
 cam_mat_0 = cam_intrins[0]
 cam_dist_0 = cam_intrins[1]
@@ -365,11 +251,7 @@ print("Cube points: {}".format(n_points))
 print("Observations: {}".format(n_observations))
 
 x0 = np.hstack((axis_dirs.ravel(), points_3d.ravel(), packed_intrins_0.ravel(), cam_extrins.ravel()))
-# f0 = residuals(x0, n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d)
 A = bundle_adjustment_sparsity(n_points, n_observations, obs_point_indices, obs_pose_indices, pose_positions)
-
-f0 = residuals(x0, n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d)
-print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 
 # exit()
 
@@ -378,15 +260,14 @@ print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 #------------------------------------------------------------------------------------------------------------------------
 if show_debug_plots:
 	# Print Jacobian sparsity pattern.
-	plt.figure()
-	plt.spy(A, markersize=1, aspect='auto')
-	plt.show()
+	# plt.figure()
+	# plt.spy(A, markersize=1, aspect='auto')
+	# plt.show()
 
 	all_p = project(points_3d, axis_dirs, packed_intrins_0, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
 
 	plt.plot(obs_points_2d[:,0], obs_points_2d[:,1], 'bo', markersize=1)
-	plt.plot(all_p[:,0], all_p[:,1], 'ro', markersize=2)
-	plt.plot(reproj_points[:,0], reproj_points[:,1], 'go', markersize=1)
+	plt.plot(all_p[:,0], all_p[:,1], 'ro', markersize=1)
 	
 	plt.xlim([0, 3280])
 	plt.ylim([2464, 0])
@@ -397,10 +278,9 @@ if show_debug_plots:
 # Optimize.
 #------------------------------------------------------------------------------------------------------------------------
 t0 = time.time()
-# res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-6, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
 res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-4, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
 # res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, max_nfev=60, xtol=1e-10, loss='soft_l1', f_scale=1, method='trf', args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
-# least_squares(residuals, x0, verbose=2, method ='trf', xtol=1e-10, loss='soft_l1', f_scale=0.1, args=(obj_pts, left_pts, right_pts))
+# res = least_squares(residuals, x0, jac_sparsity=A, verbose=2, method ='trf', xtol=1e-10, loss='soft_l1', f_scale=0.1, args=(n_points, pose_positions, obs_pose_indices, obs_point_indices, obs_points_2d))
 t1 = time.time()
 
 #------------------------------------------------------------------------------------------------------------------------
@@ -425,14 +305,17 @@ axis_dirs_optimized[2] /= np.linalg.norm(axis_dirs_optimized[2])
 axis_dirs_optimized[4] /= np.linalg.norm(axis_dirs_optimized[4])
 axis_dirs_optimized[6] /= np.linalg.norm(axis_dirs_optimized[6])
 
-# Make sure the X axis of the A origin to 0.
+# Make sure the X axis of the A origin is 0.
 axis_dirs_optimized[3][0] = 0.0
 
-# Make sure the Y axis of the C origin to 0.
+# Make sure the Y axis of the C origin is 0.
 axis_dirs_optimized[5][1] = 0.0
 
-print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
-print("Final RMSE: {}".format(np.sqrt(np.mean(f1**2))))
+initial_rmse = np.sqrt(np.mean(f0**2))
+print(f"Initial RMSE: {initial_rmse} ({initial_rmse * math.sqrt(2)} pixels)")
+
+final_rmse = np.sqrt(np.mean(f1**2))
+print(f"Final RMSE: {final_rmse} ({final_rmse * math.sqrt(2)} pixels)")
 
 print("Initial axis dirs: {}".format(axis_dirs))
 print("Final axis dirs: {}".format(axis_dirs_optimized))
