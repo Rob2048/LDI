@@ -655,11 +655,11 @@ double calibGetProjectionRMSETest(ldiCalibrationJob* Job, std::vector<vec2d>& Ou
 	//----------------------------------------------------------
 	{
 		ldiHorsePosition pos = {};
-		pos.x = 0;
-		pos.y = 0;
-		pos.z = 0;
-		pos.a = 0;
-		pos.c = 0;
+		pos.x = 2000;
+		pos.y = -3000;
+		pos.z = 6000;
+		pos.a = 5000;
+		pos.c = 7000;
 
 		std::vector<vec3> points;
 		std::vector<cv::Point3f> projPoints;
@@ -669,15 +669,15 @@ double calibGetProjectionRMSETest(ldiCalibrationJob* Job, std::vector<vec2d>& Ou
 		for (size_t i = 0; i < points.size(); ++i) {
 			projPoints.push_back(toPoint3f(points[i]));
 			//std::cout << i << ": " << Job->cube.points[i].x << ", " << Job->cube.points[i].y << ", " << Job->cube.points[i].z << "\n";
-			std::cout << i << ": " << points[i].x << ", " << points[i].y << ", " << points[i].z << "\n";
+			//std::cout << i << ": " << points[i].x << ", " << points[i].y << ", " << points[i].z << "\n";
 		}
 
 		cv::projectPoints(projPoints, r, t, Job->camMat, Job->camDist, projReproj);
 
-		/*std::cout << "Test proj points:\n";
+		std::cout << "Test proj points:\n";
 		for (size_t i = 0; i < projReproj.size(); ++i) {
 			std::cout << i << ": " << projReproj[i].x << ", " << projReproj[i].y << "\n";
-		}*/
+		}
 	}
 	//----------------------------------------------------------
 
@@ -690,12 +690,17 @@ double calibGetProjectionRMSETest(ldiCalibrationJob* Job, std::vector<vec2d>& Ou
 		vec.y = Job->projReproj[i].y;
 		OutPoints.push_back(vec);
 
+		double errX = (double)Job->projObs[i].x - (double)Job->projReproj[i].x;
+		meanError += errX * errX;
+
+		double errY = (double)Job->projObs[i].y - (double)Job->projReproj[i].y;
+		meanError += errY * errY;
+
 		double err = glm::length(Job->projObs[i] - toVec2(Job->projReproj[i]));
-		meanError += err * err;
 		Job->projError.push_back(err);
 	}
 
-	meanError /= (double)Job->projObs.size();
+	meanError /= (double)(Job->projObs.size() * 2.0);
 	meanError = sqrt(meanError);
 
 	std::cout << "Reprojection RMSE: " << meanError << "\n";

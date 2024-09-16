@@ -233,10 +233,6 @@ void horseGetProjectionCubePointsTest(ldiCalibrationJob* Job, ldiHorsePosition P
 
 	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
 	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
-	std::cout << "AxisCDeg: " << axisCAngleDeg << "\n";
-	std::cout << "AxisCDir: " << GetStr(Job->axisC.direction) << "\n";
-	std::cout << "axisCRot: " << GetStr(&axisCRot) << "\n";
-
 	mat4 axisCMat = axisCRot * glm::translate(mat4(1.0), -refToAxisC);
 	axisCMat = glm::translate(mat4(1.0), refToAxisC) * axisCMat;
 
@@ -248,17 +244,17 @@ void horseGetProjectionCubePointsTest(ldiCalibrationJob* Job, ldiHorsePosition P
 	mat4 axisARot = glm::rotate(mat4(1.0f), glm::radians(axisAAngleDeg), Job->axisA.direction);
 	mat4 axisAMat = axisARot * glm::translate(mat4(1.0), -refToAxisA);
 	axisAMat = glm::translate(mat4(1.0), refToAxisA) * axisAMat;
-
+	
 	// Transform points.
 	Points.resize(Job->cube.points.size(), vec3(0.0f, 0.0f, 0.0f));
 	for (size_t i = 0; i < Job->cube.points.size(); ++i) {
-		if (i >= 18 && i <= 26) {
-			continue;
-		}
+		//if (i >= 18 && i <= 26) {
+			//continue;
+		//}
 
 		Points[i] = axisCMat * vec4(Job->cube.points[i], 1.0f);
-		//Points[i] = axisAMat * vec4(Points[i], 1.0f);
-		//Points[i] += mechTrans;
+		Points[i] = axisAMat * vec4(Points[i], 1.0f);
+		Points[i] += mechTrans;
 	}
 }
 

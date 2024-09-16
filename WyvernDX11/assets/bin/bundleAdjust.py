@@ -46,7 +46,7 @@ def read_input(filePath):
 		cam_extrins = np.array(file.readline().split(), dtype=float)
 	
 		# 3D cube points.
-		points_3d = np.empty(n_points * 3)
+		points_3d = np.zeros(n_points * 3)
 		for i in range(n_points):
 			points_pos = file.readline().split()
 			for j in range(3):
@@ -55,10 +55,10 @@ def read_input(filePath):
 		points_3d = points_3d.reshape((n_points, -1))
 
 		# Views and observations.
-		obs_pose_indices = np.empty(0, dtype=int)
-		obs_point_indices = np.empty(0, dtype=int)
-		obs_points_2d = np.empty((0, 2))
-		pose_positions = np.empty((n_views, 5))
+		obs_pose_indices = np.zeros(0, dtype=int)
+		obs_point_indices = np.zeros(0, dtype=int)
+		obs_points_2d = np.zeros((0, 2))
+		pose_positions = np.zeros((n_views, 5))
 
 		for i in range(n_views):
 			view_data = file.readline().split()
@@ -72,7 +72,7 @@ def read_input(filePath):
 				obs_points_2d = np.append(obs_points_2d, [[float(view_obs[1]), float(view_obs[2])]], axis=0)
 
 		reproj_count = int(file.readline())
-		reproj_points = np.empty((reproj_count, 2))
+		reproj_points = np.zeros((reproj_count, 2))
 		for i in range(reproj_count):
 			point = file.readline().split()
 			reproj_points[i] = [float(point[0]), float(point[1])]
@@ -97,7 +97,7 @@ def rotate(points, rot_vecs):
 def buildMatFromVecs(rvec, tvec):
 	r, _ = cv2.Rodrigues(rvec)
 
-	world_mat = np.empty([4, 4])
+	world_mat = np.zeros([4, 4])
 	world_mat[0, 0] = r[0, 0]
 	world_mat[0, 1] = r[1, 0]
 	world_mat[0, 2] = r[2, 0]
@@ -118,7 +118,7 @@ def buildMatFromVecs(rvec, tvec):
 	return world_mat
 
 def buildRotMat(axis, angle_degrees):
-	result = np.empty([4, 4])
+	result = np.zeros([4, 4])
 
 	angle = angle_degrees * np.pi / 180.0
 
@@ -127,15 +127,15 @@ def buildRotMat(axis, angle_degrees):
 	t = 1 - c
 
 	result[0, 0] = t * axis[0] * axis[0] + c
-	result[0, 1] = t * axis[0] * axis[1] - s * axis[2]
-	result[0, 2] = t * axis[0] * axis[2] + s * axis[1]
+	result[1, 0] = t * axis[0] * axis[1] - s * axis[2]
+	result[2, 0] = t * axis[0] * axis[2] + s * axis[1]
 
-	result[1, 0] = t * axis[0] * axis[1] + s * axis[2]
+	result[0, 1] = t * axis[0] * axis[1] + s * axis[2]
 	result[1, 1] = t * axis[1] * axis[1] + c
-	result[1, 2] = t * axis[1] * axis[2] - s * axis[0]
+	result[2, 1] = t * axis[1] * axis[2] - s * axis[0]
 
-	result[2, 0] = t * axis[0] * axis[2] - s * axis[1]
-	result[2, 1] = t * axis[1] * axis[2] + s * axis[0]
+	result[0, 2] = t * axis[0] * axis[2] - s * axis[1]
+	result[1, 2] = t * axis[1] * axis[2] + s * axis[0]
 	result[2, 2] = t * axis[2] * axis[2] + c
 
 	result[3, 3] = 1.0
@@ -166,9 +166,9 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 	norm_axis_c = axis_dirs[6] / np.linalg.norm(axis_dirs[6])
 
 	# Build the transform for each pose.
-	mech_trans = np.empty((pose_positions.shape[0], 3))
-	axis_c_rotmat = np.empty((pose_positions.shape[0], 4, 4))
-	axis_a_rotmat = np.empty((pose_positions.shape[0], 4, 4))
+	mech_trans = np.zeros((pose_positions.shape[0], 3))
+	axis_c_rotmat = np.zeros((pose_positions.shape[0], 4, 4))
+	axis_a_rotmat = np.zeros((pose_positions.shape[0], 4, 4))
 	
 	axis_c_origin[1] = 0.0
 	axis_c_refmat = buildTranslateMat(axis_c_origin)
@@ -193,102 +193,96 @@ def project(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, o
 		# Create axis C rotation matrix
 		axis_c_rotmat[i] = buildRotMat(norm_axis_c, -pose_positions[i, 4])
 
-	full_points = np.empty((obs_pose_indices.shape[0], 4))
-	
-	# Each observation has a match to the cube.
+	axis_a_rotmat = (axis_a_refmat_neg @ axis_a_rotmat) @ axis_a_refmat
+	axis_c_rotmat = (axis_c_refmat_neg @ axis_c_rotmat) @ axis_c_refmat
+
+	full_points = np.zeros((obs_pose_indices.shape[0], 4))
 	full_points[:, :3] = points_3d[obs_point_indices]
 	full_points[:, 3] = 1
-	full_points = (axis_c_rotmat[obs_pose_indices] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
-	full_points[:, 3] = 1
-	full_points = (axis_a_rotmat[obs_pose_indices] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
-	full_points = full_points[:, :3]
+	full_points = full_points.reshape((-1, 1, 4)) @ axis_c_rotmat[obs_pose_indices]
+	full_points = full_points @ axis_a_rotmat[obs_pose_indices]
+	full_points = full_points.reshape((-1, 4))[:, :3]
 	full_points = full_points + mech_trans[obs_pose_indices]
 	
-	
-	# full_points2 = np.empty((obs_pose_indices.shape[0], 4))
-	# print(f"Full points: {full_points2}")
-
 	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
 	final_obs = final_obs.reshape((-1, 2))
 
 	return final_obs
 
-def project_test(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices):
-	# Unpack intrinsics.
-	cam_mat = np.array([[packed_intrins[0], 0, packed_intrins[2]], [0, packed_intrins[1], packed_intrins[3]], [0, 0, 1]])
-	cam_dist = np.array([packed_intrins[4], packed_intrins[5], packed_intrins[6], packed_intrins[7]])
+# def project_test(points_3d, axis_dirs, packed_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices):
+# 	# Unpack intrinsics.
+# 	cam_mat = np.array([[packed_intrins[0], 0, packed_intrins[2]], [0, packed_intrins[1], packed_intrins[3]], [0, 0, 1]])
+# 	cam_dist = np.array([packed_intrins[4], packed_intrins[5], packed_intrins[6], packed_intrins[7]])
 
-	# Make sure the axis directions are normalized.
-	norm_axis_x = axis_dirs[0] / np.linalg.norm(axis_dirs[0])
-	norm_axis_y = axis_dirs[1] / np.linalg.norm(axis_dirs[1])
-	norm_axis_z = axis_dirs[2] / np.linalg.norm(axis_dirs[2])
-	axis_a_origin = axis_dirs[3]
-	norm_axis_a = axis_dirs[4] / np.linalg.norm(axis_dirs[4])
-	axis_c_origin = axis_dirs[5]
-	norm_axis_c = axis_dirs[6] / np.linalg.norm(axis_dirs[6])
+# 	# Make sure the axis directions are normalized.
+# 	norm_axis_x = axis_dirs[0] / np.linalg.norm(axis_dirs[0])
+# 	norm_axis_y = axis_dirs[1] / np.linalg.norm(axis_dirs[1])
+# 	norm_axis_z = axis_dirs[2] / np.linalg.norm(axis_dirs[2])
+# 	axis_a_origin = axis_dirs[3]
+# 	norm_axis_a = axis_dirs[4] / np.linalg.norm(axis_dirs[4])
+# 	axis_c_origin = axis_dirs[5]
+# 	norm_axis_c = axis_dirs[6] / np.linalg.norm(axis_dirs[6])
 
-	# Build the transform for each pose.
-	mech_trans = np.empty((3))
-	axis_c_rotmat = np.empty((1, 4, 4))
-	axis_a_rotmat = np.empty((1, 4, 4))
+# 	# Build the transform for each pose.
+# 	mech_trans = np.zeros((3))
+# 	axis_c_rotmat = np.zeros((1, 4, 4))
+# 	axis_a_rotmat = np.zeros((1, 4, 4))
 	
-	axis_c_origin[1] = 0.0
-	axis_c_refmat = buildTranslateMat(axis_c_origin)
-	axis_c_refmat_neg = buildTranslateMat(-axis_c_origin)
+# 	axis_c_origin[1] = 0.0
+# 	axis_c_refmat = buildTranslateMat(axis_c_origin)
+# 	axis_c_refmat_neg = buildTranslateMat(-axis_c_origin)
 
-	axis_a_origin[0] = 0.0
-	axis_a_refmat = buildTranslateMat(axis_a_origin)
-	axis_a_refmat_neg = buildTranslateMat(-axis_a_origin)
+# 	axis_a_origin[0] = 0.0
+# 	axis_a_refmat = buildTranslateMat(axis_a_origin)
+# 	axis_a_refmat_neg = buildTranslateMat(-axis_a_origin)
 
-	trans_x = 0
-	trans_y = 0
-	trans_z = 0
-	rot_a = 0 * (360.0 / (32.0 * 200.0 * 90.0))
-	rot_c = (0 - 13000) * (360.0 / (32.0 * 200.0 * 30.0))
+# 	stepsToCm = 1.0 / ((200 * 32) / 0.8);
+# 	trans_x = 2000 * stepsToCm
+# 	trans_y = -3000 * stepsToCm
+# 	trans_z = 6000 * stepsToCm
+# 	rot_a = 5000 * (360.0 / (32.0 * 200.0 * 90.0))
+# 	rot_c = (7000 - 13000) * (360.0 / (32.0 * 200.0 * 30.0))
 
-	offset_x = trans_x
-	offset_y = trans_y
-	offset_z = trans_z
+# 	offset_x = trans_x
+# 	offset_y = trans_y
+# 	offset_z = trans_z
 
-	mech_trans[0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
-	mech_trans[1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
-	mech_trans[2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
+# 	mech_trans[0] = offset_x * norm_axis_x[0] + offset_y * norm_axis_y[0] + offset_z * -norm_axis_z[0]
+# 	mech_trans[1] = offset_x * norm_axis_x[1] + offset_y * norm_axis_y[1] + offset_z * -norm_axis_z[1]
+# 	mech_trans[2] = offset_x * norm_axis_x[2] + offset_y * norm_axis_y[2] + offset_z * -norm_axis_z[2]
+
+# 	# Create axis C rotation matrix
+# 	axis_c_rotmat = buildRotMat(norm_axis_c, -rot_c)
+# 	axis_c_rotmat = (axis_c_refmat_neg @ axis_c_rotmat) @ axis_c_refmat
 	
-	# Create axis A rotation matrix
-	axis_a_rotmat = buildRotMat(norm_axis_a, rot_a)
-
-	# Create axis C rotation matrix
-	axis_c_rotmat = buildRotMat(norm_axis_c, -rot_c)
-	print(f"axis_c_deg: {rot_c}")
-	print(f"axis_c_dir: {norm_axis_c}")
-	print(f"axis_c_rotmat: {axis_c_rotmat}")
-
-	full_points = np.empty((points_3d.shape[0], 4))
-
-	# Each observation has a match to the cube.
-	full_points[:, :3] = points_3d
-	full_points[:, 3] = 1
-	# full_points = (axis_c_rotmat[0] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
-	full_points = ((full_points @ axis_c_refmat_neg) @ axis_c_rotmat) @ axis_c_refmat
-	full_points[:, 3] = 1
-	# full_points = (axis_a_rotmat[0] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
-	# full_points = ((full_points @ axis_a_refmat_neg) @ axis_a_rotmat) @ axis_a_refmat
-	full_points = full_points[:, :3]
-	full_points = full_points + mech_trans
-
-	# print(f"Points 3D: {points_3d}")
-	print(f"Full points: {full_points}")
+# 	# Create axis A rotation matrix
+# 	axis_a_rotmat = buildRotMat(norm_axis_a, rot_a)
+# 	axis_a_rotmat = (axis_a_refmat_neg @ axis_a_rotmat) @ axis_a_refmat
 	
-	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
-	final_obs = final_obs.reshape((-1, 2))
+# 	full_points = np.zeros((points_3d.shape[0], 4))
 
-	# print(f"Test points: {final_obs}")
+# 	# Each observation has a match to the cube.
+# 	full_points[:, :3] = points_3d
+# 	full_points[:, 3] = 1
+# 	# full_points = (axis_c_rotmat[0] @ (full_points @ axis_c_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_c_refmat
+# 	full_points = full_points @ axis_c_rotmat
+# 	# full_points[:, 3] = 1
+# 	full_points = full_points @ axis_a_rotmat
+# 	# full_points = (axis_a_rotmat[0] @ (full_points @ axis_a_refmat_neg).reshape((-1, 4, 1))).reshape((-1, 4)) @ axis_a_refmat
+# 	# full_points = ((full_points @ axis_a_refmat_neg) @ axis_a_rotmat) @ axis_a_refmat
+# 	full_points = full_points[:, :3]
+# 	full_points = full_points + mech_trans
 
-	return final_obs
+# 	final_obs, _ = cv2.projectPoints(full_points, cam_extrins[:3], cam_extrins[3:], cam_mat, cam_dist)
+# 	final_obs = final_obs.reshape((-1, 2))
+
+# 	print(f"Projected points: {final_obs}")
+
+# 	return final_obs
 
 # Compute new residuals.
 def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indices, points_2d):
-	# p0 = profile_start()
+	p0 = profile_start()
 
 	axis_dirs = params[:21].reshape((7, 3))
 	points_3d = params[21: 21 + n_points * 3].reshape((n_points, 3))
@@ -296,11 +290,11 @@ def residuals(params, n_points, pose_positions, obs_pose_indices, obs_point_indi
 	cam_extrins = params[21 + n_points * 3 + 8: 21 + n_points * 3 + 8 + 6]
 	
 	proj_p = project(points_3d, axis_dirs, cam_intrins, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
-	
+
 	result = (proj_p - points_2d).ravel()
 	# print("RMSE: {}".format(np.sqrt(np.mean(result**2))))
 
-	# profile_stop(p0, "Residuals")
+	profile_stop(p0, "Residuals")
 	
 	return result
 
@@ -384,30 +378,21 @@ print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 #------------------------------------------------------------------------------------------------------------------------
 if show_debug_plots:
 	# Print Jacobian sparsity pattern.
-	# plt.figure()
-	# plt.spy(A, markersize=1, aspect='auto')
-	# plt.show()
+	plt.figure()
+	plt.spy(A, markersize=1, aspect='auto')
+	plt.show()
 
-	test_p = project_test(points_3d, axis_dirs, packed_intrins_0, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
-	
 	all_p = project(points_3d, axis_dirs, packed_intrins_0, cam_extrins, pose_positions, obs_pose_indices, obs_point_indices)
 
 	plt.plot(obs_points_2d[:,0], obs_points_2d[:,1], 'bo', markersize=1)
-	plt.plot(all_p[:,0], all_p[:,1], 'ro', markersize=1)
+	plt.plot(all_p[:,0], all_p[:,1], 'ro', markersize=2)
 	plt.plot(reproj_points[:,0], reproj_points[:,1], 'go', markersize=1)
 	
 	plt.xlim([0, 3280])
 	plt.ylim([2464, 0])
 	plt.show()
 
-	# Original base pose guess.
-	# fig = plt.figure()
-	# ax = fig.add_subplot(111, projection='3d')
-	# ax.scatter(view_params[:, 3], view_params[:, 4], view_params[:, 5], c='b', marker='o')
-	# ax.set_aspect('equal')
-	# plt.show()
-
-exit()
+# exit()
 #------------------------------------------------------------------------------------------------------------------------
 # Optimize.
 #------------------------------------------------------------------------------------------------------------------------
@@ -439,6 +424,12 @@ axis_dirs_optimized[1] /= np.linalg.norm(axis_dirs_optimized[1])
 axis_dirs_optimized[2] /= np.linalg.norm(axis_dirs_optimized[2])
 axis_dirs_optimized[4] /= np.linalg.norm(axis_dirs_optimized[4])
 axis_dirs_optimized[6] /= np.linalg.norm(axis_dirs_optimized[6])
+
+# Make sure the X axis of the A origin to 0.
+axis_dirs_optimized[3][0] = 0.0
+
+# Make sure the Y axis of the C origin to 0.
+axis_dirs_optimized[5][1] = 0.0
 
 print("Initial RMSE: {}".format(np.sqrt(np.mean(f0**2))))
 print("Final RMSE: {}".format(np.sqrt(np.mean(f1**2))))
