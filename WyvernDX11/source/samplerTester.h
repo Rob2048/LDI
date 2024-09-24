@@ -56,14 +56,6 @@ float GetSourceValue(float* Data, int Width, int Height, float X, float Y) {
 	return Data[idx];
 }
 
-inline int clamp(int Value, int Min, int Max) {
-	return min(max(Value, Min), Max);
-}
-
-inline float clampf(float Value, float Min, float Max) {
-	return min(max(Value, Min), Max);
-}
-
 void samplerTesterInitPointModel(ldiSamplerTester* SamplerTester, ldiRenderModel* Model, std::vector<ldiSamplePoint>* SamplePoints) {
 	ldiApp* appContext = SamplerTester->appContext;
 
@@ -181,8 +173,8 @@ void samplerTesterRunTest(ldiSamplerTester* SamplerTester) {
 		//uint8_t g = sourcePixels[i * sourceChannels + 1];
 		//uint8_t b = sourcePixels[i * sourceChannels + 2];
 
-		//float lum = r / 255.0f;// (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
-		float lum = 0.0f;
+		float lum = r / 255.0f;// (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
+		//float lum = 0.0f;
 		//float lum = (r * 0.2126f + g * 0.7152f + b * 0.0722f) / 255.0f;
 
 		//sourceIntensity[i] = GammaToLinear(lum);

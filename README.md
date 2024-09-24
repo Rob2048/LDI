@@ -1,7 +1,7 @@
 # LDI
 Laser direct imager.
 
-![Screenshot](resources/cad_design_1.png)
+![Screenshot](resources/build_01.jpg)
 
 # Figure paint process
 
@@ -15,11 +15,15 @@ Laser direct imager.
 
 ## Platform & camera calibration
 
-Capture images of calibration cube with both cameras.
+Capture images of calibration cube.
 ![Screenshot](resources/calib_01.png)
 
-Calculate machine platform parameters from calibration cube positions.
+Estimate machine platform parameters from calibration cube positions.
 ![Screenshot](resources/calib_02.png)
+
+Optimize machine platform parameters using non-linear least squares optimization.
+![Screenshot](resources/before_optimize.png)
+![Screenshot](resources/after_optimize.png)
 
 ## 3D scanning
 Generate point cloud with triangulated line laser.
@@ -113,10 +117,10 @@ Result of model fitting.
 - Surfel coverage idea: Use basic surfel area technique to determine laser views, then project samples on those surfels. Then use poisson sampling to eliminate samples. Allow overlaps for fuzzy edges.
 
 ## Galvo field calibration
-- Find center line and rotation.
-- Hardware scale offset.
-- Field linearity.
-- Align field to B axis?
+- Use calibration camera mounted to work piece mount.
+- Arducam OV2311 with no lens.
+- Using ND Wratten 2 (0.1mm thick) filter to reduce laser intensity.
+- Use CSI-HDMI converter to connect to RPi, and transfer trigger/strobe signals.
 
 # Materials & techniques
 
@@ -127,11 +131,12 @@ Result of model fitting.
 	- Need to try HP black toner to see if better than generic black toner.
 - Purchase toner from aliexpress, amazon.
 	- https://tonercorp.co.za/product/hp-125a-cyan-cartridge-cb541a/
-	- https://home.fourwaysimaging.co.za/welcome/hp-col-toner/
+	- https://fourwaysimaging.co.za/
 - Use IPA to make toner airbrushable.
 	- What ratio?
 	- Difficult to reach areas for complex models.
 	- Lots of wasted toner in overspray.
+	- Super difficult to get consistent spray behavior.
 - Dip in heavily pigmented IPA?
 - Charge plastic for adhesion?
 - Plasma treat surface?
@@ -141,7 +146,7 @@ Result of model fitting.
 	- https://www.eis.co.za/index.php?route=product/product&product_id=3439 (graphite powder to make conductive spray)
 	- https://toolcentre.co.za/brands/graphite-spray-400ml-320g-aer (graphite spray)
 
-## Paint
+## Paint ablation
 - Protective layer should be at least twice as resilient as color layer.
 - Enamel or resin protective layer?
 - Check melting point of protective layer.

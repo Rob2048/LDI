@@ -89,9 +89,10 @@ struct ldiPlatform {
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = false;
+	bool						showCalibCubeGrid = true;
 	bool						showScanPlane = true;
 	bool						liveAxisUpdate = false;
-	bool						showCalibSensor = true;
+	bool						showCalibSensor = false;
 
 	bool						showSourceModelShaded = true;
 	bool						showSourceModelWireframe = false;
@@ -1161,6 +1162,15 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				std::vector<ldiCalibCubeSide> cubeSides;
 				std::vector<vec3> cubeCorners;
 
+				const vec3 sideCol[6] = {
+					vec3(1, 0, 0),
+					vec3(0, 1, 0),
+					vec3(0, 0, 1),
+					vec3(1, 1, 0),
+					vec3(1, 0, 1),
+					vec3(0, 1, 1),
+				};
+
 				horseGetRefinedCubeAtPosition(job, horsePos, cubePoints, cubeSides, cubeCorners);
 
 				for (size_t i = 0; i < cubePoints.size(); ++i) {
@@ -1168,7 +1178,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 						continue;
 					}
 
-					pushDebugSphere(&appContext->defaultDebug, cubePoints[i], 0.005, vec3(0, 1, 1), 8);
+					pushDebugSphere(&appContext->defaultDebug, cubePoints[i], 0.005, sideCol[i / 9], 8);
 
 					int id = i;
 					int sampleId = id / (9 * 6);
@@ -1179,17 +1189,30 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					//displayTextAtPoint(Camera, point, std::to_string(globalId), vec4(1, 1, 1, 1), TextBuffer);
 				}
 
+				if (Tool->showCalibCubeGrid) {
+					int size = job->cube.gridSize;
+
+					for (int b = 0; b < 6; ++b) {
+						if (b == 2) {
+							continue;
+						}
+
+						for (int r = 0; r < size; ++r) {
+							for (int c = 0; c < (size - 1); ++c) {
+								int id0 = c + (r * size) + b * (size * size);
+								int id1 = c + 1 + (r * size) + b * (size * size);
+								pushDebugLine(&appContext->defaultDebug, cubePoints[id0],  cubePoints[id1], sideCol[b]);
+
+								id0 = c * size + r + b * (size * size);
+								id1 = (c + 1) * size + r + b * (size * size);
+								pushDebugLine(&appContext->defaultDebug, cubePoints[id0],  cubePoints[id1], sideCol[b]);
+							}
+						}
+					}
+				}
+
 				if (Tool->showCalibCubeFaces) {
 					for (size_t i = 0; i < cubeSides.size(); ++i) {
-						const vec3 sideCol[6] = {
-							vec3(1, 0, 0),
-							vec3(0, 1, 0),
-							vec3(0, 0, 1),
-							vec3(1, 1, 0),
-							vec3(1, 0, 1),
-							vec3(0, 1, 1),
-						};
-
 						pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[0], cubeSides[i].corners[1], cubeSides[i].corners[2], sideCol[i] * 0.5f);
 						pushDebugTri(&appContext->defaultDebug, cubeSides[i].corners[2], cubeSides[i].corners[3], cubeSides[i].corners[0], sideCol[i] * 0.5f);
 					}
@@ -1932,6 +1955,7 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::Checkbox("Show default cube", &Tool->showDefaultCube);
 			ImGui::Checkbox("Show machine frame", &Tool->showMachineFrame);
 			ImGui::Checkbox("Show calib cube", &Tool->showCalibCube);
+			ImGui::Checkbox("Show calib cube grid", &Tool->showCalibCubeGrid);
 			ImGui::Checkbox("Show calib cube faces", &Tool->showCalibCubeFaces);
 			ImGui::Checkbox("Show calib cube volume", &Tool->showCalibCubeVolume);
 			ImGui::Checkbox("Show calib basis", &Tool->showCalibVolumeBasis);

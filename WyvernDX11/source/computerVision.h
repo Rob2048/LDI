@@ -421,10 +421,35 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 		double t0 = getTime();
 
 		cv::Mat srcImage(cv::Size(Image.width, Image.height), CV_8UC1, Image.data);
-		//cv::Mat downscaleImage;
-		//cv::Mat upscaleImage;
-		//cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-		//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+
+		//{
+		//	cv::Mat downscaleImage;
+		//	//cv::Mat upscaleImage;
+		//
+		//	cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
+		//	int halfX = 3280 / 2;
+		//	int halfY = 2464 / 2;
+
+		//	// Add noise
+		//	for (int iX = 0; iX < halfX; ++iX) {
+		//		for (int iY = 0; iY < halfY; ++iY) {
+		//			int noise = (int)(((float)rand() / (float)RAND_MAX) * 20) - 10;
+
+		//			int newValue = (int)downscaleImage.at<uint8_t>(iY, iX);// + noise;
+
+		//			if (newValue > 255) {
+		//				newValue = 255;
+		//			} else if (newValue < 0) {
+		//				newValue = 0;
+		//			}
+
+		//			downscaleImage.at<uint8_t>(iY, iX) = newValue;
+		//		}
+		//	}
+
+		//	srcImage = downscaleImage;
+		//	//cv::resize(downscaleImage, srcImage, cv::Size(3280, 2464), 0.0, 0.0, cv::INTER_LINEAR);
+		//}
 
 		auto parameters = cv::aruco::DetectorParameters();
 		parameters.minMarkerPerimeterRate = 0.015;
@@ -435,7 +460,6 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 
 		std::vector<int> markerIds;
 		std::vector<std::vector<cv::Point2f>> markerCorners, rejectedMarkers;
-		//arucoDetector.detectMarkers(upscaleImage, markerCorners, markerIds, rejectedMarkers);
 		arucoDetector.detectMarkers(srcImage, markerCorners, markerIds, rejectedMarkers);
 
 		// TODO: Use refine strategy to detect more markers.
@@ -454,7 +478,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 			marker.id = markerIds[i];
 
 			for (int j = 0; j < 4; ++j) {
-				marker.corners[j] = vec2(markerCorners[i][j].x, markerCorners[i][j].y);
+				//marker.corners[j] = vec2(markerCorners[i][j].x, markerCorners[i][j].y);
+				marker.corners[j] = vec2(markerCorners[i][j].x * 2.0, markerCorners[i][j].y * 2.0);
 			}
 
 			Results->markers.push_back(marker);
@@ -465,7 +490,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 			marker.id = -1;
 
 			for (int j = 0; j < 4; ++j) {
-				marker.corners[j] = vec2(rejectedMarkers[i][j].x, rejectedMarkers[i][j].y);
+				//marker.corners[j] = vec2(rejectedMarkers[i][j].x, rejectedMarkers[i][j].y);
+				marker.corners[j] = vec2(rejectedMarkers[i][j].x * 2.0, rejectedMarkers[i][j].y * 2.0);
 			}
 
 			Results->rejectedMarkers.push_back(marker);
@@ -582,7 +608,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 						ldiCharucoCorner corner;
 						corner.id = charucoIds[j];
 						corner.globalId = board.id * 9 + corner.id;
-						corner.position = vec2(charucoCorners[j].x, charucoCorners[j].y);
+						//corner.position = vec2(charucoCorners[j].x, charucoCorners[j].y);
+						corner.position = vec2(charucoCorners[j].x * 2.0, charucoCorners[j].y * 2.0);
 						board.corners.push_back(corner);
 					}
 
@@ -809,8 +836,7 @@ ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
 	}
 
 	int pointCount = (int)Points.size();
-	//std::cout << "Find line fit " << pointCount << "\n" << std::flush;
-
+	
 	cv::Point3f centroid(0, 0, 0);
 
 	for (int i = 0; i < pointCount; ++i) {
@@ -818,8 +844,7 @@ ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
 	}
 
 	centroid /= pointCount;
-	//std::cout << "Centroid: " << centroid.x << ", " << centroid.y << ", " << centroid.z << "\n" << std::flush;
-
+	
 	cv::Mat mP = cv::Mat(pointCount, 3, CV_32F);
 
 	for (int i = 0; i < pointCount; ++i) {
@@ -831,15 +856,7 @@ ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
 
 	cv::Mat w, u, vt;
 	cv::SVD::compute(mP, w, u, vt);
-
-	//SVD::compute(mP, w);
-	//cv::Point3f pW(w.at<float>(0, 0), w.at<float>(0, 1), w.at<float>(0, 2));
-	//cv::Point3f pU(u.at<float>(0, 0), u.at<float>(0, 1), u.at<float>(0, 2));
 	cv::Point3f pV(vt.at<float>(0, 0), vt.at<float>(0, 1), vt.at<float>(0, 2));
-
-	/*std::cout << "W: " << pW.x << ", " << pW.y << ", " << pW.z << "\n" << std::flush;
-	std::cout << "U: " << pU.x << ", " << pU.y << ", " << pU.z << "\n" << std::flush;
-	std::cout << "V: " << pV.x << ", " << pV.y << ", " << pV.z << "\n" << std::flush;*/
 
 	ldiLine result;
 	result.origin = vec3(centroid.x, centroid.y, centroid.z);

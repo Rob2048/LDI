@@ -150,7 +150,7 @@ void calibRealignWorldVolume(ldiCalibrationJob* Job, mat4 CubeOffset = mat4(1.0)
 }
 
 // Determine metrics for the calibration volume.
-void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
+void calibEstimateCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->metricsCalculated = false;
 
 	if (!Job->initialEstimations) {
@@ -183,11 +183,7 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	for (size_t sampleIter = 0; sampleIter < Job->poseToSampleIds.size(); ++sampleIter) {
 		ldiCalibSample* sample = &Job->samples[Job->poseToSampleIds[sampleIter]];
 
-		if (sample->phase != 1) {
-			continue;
-		}
-
-		if (sample->A != 0 || sample->C != 13000) {
+		if (sample->phase != 1 || sample->A != 0 || sample->C != 13000) {
 			continue;
 		}
 
@@ -451,6 +447,10 @@ void calibBuildCalibVolumeMetrics(ldiCalibrationJob* Job) {
 	Job->axisX = computerVisionFitLine(Job->axisXPoints);
 	Job->axisY = computerVisionFitLine(Job->axisYPoints);
 	Job->axisZ = computerVisionFitLine(Job->axisZPoints);
+
+	std::cout << "Estimate: AxisX origin: " << GetStr(Job->axisX.origin) << "\n";
+	std::cout << "Estimate: AxisY origin: " << GetStr(Job->axisY.origin) << "\n";
+	std::cout << "Estimate: AxisZ origin: " << GetStr(Job->axisZ.origin) << "\n";
 
 	//----------------------------------------------------------------------------------------------------
 	// Gather rotary axis samples.
@@ -817,28 +817,23 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 				poseRT.at<double>(5) = t.at<double>(2);
 
 				cv::Mat camTransMat = convertRvecTvec(poseRT);
-				//cv::Mat cubeTransMat = camTransMat;//.inv();
 				mat4 cubeMat = convertOpenCvTransMatToGlmMat(camTransMat);
 				Job->cubePoses.push_back(cubeMat);
 				Job->poseToSampleIds.push_back(sampleIter);
 
-				// Add to BA output.
-				//if (sample->phase == 3) {
-				{
-					// Save positions in absolute values.
-					ldiHorsePositionAbs platformPos = {};
-					platformPos.x = sample->X * Job->stepsToCm.x;
-					platformPos.y = sample->Y * Job->stepsToCm.y;
-					platformPos.z = sample->Z * Job->stepsToCm.z;
-					platformPos.a = sample->A * (360.0 / (32.0 * 200.0 * 90.0));
-					platformPos.c = (sample->C - 13000) * (360.0 / (32.0 * 200.0 * 30.0));
+				// Save positions in absolute values.
+				ldiHorsePositionAbs platformPos = {};
+				platformPos.x = sample->X * Job->stepsToCm.x;
+				platformPos.y = sample->Y * Job->stepsToCm.y;
+				platformPos.z = sample->Z * Job->stepsToCm.z;
+				platformPos.a = sample->A * (360.0 / (32.0 * 200.0 * 90.0));
+				platformPos.c = (sample->C - 13000) * (360.0 / (32.0 * 200.0 * 30.0));
 
-					viewObservations.push_back(imagePoints);
-					viewPointIds.push_back(imagePointIds);
-					viewPositions.push_back(platformPos);
+				viewObservations.push_back(imagePoints);
+				viewPointIds.push_back(imagePointIds);
+				viewPositions.push_back(platformPos);
 
-					acceptedObservations += imagePoints.size();
-				}
+				acceptedObservations += imagePoints.size();
 			} else {
 				std::cout << "Rejected " << sampleIter << ": No pose found\n";
 			}
@@ -853,7 +848,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 	// Get volume metrics.
 	//----------------------------------------------------------------------------------------------------
 	Job->initialEstimations = true;
-	calibBuildCalibVolumeMetrics(Job);
+	calibEstimateCalibVolumeMetrics(Job);
 
 	double rmse = calibGetProjectionRMSE(Job);
 
@@ -1027,6 +1022,8 @@ void calibLoadNewBA(ldiCalibrationJob* Job, const std::string& FilePath) {
 	calibCubeCalculateMetrics(&Job->cube, true);
 
 	fclose(f);
+
+	Job->metricsCalculated = true;
 
 	calibGetProjectionRMSE(Job);
 	calibRealignWorldVolume(Job);

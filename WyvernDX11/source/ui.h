@@ -5,12 +5,12 @@ struct ldiViewportSurfaceResult {
 	vec2 worldPos;
 };
 
-ldiViewportSurfaceResult uiViewportSurface2D(const char* SurfaceId, float* Scale, vec2* Offset) {
+ldiViewportSurfaceResult uiViewportSurface2D(const char* SurfaceId, float* Scale, vec2* Offset, vec2 StartPosOffset = vec2(0.0f, 0.0f)) {
 	ldiViewportSurfaceResult result = {};
 
 	ImVec2 viewSize = ImGui::GetContentRegionAvail();
 	//ImVec2 startPos = ImGui::GetCursorPos();
-	ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+	ImVec2 screenStartPos = ImGui::GetCursorScreenPos() + toImVec2(StartPosOffset);
 
 	// This will catch our interactions.
 	ImGui::InvisibleButton(SurfaceId, viewSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);

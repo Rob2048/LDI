@@ -37,7 +37,9 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 
 	// return tex * input.col;
 
+	// float v = LinearToGamma(dist);
 	float v = dist;
 
 	return float4(0, 0, 0, 1.0 - v);
+	// return float4(v, v, v, 1.0);
 }

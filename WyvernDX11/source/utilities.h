@@ -25,11 +25,24 @@ struct ldiPlane {
 	vec3 normal;
 };
 
-float lerp(float A, float B, float T) {
+inline int clamp(int Value, int Min, int Max) {
+	return min(max(Value, Min), Max);
+}
+
+inline float clampf(float Value, float Min, float Max) {
+	return min(max(Value, Min), Max);
+}
+
+inline float lerp(float A, float B, float T) {
 	return A + (B - A) * T;
 }
 
-double map(double A0, double B0, double A1, double B1, double T) {
+inline float lerpClamp(float A, float B, float T) {
+	T = clampf(T, 0, 1);
+	return A + (B - A) * T;
+}
+
+inline double map(double A0, double B0, double A1, double B1, double T) {
 	double aRange = B0 - A0;
 	double bRange = B1 - A1;
 	double bProp = bRange / aRange;

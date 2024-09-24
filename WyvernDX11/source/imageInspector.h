@@ -75,9 +75,13 @@ struct ldiImageInspector {
 	bool						showCharucoRejectedMarkers = false;
 	bool						showUndistorted = true;
 	bool						showReprojection = false;
+	bool						showReprojectionErrorGraph = true;
 	float						sceneOpacity = 0.75f;
 	float						imageContrast = 1.0f;
 	float						imageBrightness = 0.0f;
+
+	float						calibReproGraphScale = 1;
+	vec2						calibReproGraphOffset = vec2(0.0f, 0.0f);
 
 	ID3D11ShaderResourceView*	hawkResourceView;
 	ID3D11Texture2D*			hawkTex;
@@ -373,13 +377,34 @@ void _imageInspectorSelectCalibJob(ldiImageInspector* Tool, int SelectionId, int
 		calibImg.data = outputImage.data;
 		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
 	} else {
+		// TODO: Remove me.
 		//cv::Mat srcImage(cv::Size(calibImg.width, calibImg.height), CV_8UC1, calibImg.data);
 		//cv::Mat downscaleImage;
 		//cv::Mat upscaleImage;
 
-		// TODO: Remove me.
 		//cv::resize(srcImage, downscaleImage, cv::Size(3280 / 2, 2464 / 2));
-		//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464));
+
+		//int halfX = 3280 / 2;
+		//int halfY = 2464 / 2;
+
+		//// Add noise
+		//for (int iX = 0; iX < halfX; ++iX) {
+		//	for (int iY = 0; iY < halfY; ++iY) {
+		//		int noise = (int)(((float)rand() / (float)RAND_MAX) * 20) - 10;
+
+		//		int newValue = (int)downscaleImage.at<uint8_t>(iY, iX) + noise;
+
+		//		if (newValue > 255) {
+		//			newValue = 255;
+		//		} else if (newValue < 0) {
+		//			newValue = 0;
+		//		}
+
+		//		downscaleImage.at<uint8_t>(iY, iX) = newValue;
+		//	}
+		//}
+
+		//cv::resize(downscaleImage, upscaleImage, cv::Size(3280, 2464), 0.0, 0.0, cv::INTER_LINEAR);
 		//calibImg.data = upscaleImage.data;
 
 		gfxCopyToTexture2D(Tool->appContext, Tool->hawkTex, calibImg);
@@ -929,10 +954,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		ImGui::Separator();
 		ImGui::Text("Tools");
 
-		//if (ImGui::Button("Split stereo samples")) {
-		//	//calibSplitStereoSamplesJob(job);
-		//	calibSplitStereoSamplesScanner();
-		//}
+		ImGui::Checkbox("Show reprojection error", &Tool->showReprojectionErrorGraph);
 
 		if (ImGui::Button("Compare calibrations")) {
 			std::string jobPathA;
@@ -1660,4 +1682,180 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 	}
 	ImGui::End();
 	ImGui::PopStyleVar();
+
+	if (Tool->showReprojectionErrorGraph) {
+		//ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+		if (ImGui::Begin("Reprojection error graph", 0, ImGuiWindowFlags_NoCollapse)) {
+			static float graphScaleX = 1.0f;
+			static float graphScaleY = 20.0f;
+			ImGui::PushItemWidth(100);
+			ImGui::SameLine();
+			ImGui::DragFloat("Scale X", &graphScaleX);
+			ImGui::SameLine();
+			ImGui::DragFloat("Scale Y", &graphScaleY);
+			ImGui::PopItemWidth();
+
+			ImVec2 viewSize = ImGui::GetContentRegionAvail();
+			ImVec2 startPos = ImGui::GetCursorPos();
+			ImVec2 screenStartPos = ImGui::GetCursorScreenPos();
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+			auto surfaceResult = uiViewportSurface2D("__reprojGraph", &Tool->calibReproGraphScale, &Tool->calibReproGraphOffset, vec2(40, 10));
+
+			ImVec2 imgOffset = toImVec2(Tool->calibReproGraphOffset);
+			float imgScale = Tool->calibReproGraphScale;
+
+			ImVec2 imgMin;
+			imgMin.x = screenStartPos.x + imgOffset.x * imgScale;
+			imgMin.y = screenStartPos.y + imgOffset.y * imgScale;
+
+			ImVec2 imgMax;
+			imgMax.x = imgMin.x + CAM_IMG_WIDTH * imgScale;
+			imgMax.y = imgMin.y + CAM_IMG_HEIGHT * imgScale;
+
+			ImVec2 graphMin = screenStartPos + ImVec2(40, 10);
+			ImVec2 graphMax = screenStartPos + viewSize - ImVec2(10, 40);
+
+			ImVec2 contentZero = graphMin + imgOffset * imgScale;
+
+			float divPixels = 60.0f;
+			int divsX = (int)((graphMax.x - graphMin.x) / divPixels);
+			int divsY = (int)((graphMax.y - graphMin.y) / divPixels);
+
+			// Mouse position in graph space:
+			vec2 mouseGraphPos = surfaceResult.worldPos / vec2(graphScaleX, -graphScaleY);
+
+			// Border.
+			draw_list->AddRect(graphMin, graphMax, ImColor(50, 50, 50));
+
+			char buffer[256];
+
+			// Graph divisions/scale.
+			for (int i = 0; i <= divsX; ++i) {
+				float pos = i * divPixels;
+				draw_list->AddLine(graphMin + ImVec2(pos, 0), ImVec2(graphMin.x + pos, graphMax.y), ImColor(50, 50, 50));
+
+				float val = ((pos / imgScale) - imgOffset.x) / graphScaleX;
+				sprintf_s(buffer, "%.2f", val);
+				//draw_list->AddText(screenStartPos + ImVec2(5, pos), ImColor(200, 200, 200), buffer);
+				draw_list->AddText(ImVec2(graphMin.x + pos, graphMax.y + 20), ImColor(255, 255, 255), buffer);
+			}
+
+			for (int i = 0; i <= divsY; ++i) {
+				float pos = i * divPixels;
+				draw_list->AddLine(graphMin + ImVec2(0, pos), ImVec2(graphMax.x, graphMin.y + pos), ImColor(50, 50, 50));
+
+				float val = (imgOffset.y - (pos / imgScale)) / graphScaleY;
+				sprintf_s(buffer, "%.2f", val);
+				draw_list->AddText(screenStartPos + ImVec2(5, pos), ImColor(200, 200, 200), buffer);
+			}
+
+			// Content.
+			draw_list->PushClipRect(graphMin, graphMax);
+
+			// Zero marks.
+			draw_list->AddLine(graphMin + ImVec2(0, imgOffset.y * imgScale), ImVec2(graphMax.x, graphMin.y + imgOffset.y * imgScale), ImColor(100, 100, 100));
+			draw_list->AddLine(graphMin + ImVec2(imgOffset.x * imgScale, 0), ImVec2(graphMin.x + imgOffset.x * imgScale, graphMax.y), ImColor(100, 100, 100));
+
+			if (Tool->appContext->calibJob.metricsCalculated) {
+				ldiCalibrationJob* job = &Tool->appContext->calibJob;
+				int sampleId = 0;
+
+				if (job->projError.size() > 0) {
+					float closestSample = FLT_MAX;
+					int closestSampleId = -1;
+
+					for (size_t sampleIter = 0; sampleIter < job->samples.size(); ++sampleIter) {
+						ldiCalibSample* sample = &job->samples[sampleIter];
+
+						draw_list->AddLine(graphMin + ImVec2((imgOffset.x + sampleId * graphScaleX) * imgScale, 0), ImVec2(graphMin.x + (imgOffset.x + sampleId * graphScaleX) * imgScale, graphMax.y), ImColor(20, 20, 20));
+
+						std::vector<ldiCharucoBoard>* boards = &sample->cube.boards;
+						for (size_t boardIter = 0; boardIter < boards->size(); ++boardIter) {
+							ldiCharucoBoard* board = &(*boards)[boardIter];
+
+							for (size_t cornerIter = 0; cornerIter < board->corners.size(); ++cornerIter) {
+								ldiCharucoCorner* corner = &board->corners[cornerIter];
+								int cornerGlobalId = (board->id * 9) + corner->id;
+
+								//Job->projObs.push_back(corner->position);
+								//projPoints.push_back(toPoint3f(points[cornerGlobalId]));
+
+								double pX = sampleId * graphScaleX;
+								double pY = job->projError[sampleId] * graphScaleY;
+
+								ImVec2 pos = contentZero + ImVec2(pX * imgScale - 2, -pY * imgScale - 2);
+								float t = job->projError[sampleId] * 0.5;
+								draw_list->AddRectFilled(pos, pos + ImVec2(4, 4), ImColor(lerpClamp(0, 1, t), lerpClamp(1, 0, t), 0.0f));
+
+								if (surfaceResult.isHovered) {
+									vec2 dist = vec2((float)pX, (float)pY) - surfaceResult.worldPos * vec2(1, -1);
+									float distSq = glm::dot(dist, dist);
+
+									if (distSq < closestSample) {
+										closestSample = distSq;
+										closestSampleId = sampleId;
+									}
+								}
+
+								++sampleId;
+							}
+						}
+					}
+
+					if (closestSampleId != -1) {
+						double pX = closestSampleId * graphScaleX;
+						double pY = job->projError[closestSampleId] * graphScaleY;
+
+						ImVec2 pos = contentZero + ImVec2(pX * imgScale, -pY * imgScale);
+						draw_list->AddCircleFilled(pos, 5, ImColor(255, 255, 255));
+					}
+				}
+
+				//for (size_t i = 0; i < job->projReproj.size(); ++i) {
+				//	double pX = i * graphScaleX;
+				//	double pY = job->projError[i] * graphScaleY;
+				//	ImVec2 pos = contentZero + ImVec2(pX * imgScale - 2, -pY * imgScale - 2);
+				//	
+				//	//draw_list->AddRectFilled(pos, pos + ImVec2(4, 4), ImColor(255, 120, 25));
+				//	float t = job->projError[i] * 0.5;
+				//	draw_list->AddRectFilled(pos, pos + ImVec2(4, 4), ImColor(lerpClamp(0, 1, t), lerpClamp(1, 0, t), 0.0f));
+				//}
+			}
+
+			if (surfaceResult.isHovered) {
+				/*vec2 pixelPos;
+				pixelPos.x = (int)surfaceResult.worldPos.x;
+				pixelPos.y = (int)surfaceResult.worldPos.y;
+
+				ImVec2 rMin;
+				rMin.x = screenStartPos.x + (imgOffset.x + pixelPos.x) * imgScale;
+				rMin.y = screenStartPos.y + (imgOffset.y + pixelPos.y) * imgScale;
+
+				ImVec2 rMax = rMin;
+				rMax.x += imgScale;
+				rMax.y += imgScale;
+
+				draw_list->AddRect(rMin, rMax, ImColor(255, 0, 255));*/
+			}
+
+			draw_list->PopClipRect();
+
+			// Viewport overlay.
+			{
+				ImGui::SetCursorPos(ImVec2(startPos.x + 10, startPos.y + 10));
+				ImGui::BeginChild("__reprojGraphOverlay", ImVec2(200, 70), false, ImGuiWindowFlags_NoScrollbar);
+
+				ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+				
+				if (surfaceResult.isHovered) {
+					ImGui::Text("%.3f %.3f", mouseGraphPos.x, mouseGraphPos.y);
+				}
+
+				ImGui::EndChild();
+			}
+		}
+		ImGui::End();
+		//ImGui::PopStyleVar();
+	}
 }
