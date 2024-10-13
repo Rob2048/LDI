@@ -24,9 +24,28 @@ void WriteDacA(int Value) {
 	cmd |= Value;
 
 	// NOTE: 2MHz due to prototype setup.
-	SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+	SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
 	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
-	SPI.transfer16(cmd);
+	
+	// SPI.transfer16(cmd);
+
+	volatile IMXRT_LPSPI_t* port = &IMXRT_LPSPI4_S;
+
+	uint32_t tcr = port->TCR;
+	
+	// turn on 16 bit mode.
+	port->TCR = (tcr & 0xfffff000) | LPSPI_TCR_FRAMESZ(15);
+	port->TDR = cmd;
+	
+	// Could just check transmit complete?
+	// Or TDR tx data register?
+	while ((port->RSR & LPSPI_RSR_RXEMPTY));
+
+	port->TCR = tcr;
+
+	// NOTE: Important to read RDR to clear flag for next cycle.
+	int test = port->RDR;
+
 	digitalWrite(PIN_GALVO_CHIPSELECT, HIGH);
 	SPI.endTransaction();
 }
@@ -46,7 +65,7 @@ void WriteDacB(int Value) {
 	cmd |= Value;
 
 	// NOTE: 2MHz due to prototype setup.
-	SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+	SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
 	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
 	SPI.transfer16(cmd);
 	digitalWrite(PIN_GALVO_CHIPSELECT, HIGH);

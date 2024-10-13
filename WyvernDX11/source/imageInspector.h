@@ -44,7 +44,7 @@ struct ldiImageInspector {
 	vec2						camImageCursorPos;
 	uint8_t						camImagePixelValue;
 	
-	bool						camImageProcess = false;
+	bool						camProcessCharucos = false;
 	bool						camCalibProcess = false;
 	double						calibDetectTimeout = 0;
 
@@ -489,7 +489,7 @@ void imageInspectorDrawCharucoResults(ldiUiPositionInfo uiInfo, ldiCharucoResult
 				ImVec2 offset = uiInfo.screenStartPos + (uiInfo.imgOffset + toImVec2(Charucos->boards[b].outline[0])) * uiInfo.imgScale;
 
 				char strBuf[256];
-				sprintf_s(strBuf, 256, "%.2f", angle);
+				sprintf_s(strBuf, 256, "%.4f", angle);
 				draw_list->AddText(offset, ImColor(200, 0, 200), strBuf);
 			}
 		}
@@ -541,7 +541,7 @@ void imageInspectorDrawCharucoResults(ldiUiPositionInfo uiInfo, ldiCharucoResult
 				ImVec2 offset = uiInfo.screenStartPos + (uiInfo.imgOffset + toImVec2(Charucos->rejectedBoards[b].outline[0])) * uiInfo.imgScale;
 
 				char strBuf[256];
-				sprintf_s(strBuf, 256, "%.2f", angle);
+				sprintf_s(strBuf, 256, "%.4f", angle);
 				draw_list->AddText(offset, ImColor(200, 0, 200), strBuf);
 			}
 		}
@@ -680,7 +680,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				}
 			}
 
-			if (Tool->camImageProcess) {
+			if (Tool->camProcessCharucos) {
 				// TODO: Temp default cam matrix.
 				cv::Mat calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
 				calibCameraMatrix.at<double>(0, 0) = 2666.92;
@@ -926,6 +926,33 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (newFrame) {
+			if (Tool->camProcessCharucos) {
+				// TODO: Temp default cam matrix.
+				cv::Mat calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
+				calibCameraMatrix.at<double>(0, 0) = 1333.0;
+				calibCameraMatrix.at<double>(0, 1) = 0.0;
+				calibCameraMatrix.at<double>(0, 2) = 800.0;
+				calibCameraMatrix.at<double>(1, 0) = 0.0;
+				calibCameraMatrix.at<double>(1, 1) = 1333.0;
+				calibCameraMatrix.at<double>(1, 2) = 650.0;
+				calibCameraMatrix.at<double>(2, 0) = 0.0;
+				calibCameraMatrix.at<double>(2, 1) = 0.0;
+				calibCameraMatrix.at<double>(2, 2) = 1.0;
+
+				cv::Mat calibCameraDist = cv::Mat::zeros(8, 1, CV_64F);
+				calibCameraDist.at<double>(0) = 0.1937769949436188;
+				calibCameraDist.at<double>(1) = -0.3512980043888092;
+				calibCameraDist.at<double>(2) = 0.002319999970495701;
+				calibCameraDist.at<double>(3) = 0.00217368989251554;
+
+				computerVisionFindCharuco(camImg, &Tool->camImageCharucoResults, &calibCameraMatrix, &calibCameraDist);
+			}
+
+			if (Tool->hawkScanProcessImage) {
+				Tool->hawkScanSegs.clear();
+				Tool->hawkScanPoints = computerVisionFindScanLine(camImg);
+			}
+
 			gfxCopyToTexture2D(Tool->appContext, Tool->camTex, camImg);
 		}
 	}
@@ -1141,6 +1168,9 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			ImGui::SliderFloat("Scene opacity", &Tool->sceneOpacity, 0.0f, 1.0f);
 
+			ImGui::Separator();
+			ImGui::Text("Post process");
+
 			ImGui::Checkbox("Show heatmap", &Tool->showHeatmap);
 
 			ImGui::DragFloat("Brightness", &Tool->imageBrightness, 0.01f, -10.0f, 10.0f);
@@ -1240,7 +1270,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				} else {
 					if (ImGui::Button("Start calibration")) {
 						Tool->camCalibProcess = true;
-						Tool->camImageProcess = false;
+						Tool->camProcessCharucos = false;
 						Tool->cameraCalibSamples.clear();
 					}
 				}
@@ -1334,7 +1364,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (ImGui::CollapsingHeader("Machine vision")) {
-			ImGui::Checkbox("Process", &Tool->camImageProcess);
+			ImGui::Checkbox("Process CHARUCOs", &Tool->camProcessCharucos);
 			ImGui::Checkbox("Process scan mapping", &Tool->hawkScanProcessImage);
 			ImGui::Checkbox("Scan gamma test", &Tool->hawkEnableGammaTest);
 			ImGui::DragInt("Scan mapping min", &Tool->hawkScanMappingMin, 0.4f, 0, 255);
@@ -1608,6 +1638,31 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		//----------------------------------------------------------------------------------------------------
+		// Draw scanner debug info.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->hawkScanProcessImage) {
+			ImVec2 imgOffset = toImVec2(Tool->imgOffset);
+			float imgScale = Tool->imgScale;
+
+			for (size_t i = 0; i < Tool->hawkScanSegs.size(); ++i) {
+				vec4 point = Tool->hawkScanSegs[i];
+
+				ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x + 0.5f, point.y + 0.5f)) * imgScale;
+				draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(255, 0, 0));
+
+				uiPos = screenStartPos + (imgOffset + ImVec2(point.z + 0.5f, point.w + 0.5f)) * imgScale;
+				draw_list->AddCircle(uiPos, max(1, 0.2f * imgScale), ImColor(0, 0, 255));
+			}
+
+			for (size_t i = 0; i < Tool->hawkScanPoints.size(); ++i) {
+				vec2 point = Tool->hawkScanPoints[i];
+
+				ImVec2 uiPos = screenStartPos + (imgOffset + ImVec2(point.x, point.y)) * imgScale;
+				draw_list->AddCircle(uiPos, max(1, 0.4f * imgScale), ImColor(0, 255, 0));
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
 		// Calibration sensor temp.
 		//----------------------------------------------------------------------------------------------------
 		if (Tool->appContext->platform->showCalibSensor) {
@@ -1636,6 +1691,20 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				draw_list->AddCircle(h1, 4.0f, ImColor(0, 0, 255));
 				draw_list->AddLine(h0, h1, ImColor(0, 0, 200));
 			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw charucos.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->camProcessCharucos) {
+			ldiCharucoResults* charucos = &Tool->camImageCharucoResults;
+
+			ldiUiPositionInfo uiInfo = {};
+			uiInfo.imgOffset = toImVec2(Tool->imgOffset);
+			uiInfo.imgScale = Tool->imgScale;
+			uiInfo.screenStartPos = screenStartPos;
+
+			imageInspectorDrawCharucoResults(uiInfo, charucos, false, true);
 		}
 
 		//----------------------------------------------------------------------------------------------------

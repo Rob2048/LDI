@@ -16,6 +16,33 @@
 
 // ADCL* adc = new ADCL();
 IntervalTimer timer;
+IntervalTimer timer2;
+IntervalTimer timer3;
+
+// Teensy 4.1 & 4.0 GPIO to bank bit mapping:
+// Bit      31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 09 08 07 06 05 04 03 02 01 00
+
+// GPIO6    27 26       21 20 23 22 16 17 41 40 15 14 18 19       25 24                          0  1
+// GPIO7                                               7  8          32  9  6                   13 11 12 10
+// GPIO8                            30 31          28 38 39 34 35 36 37
+// GPIO9    29                                                                    5 33  4  3  2
+
+volatile IMXRT_LPSPI_t* port = &IMXRT_LPSPI4_S;
+
+#define IMXRT_BANK6_DIRECT  (*(volatile uint32_t *)0x42000000)
+#define IMXRT_BANK7_DIRECT  (*(volatile uint32_t *)0x42004000)
+#define IMXRT_BANK8_DIRECT  (*(volatile uint32_t *)0x42008000)
+#define IMXRT_BANK9_DIRECT  (*(volatile uint32_t *)0x4200C000)
+
+#define IMXRT_BANK06_GPIO0_BIT ((uint32_t)(1 << 3))
+
+inline void setDebugPin() {
+	IMXRT_BANK6_DIRECT = IMXRT_BANK6_DIRECT | IMXRT_BANK06_GPIO0_BIT;
+}
+
+inline void clearDebugPin() {
+	IMXRT_BANK6_DIRECT = IMXRT_BANK6_DIRECT & ~IMXRT_BANK06_GPIO0_BIT;
+}
 
 void setup() {
 	Serial.begin(921600);
@@ -68,6 +95,8 @@ void setup() {
 volatile int _laserStartDelay = -140;
 volatile int _pulseSize = 70;
 
+// digitalWriteFast ??
+
 bool incDec(int Trigger, int DecTrigger, int IncTrigger, int ValDelta, int Min, int Max, int* Val) {
 	if (Trigger == DecTrigger) {
 		*Val -= ValDelta;
@@ -86,7 +115,130 @@ bool incDec(int Trigger, int DecTrigger, int IncTrigger, int ValDelta, int Min, 
 	return false;
 }
 
+int _currentFrame = 0;
+int _camStartFrame = 0;
+volatile bool _runningPath = false;
+
+void runSampledPath() {
+	int totalFrames = 100;
+	int currentStartFrame = 0;
+
+	// Time between camera samples = 34 ms = 29.412 FPS
+	// Path needs to fit within 34 ms, including full reset (maybe 2 ms).
+
+	for (int i = 0; i < totalFrames; ++i) {
+		// Make sure we are not less than 34 ms since last iteration.
+		// ...
+
+		// Perform full reset.
+		// ...
+
+		_currentFrame = 0;
+		_camStartFrame = i;
+		_runningPath = true;
+		timer.begin(primaryLoop, 5);
+
+		// Wait for path to finish.
+		while (_runningPath);
+	}
+
+	// For repetition, make sure we are at least 34 ms since last camera trigger.
+	// ...
+}
+
 void loop() {
+	// SPI to DAC notes:
+	// At 4Mhz:
+	// - ~4.5us to send SPI command to single channel
+	// - ~9us to send SPI command to both channels, using WriteDacX functions.
+	// - DAC will take 4.5us to settle after second channel.
+	// - ~15us for both channels and settle.
+
+	// Aim for 50kHz update rate, every 20us.
+
+	// With 4096 DAC positions, at 100us per pixel, 80000us to complete a sweep, 20us for each DAC update. (500 mm/s)
+	
+	SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
+	volatile IMXRT_LPSPI_t* volatile port = &IMXRT_LPSPI4_S;
+	uint32_t tcr = port->TCR;
+	// turn on 16 bit mode.
+	port->TCR = (tcr & 0xfffff000) | LPSPI_TCR_FRAMESZ(15);
+
+	timer.priority(120);
+	timer2.priority(100);
+	
+	timer.begin(primaryLoop, 20);
+	delayNanoseconds(4000);
+	timer2.begin(updateCamTrigger, 20);
+	
+	while (true) {};
+}
+
+int _galvoDacA = 0;
+int _galvoDacB = 0;
+
+float _incX = 0.01;
+float _galvoX = 0.0f;
+
+float _cameraTriggerCycle = 0.0f;
+
+void primaryLoop() {
+	// setDebugPin();
+	// clearDebugPin();
+
+	uint16_t cmd = 0;
+	// Gain to 1x.
+	cmd |= 1 << 13;
+	// Turn on.
+	cmd |= 1 << 12;
+	// Output: 0 - 4095.
+	cmd |= (int)_galvoX;
+
+	digitalWrite(PIN_GALVO_CHIPSELECT, LOW);
+	port->TDR = cmd;
+
+	// setDebugPin();
+
+	_galvoX += _incX;
+	
+	if ((int)_galvoX >= 4096) {
+		_galvoX = 0.0f;
+	}
+
+	if (_cameraTriggerCycle >= 3000.0f) {
+		_cameraTriggerCycle = 0.0f;
+	}
+
+	delayNanoseconds((int)_cameraTriggerCycle);
+	_cameraTriggerCycle += 0.001f;
+	
+	// clearDebugPin();
+
+	while ((port->RSR & LPSPI_RSR_RXEMPTY));
+	// NOTE: Important to read RDR to clear flag for next cycle.
+	int test = port->RDR;
+
+	digitalWrite(PIN_GALVO_CHIPSELECT, HIGH);
+
+	// If end of path then terminate.
+	// timer.end();
+	
+	// setDebugPin();
+	// clearDebugPin();
+}
+
+void updateCamTrigger() {
+	setDebugPin();
+	delayNanoseconds(50);
+	clearDebugPin();
+}
+
+void stopCamTrigger() {
+	digitalWrite(PIN_D1, LOW);
+	timer3.end();
+}
+
+void loop2() {
 	int camTriggerPosition = 5100;
 	int laserStartDelay = _laserStartDelay;
 	int pulseSize = _pulseSize;

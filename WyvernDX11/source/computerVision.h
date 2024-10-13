@@ -466,11 +466,12 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 		//cv::Ptr<cv::aruco::Board> board = charucoBoard.staticCast<aruco::Board>();
 		//aruco::refineDetectedMarkers(image, board, markerCorners, markerIds, rejectedCandidates);
 		
-		t0 = getTime() - t0;
+		//t0 = getTime() - t0;
 		//std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
 
 		Results->markers.clear();
 		Results->boards.clear();
+		Results->rejectedBoards.clear();
 		Results->rejectedMarkers.clear();
 
 		for (size_t i = 0; i < markerCorners.size(); ++i) {
@@ -478,8 +479,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 			marker.id = markerIds[i];
 
 			for (int j = 0; j < 4; ++j) {
-				//marker.corners[j] = vec2(markerCorners[i][j].x, markerCorners[i][j].y);
-				marker.corners[j] = vec2(markerCorners[i][j].x * 2.0, markerCorners[i][j].y * 2.0);
+				marker.corners[j] = vec2(markerCorners[i][j].x, markerCorners[i][j].y);
+				// marker.corners[j] = vec2(markerCorners[i][j].x * 2.0, markerCorners[i][j].y * 2.0);
 			}
 
 			Results->markers.push_back(marker);
@@ -490,8 +491,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 			marker.id = -1;
 
 			for (int j = 0; j < 4; ++j) {
-				//marker.corners[j] = vec2(rejectedMarkers[i][j].x, rejectedMarkers[i][j].y);
-				marker.corners[j] = vec2(rejectedMarkers[i][j].x * 2.0, rejectedMarkers[i][j].y * 2.0);
+				marker.corners[j] = vec2(rejectedMarkers[i][j].x, rejectedMarkers[i][j].y);
+				// marker.corners[j] = vec2(rejectedMarkers[i][j].x * 2.0, rejectedMarkers[i][j].y * 2.0);
 			}
 
 			Results->rejectedMarkers.push_back(marker);
@@ -608,8 +609,8 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 						ldiCharucoCorner corner;
 						corner.id = charucoIds[j];
 						corner.globalId = board.id * 9 + corner.id;
-						//corner.position = vec2(charucoCorners[j].x, charucoCorners[j].y);
-						corner.position = vec2(charucoCorners[j].x * 2.0, charucoCorners[j].y * 2.0);
+						corner.position = vec2(charucoCorners[j].x, charucoCorners[j].y);
+						// corner.position = vec2(charucoCorners[j].x * 2.0, charucoCorners[j].y * 2.0);
 						board.corners.push_back(corner);
 					}
 
@@ -622,6 +623,9 @@ bool computerVisionFindCharuco(ldiImage Image, ldiCharucoResults* Results, cv::M
 				}
 			}
 		}
+
+		t0 = getTime() - t0;
+		std::cout << "Detect markers: " << (t0 * 1000.0) << " ms\n";
 		
 		return true;
 
@@ -759,8 +763,6 @@ bool computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, s
 	std::vector<float> rms;
 
 	int solutionCount = cv::solvePnPGeneric(*WorldPoints, *ImagePoints, *CameraMatrix, *DistCoeffs, rvecs, tvecs, false, cv::SOLVEPNP_ITERATIVE, cv::noArray(), cv::noArray(), rms);
-	//std::cout << "  Solutions: " << solutionCount << "\n";
-	// TODO: Why do we set solutionCount to this?
 	solutionCount = rvecs.size();
 	//std::cout << "  Solutions: " << solutionCount << "\n";
 
@@ -785,15 +787,11 @@ bool computerVisionFindGeneralPose(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs, s
 
 		*Pose = transMat * rotMat;
 
-		std::cout << "  Found pose (" << i << "): " << rms[i] << "\n";
+		// std::cout << "  Found pose (" << i << "): " << rms[i] << "\n";
 
-		if (rms[i] > 3.0) {
-			return false;
+		if (rms[i] <= 3.0) {
+			return true;
 		}
-	}
-
-	if (solutionCount > 0) {
-		return true;
 	}
 
 	return false;
@@ -805,8 +803,6 @@ bool computerVisionFindGeneralPoseRT(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs,
 	std::vector<float> rms;
 
 	int solutionCount = cv::solvePnPGeneric(*WorldPoints, *ImagePoints, *CameraMatrix, *DistCoeffs, rvecs, tvecs, false, cv::SOLVEPNP_ITERATIVE, cv::noArray(), cv::noArray(), rms);
-	//std::cout << "  Solutions: " << solutionCount << "\n";
-	// TODO: Why do we set solutionCount to this?
 	solutionCount = rvecs.size();
 	//std::cout << "  Solutions: " << solutionCount << "\n";
 
@@ -814,15 +810,11 @@ bool computerVisionFindGeneralPoseRT(cv::Mat* CameraMatrix, cv::Mat* DistCoeffs,
 		*RVec = rvecs[i];
 		*TVec = tvecs[i];
 
-		//std::cout << "  Found pose (" << i << "): " << rms[i] << "\n";
+		// std::cout << "  Found pose (" << i << "): " << rms[i] << "\n";
 
-		if (rms[i] > 3.0) {
-			return false;
+		if (rms[i] <= 3.0) {
+			return true;
 		}
-	}
-
-	if (solutionCount > 0) {
-		return true;
 	}
 
 	return false;
@@ -867,6 +859,7 @@ ldiLine computerVisionFitLine(std::vector<vec3>& Points) {
 
 // Nghia Ho: https://nghiaho.com/?page_id=671
 // Get transformation between corresponding 3D point sets.
+// NOTE: Not fully implemented!
 void computerVisionFitPoints(std::vector<vec3>& A, std::vector<vec3>& B, cv::Mat& OutMat) {
 	if (A.size() != B.size()) {
 		std::cout << "Error computerVisionFitPoints, point sets must be the same size\n";

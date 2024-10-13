@@ -1,6 +1,6 @@
 #pragma once
 
-// Bundle adjust and non-linear optimization references:
+// Bundle adjust and non-linear least-squares optimization references:
 
 // https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
 // https://gist.github.com/davegreenwood/4434757e97c518890c91b3d0fd9194bd
@@ -14,6 +14,7 @@
 // NOTE: Really in-depth camera calibration: http://mrcal.secretsauce.net/how-to-calibrate.html
 
 void calibSetDefaultCamera(ldiCalibrationJob* Job) {
+	// IMX219: 3280 x 2464.
 	Job->camMat = cv::Mat::eye(3, 3, CV_64F);
 	Job->camMat.at<double>(0, 0) = 2666.92;
 	Job->camMat.at<double>(0, 1) = 0.0;
@@ -806,7 +807,7 @@ void calibGetInitialEstimations(ldiCalibrationJob* Job) {
 			cv::Mat t;
 
 			if (computerVisionFindGeneralPoseRT(&Job->camMat, &Job->camDist, &imagePoints, &worldPoints, &r, &t)) {
-				std::cout << "Found pose for sample " << sampleIter << "\n";
+				// std::cout << "Found pose for sample " << sampleIter << "\n";
 
 				poseRT = cv::Mat::zeros(1, 6, CV_64F);
 				poseRT.at<double>(0) = r.at<double>(0);
