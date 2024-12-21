@@ -1,8 +1,5 @@
 #pragma once
 
-#define max(a,b)            (((a) > (b)) ? (a) : (b))
-#define min(a,b)            (((a) < (b)) ? (a) : (b))
-
 #include "lcms2.h"
 #include "elipseCollision.h"
 

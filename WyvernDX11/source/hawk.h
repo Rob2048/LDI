@@ -105,7 +105,14 @@ void hawkProcessPacket(ldiHawk* Cam, ldiPacketBuilder* Packet) {
 				Cam->imgHeight = imageHeader->height;
 
 				uint8_t* frameData = rawPacket + sizeof(ldiProtocolImageHeader);
+
+				// Direct replace:
 				memcpy(Cam->frameBuffer, frameData, imageHeader->width * imageHeader->height);
+
+				// Low pass filter:
+				//for (int i = 0; i < imageHeader->width * imageHeader->height; ++i) {
+					//Cam->frameBuffer[i] = (uint8_t)((double)Cam->frameBuffer[i] * 0.5 + (double)frameData[i] * 0.5);
+				//}
 
 				++Cam->latestFrameId;
 			}

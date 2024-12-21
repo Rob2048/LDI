@@ -1229,7 +1229,7 @@ std::vector<vec2> computerVisionFindScanLine(ldiImage Image) {
 			finalY += (iY + 0.5f) * (v / totalGravity);
 		}
 
-		result.push_back(vec2((x + 0.5f) * 2.0, finalY * 2.0));
+		result.push_back(vec2((x + 0.5f), finalY));
 	}
 
 	return result;
@@ -1248,4 +1248,55 @@ void computerVisionUndistortPoints(std::vector<vec2>& Points, cv::Mat CamMat, cv
 	for (size_t pIter = 0; pIter < Points.size(); ++pIter) {
 		Points[pIter] = toVec2(undistortedPoints[pIter]);
 	}
+}
+
+enum ldiWeightedLinearRegressionResult {
+	WLRR_X,
+	WLRR_Y,
+	WLRR_ERROR,
+};
+
+ldiWeightedLinearRegressionResult computerVissionFindWeightedLinearRegression(std::vector<vec2>& Points, std::vector<double>& Weights, double* M, double* B) {
+	double sumX = 0.0;
+	double sumY = 0.0;
+	double sumW = 0.0;
+	double sumWX = 0.0;
+	double sumWY = 0.0;
+	double sumWXX = 0.0;
+	double sumWYY = 0.0;
+	double sumWXY = 0.0;
+
+	for (size_t i = 0; i < Points.size(); ++i) {
+		double x = Points[i].x;
+		double y = Points[i].y;
+		double w = Weights[i];
+
+		sumX += x;
+		sumY += y;
+		sumW += w;
+		sumWX += w * x;
+		sumWY += w * y;
+		sumWXX += w * x * x;
+		sumWYY += w * y * y;
+		sumWXY += w * x * y;
+	}
+
+	double det = sumW * sumWXX - sumWX * sumWX;
+
+	if (det == 0.0) {
+		det = sumW * sumWYY - sumWY * sumWY;
+		
+		// TODO: Can this happend? (Only if no points?)
+		if (det == 0.0) {
+			return WLRR_ERROR;
+		}
+
+		*M = (sumW * sumWXY - sumWY * sumWX) / det;
+		*B = (sumWYY * sumWX - sumWY * sumWXY) / det;
+		return WLRR_Y;
+	}
+
+	*M = (sumW * sumWXY - sumWX * sumWY) / det;
+	*B = (sumWXX * sumWY - sumWX * sumWXY) / det;
+	return WLRR_X;
 }

@@ -1972,8 +1972,9 @@ void platformShowUi(ldiPlatform* Tool) {
 
 			ImGui::Separator();
 			ImGui::Checkbox("Show surfels high", &Tool->showSurfeslHigh);
-			
-			ImGui::Separator();
+		}
+
+		if (ImGui::CollapsingHeader("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::Text("Machine position");
 			ImGui::Checkbox("Get from live machine", &Tool->liveAxisUpdate);
 			ImGui::SliderInt("PosX", &Tool->testPosX, -48000, 48000);
@@ -1981,9 +1982,8 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::SliderInt("PosZ", &Tool->testPosZ, -48000, 48000);
 			ImGui::SliderInt("PosC", &Tool->testPosC, -192000 * 2, 192000 * 2);
 			ImGui::SliderInt("PosA", &Tool->testPosA, -15000, 300000);
-		}
+			ImGui::Separator();
 
-		if (ImGui::CollapsingHeader("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::Text("Connection");
 			ImGui::BeginDisabled(Tool->panther.serialPortConnected);
 			/*char ipBuff[] = "192.168.0.50";

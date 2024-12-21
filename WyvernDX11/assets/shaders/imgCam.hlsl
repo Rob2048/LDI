@@ -46,7 +46,7 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 	if (params.w > 0.5) {
 		// Heatmap.
 
-		camI = GammaToLinear(camI);
+		// camI = GammaToLinear(camI);
 
 		float3 c0 = float3(0.0, 0.0, 0.0);
 		float3 c1 = float3(0.0, 0.0, 1.0);

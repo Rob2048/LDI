@@ -1,8 +1,5 @@
 #pragma once
 
-//#define max(a,b)            (((a) > (b)) ? (a) : (b))
-//#define min(a,b)            (((a) < (b)) ? (a) : (b))
-
 #include "voxelGrid.h"
 
 vec3 vmin(vec3 A, vec3 B) {

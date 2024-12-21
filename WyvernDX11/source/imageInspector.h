@@ -5,8 +5,8 @@
 //#define CAM_IMG_HEIGHT 800
 
 // NOTE: OV2311
-//#define CAM_IMG_WIDTH 1600
-//#define CAM_IMG_HEIGHT 1300
+#define CAM_IMG_WIDTH 1600
+#define CAM_IMG_HEIGHT 1300
 
 // NOTE: IMX477
 //#define CAM_IMG_WIDTH 4056
@@ -15,11 +15,8 @@
 // NOTE: IMX219
 //#define CAM_IMG_WIDTH 1920
 //#define CAM_IMG_HEIGHT 1080
-#define CAM_IMG_WIDTH 3280
-#define CAM_IMG_HEIGHT 2464
-
-#define TEST_CAM_WIDTH 1600
-#define TEST_CAM_HEIGHT 1300
+//#define CAM_IMG_WIDTH 3280
+//#define CAM_IMG_HEIGHT 2464
 
 #include "rotaryMeasurement.h"
 #include "webcam.h"
@@ -37,8 +34,6 @@ struct ldiImageInspector {
 	float						imgScale = 1.0f;
 	vec2						imgOffset = vec2(0.0f, 0.0f);
 
-	float						camImageFilterFactor = 0.0f;
-
 	ldiCharucoResults			camImageCharucoResults = {};
 
 	vec2						camImageCursorPos;
@@ -48,13 +43,33 @@ struct ldiImageInspector {
 	bool						camCalibProcess = false;
 	double						calibDetectTimeout = 0;
 
-	ID3D11Buffer*				camImagePixelConstants;
-	ID3D11ShaderResourceView*	camResourceView;
-	ID3D11Texture2D*			camTex;
+	bool						spotProfileEnabled = true;
+	std::vector<cv::KeyPoint>	spotProfileBlobs;
+	float						spotProfileBlurSize = 10.0f;
+	int							spotProfileMin = 20;
 
-	//int							camLastNewFrameId = 0;
-	//std::atomic_int				camNewFrameId = 0;
-	//uint8_t						camPixelsFinal[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
+	bool						lineProfileEnabled = false;
+	float						lineProfBlurKernelSize = 60.0f;
+	int							lineProfileMin = 40;
+	bool						lineProfileValid = false;
+	ldiLineSegment				lineProfileLine;
+	vec2						lineProfSliceCentroid;
+	float						lineProfLength;
+	float						lineProfAngle;
+	double						lineProf[CAM_IMG_WIDTH + CAM_IMG_HEIGHT];
+	int							lineProfSamples = 0;
+	float						lineProfSliceOffset = 0.5f;
+	ldiLine						lineProfSliceLine;
+	ldiLineSegment				lineProfSliceSegment;
+	float						lineProfSliceT0;
+	float						lineProfSliceT1;
+	vec2						lineProfSliceIntersection;
+	std::vector<vec3>			lineProfSlicePoints;
+	ldiLine						lineProfFitLine;
+	
+	ID3D11Buffer*				inspectorTexPixelConstants;
+	ID3D11ShaderResourceView*	inspectorTexView;
+	ID3D11Texture2D*			inspectorTex;
 
 	int							calibJobSelectedSampleType;
 	int							calibJobSelectedSampleId;
@@ -94,7 +109,6 @@ struct ldiImageInspector {
 	uint8_t						hawkFrameBuffer[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 	
 	bool						hawkScanProcessImage = false;
-	bool						hawkEnableGammaTest = false;
 	int							hawkScanMappingMin = 22;
 	int							hawkScanMappingMax = 75;
 
@@ -103,11 +117,9 @@ struct ldiImageInspector {
 
 	ldiHawk						testCam;
 	int							testCamLastFrameId = 0;
-	uint8_t						testCamFrameBuffer[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
-	float						testCamFrameBufferFilter[TEST_CAM_WIDTH * TEST_CAM_HEIGHT] = {};
+	uint8_t						testCamFrameBuffer[CAM_IMG_WIDTH * CAM_IMG_HEIGHT] = {};
 	ID3D11Texture2D*			testhawkTex[2];
 	bool						showHeatmap = false;
-	std::vector<cv::KeyPoint>	laserProfileBlobs;
 };
 
 void _imageInspectorSetCamTexState(ldiImageInspector* Tool, vec4 Params) {
@@ -119,13 +131,13 @@ void _imageInspectorSetCamTexState(ldiImageInspector* Tool, vec4 Params) {
 
 	{
 		D3D11_MAPPED_SUBRESOURCE ms;
-		appContext->d3dDeviceContext->Map(Tool->camImagePixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		appContext->d3dDeviceContext->Map(Tool->inspectorTexPixelConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiCamImagePixelConstants* constantBuffer = (ldiCamImagePixelConstants*)ms.pData;
 		constantBuffer->params = Params;
-		appContext->d3dDeviceContext->Unmap(Tool->camImagePixelConstants, 0);
+		appContext->d3dDeviceContext->Unmap(Tool->inspectorTexPixelConstants, 0);
 	}
 
-	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &Tool->camImagePixelConstants);
+	appContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &Tool->inspectorTexPixelConstants);
 }
 
 void _imageInspectorSetStateCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
@@ -154,7 +166,7 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 	Tool->appContext = AppContext;
 
 	//----------------------------------------------------------------------------------------------------
-	// Cam image constant buffer.
+	// Inspector texture constant buffer.
 	//----------------------------------------------------------------------------------------------------
 	{
 		D3D11_BUFFER_DESC desc = {};
@@ -163,7 +175,7 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 		desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 		desc.MiscFlags = 0;
-		AppContext->d3dDevice->CreateBuffer(&desc, NULL, &Tool->camImagePixelConstants);
+		AppContext->d3dDevice->CreateBuffer(&desc, NULL, &Tool->inspectorTexPixelConstants);
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -183,12 +195,12 @@ int imageInspectorInit(ldiApp* AppContext, ldiImageInspector* Tool) {
 		tex2dDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 		tex2dDesc.MiscFlags = 0;
 
-		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->camTex) != S_OK) {
+		if (AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Tool->inspectorTex) != S_OK) {
 			std::cout << "Texture failed to create\n";
 			return 1;
 		}
 
-		if (AppContext->d3dDevice->CreateShaderResourceView(Tool->camTex, NULL, &Tool->camResourceView) != S_OK) {
+		if (AppContext->d3dDevice->CreateShaderResourceView(Tool->inspectorTex, NULL, &Tool->inspectorTexView) != S_OK) {
 			std::cout << "CreateShaderResourceView failed\n";
 			return 1;
 		}
@@ -866,14 +878,14 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 	// Rotary measurement.
 	//----------------------------------------------------------------------------------------------------
 	if (rotaryMeasurementProcess(&Tool->rotaryResults)) {
-		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 640, 480, Tool->rotaryResults.greyFrame });
+		gfxCopyToTexture2D(Tool->appContext, Tool->inspectorTex, { 640, 480, Tool->rotaryResults.greyFrame });
 	}
 
 	//----------------------------------------------------------------------------------------------------
 	// Webcam.
 	//----------------------------------------------------------------------------------------------------
 	if (webcamProcess(&Tool->webcam)) {
-		gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { 1280, 720, Tool->webcam.greyFrame });
+		gfxCopyToTexture2D(Tool->appContext, Tool->inspectorTex, { 1280, 720, Tool->webcam.greyFrame });
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -890,27 +902,58 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		{
 			std::unique_lock<std::mutex> lock(mvCam->valuesMutex);
 			if (Tool->testCamLastFrameId != mvCam->latestFrameId) {
-				for (int iY = 0; iY < mvCam->imgHeight; ++iY) {
-					memcpy(Tool->testCamFrameBuffer + iY * TEST_CAM_WIDTH, mvCam->frameBuffer + iY * mvCam->imgWidth, mvCam->imgWidth);
+
+				if (mvCam->imgWidth != CAM_IMG_WIDTH || mvCam->imgHeight != CAM_IMG_HEIGHT) {
+					std::cout << "Invalid camera frame size!\n";
+				} else {
+					// Direct copy.
+					memcpy(Tool->testCamFrameBuffer, mvCam->frameBuffer, mvCam->imgWidth * mvCam->imgHeight);
+					camImg.data = Tool->testCamFrameBuffer;
+					camImg.width = mvCam->imgWidth;
+					camImg.height = mvCam->imgHeight;
+
+					newFrame = true;
+				}
+			}
+		}
+
+		if (newFrame) {
+
+			if (Tool->spotProfileEnabled) {
+				cv::Mat srcImage(cv::Size(camImg.width, camImg.height), CV_32F);
+				cv::Mat blurredImage;
+
+				const float minValf32 = (float)Tool->spotProfileMin / 255.0f;
+
+				//----------------------------------------------------------------------------------------------------
+				// Convert to linear space and bias.
+				//----------------------------------------------------------------------------------------------------
+				for (int i = 0; i < camImg.width * camImg.height; ++i) {
+					float val = GammaToLinearSimple((float)camImg.data[i] / 255.0f);
+
+					val -= minValf32;
+
+					if (val < 0.0f) {
+						val = 0;
+					} else if (val > 1.0f) {
+						val = 1.0f;
+					}
+
+					// camImg.data[i] = val;
+					srcImage.at<float>(i) = val;
 				}
 
-				/*for (int p = 0; p < mvCam->imgWidth * mvCam->imgHeight; ++p) {
-					Tool->testCamFrameBufferFilter[p] = Tool->testCamFrameBufferFilter[p] * 0.5f + mvCam->frameBuffer[p] * 0.5f;
-					Tool->testCamFrameBuffer[p] = (uint8_t)(Tool->testCamFrameBufferFilter[p] + 0.5f);
-				}*/
+				if (Tool->spotProfileBlurSize > 0.0f) {
+					cv::GaussianBlur(srcImage, srcImage, cv::Size(0, 0), Tool->spotProfileBlurSize, 0.0, cv::BORDER_ISOLATED);
+					//cv::blur(srcImage, blurredImage, cv::Size((int)Tool->spotProfileBlurSize, (int)Tool->spotProfileBlurSize), cv::Point(-1, -1), cv::BORDER_ISOLATED);
+				}
 
-				/*for (int p = 0; p < mvCam->imgWidth * mvCam->imgHeight; ++p) {
-					float lin = GammaToLinear(mvCam->frameBuffer[p] / 256.0f);
-					Tool->testCamFrameBuffer[p] = (uint8_t)(lin * 255.0f);
-				}*/
-
-				newFrame = true;
-				camImg.data = Tool->testCamFrameBuffer;
-				camImg.width = mvCam->imgWidth;
-				camImg.height = mvCam->imgHeight;
+				cv::Mat orgImag(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
+				srcImage.convertTo(orgImag, CV_8UC1, 255.0);
 
 				// Search image
-				cv::Mat image(cv::Size(camImg.width, camImg.height), CV_8UC1, camImg.data);
+				cv::Mat searchImage(cv::Size(camImg.width, camImg.height), CV_8UC1);
+				srcImage.convertTo(searchImage, CV_8UC1, 255.0);
 
 				cv::SimpleBlobDetector::Params params = cv::SimpleBlobDetector::Params();
 				params.blobColor = 255;
@@ -919,13 +962,179 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				//params.maxArea = 700;
 
 				cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
-				//detector->detect(image, Tool->laserProfileBlobs);
+				detector->detect(searchImage, Tool->spotProfileBlobs);
+				// std::cout << "Blobs: " << Tool->spotProfileBlobs.size() << "\n";
 
-				//std::cout << "Blobs: " << Tool->laserProfileBlobs.size() << "\n";
+			} else if (Tool->lineProfileEnabled) {
+				double t0 = getTime();
+
+				// cv::Mat srcImage(cv::Size(camImg.width, camImg.height), CV_32F, camImg.data);
+				cv::Mat srcImage(cv::Size(camImg.width, camImg.height), CV_32F);
+				cv::Mat blurredImage;
+
+				const float minValf32 = (float)Tool->lineProfileMin / 255.0f;
+
+				//----------------------------------------------------------------------------------------------------
+				// Convert to linear space and bias.
+				//----------------------------------------------------------------------------------------------------
+				for (int i = 0; i < camImg.width * camImg.height; ++i) {
+					float val = GammaToLinearSimple((float)camImg.data[i] / 255.0f);
+
+					val -= minValf32;
+
+					if (val < 0.0f) {
+						val = 0;
+					} else if (val > 1.0f) {
+						val = 1.0f;
+					}
+
+					// camImg.data[i] = val;
+					srcImage.at<float>(i) = val;
+				}
+				
+				//----------------------------------------------------------------------------------------------------
+				// Initial filtering.
+				//----------------------------------------------------------------------------------------------------
+				// cv::GaussianBlur(srcImage, dstImage, cv::Size(0, 0), Tool->lineProfBlurKernelSize, 0.0, cv::BORDER_ISOLATED);
+				cv::blur(srcImage, blurredImage, cv::Size((int)Tool->lineProfBlurKernelSize, (int)Tool->lineProfBlurKernelSize), cv::Point(-1, -1), cv::BORDER_ISOLATED);
+				
+				//----------------------------------------------------------------------------------------------------
+				// Gather points for primary axis estimation.
+				//----------------------------------------------------------------------------------------------------
+				std::vector<vec3> points;
+
+				double t1 = getTime();
+
+				for (int iY = 100; iY < camImg.height - 100; ++iY) {
+					for (int iX = 100; iX < camImg.width - 100; ++iX) {
+						int id = iY * camImg.width + iX;
+						// int val = dstImage.data[id];
+						float val = blurredImage.at<float>(id);
+						
+						if (iX % 4 == 0 && iY % 4 == 0 && val > 0) {
+							points.push_back(vec3((float)iX + 0.5f, (float)iY + 0.5f, 0.0f));
+						}
+
+						// Tool->lineProfX[iX] += val;
+						// if (iY == (int)Tool->lineProfXSlice) {
+						// 	Tool->lineProfX[iX] = val * 255.0f;
+						// }
+
+						camImg.data[id] = val * 255.0f;
+						// camImg.data[id] = (uint8_t)(LinearToGammaSimple(val) * 255.0f);
+					}
+				}
+				
+				double t2 = getTime();
+
+				//----------------------------------------------------------------------------------------------------
+				// Estimate the primary axis.
+				//----------------------------------------------------------------------------------------------------
+				if (points.size() > 2) {
+					double t3 = getTime();
+					ldiLine fitLine = computerVisionFitLine(points);
+					double t4 = getTime();
+
+					vec2 entryP;
+					vec2 exitP;
+					if (getLineRectIntersection(fitLine.origin, fitLine.direction, vec2(0, 0), vec2(CAM_IMG_WIDTH, CAM_IMG_HEIGHT), entryP, exitP)) {
+						Tool->lineProfileLine.a = vec3(entryP, 0.0f);
+						Tool->lineProfileLine.b = vec3(exitP, 0.0f);
+					}
+					
+					Tool->lineProfLength = glm::length(Tool->lineProfileLine.b - Tool->lineProfileLine.a);
+					Tool->lineProfAngle = glm::degrees(atan2(fitLine.direction.y, fitLine.direction.x));
+
+					//----------------------------------------------------------------------------------------------------
+					// Build slice axis.
+					//----------------------------------------------------------------------------------------------------
+					vec3 p0 = Tool->lineProfileLine.a;
+					vec3 p1 = Tool->lineProfileLine.b;
+
+					Tool->lineProfSlicePoints.clear();
+
+					float lineStep = 10.0f;
+					int lineSamples = (int)(Tool->lineProfLength / lineStep);
+					
+					for (int stepIter = 0; stepIter < lineSamples; ++stepIter) {
+						// Tool->lineProfSliceLine.origin = p0 + (p1 - p0) * Tool->lineProfSliceOffset;
+						Tool->lineProfSliceLine.origin = p0 + fitLine.direction * ((float)stepIter * lineStep);
+
+						if (getPointInRect(Tool->lineProfSliceLine.origin, vec2(100, 100), vec2(CAM_IMG_WIDTH - 100, CAM_IMG_HEIGHT - 100))) {
+							// Tool->lineProfSlicePoints.push_back(Tool->lineProfSliceLine.origin);
+
+							Tool->lineProfSliceLine.direction = vec3(fitLine.direction.y, -fitLine.direction.x, 0.0f);
+
+							vec2 a;
+							vec2 b;
+							getLineRectIntersection(Tool->lineProfSliceLine.origin, Tool->lineProfSliceLine.direction, vec2(100, 100), vec2(CAM_IMG_WIDTH - 100, CAM_IMG_HEIGHT - 100), a, b);
+							Tool->lineProfSliceSegment.a = vec3(a, 0.0f);
+							Tool->lineProfSliceSegment.b = vec3(b, 0.0f);
+
+							float sliceStep = 4.0f;
+							float sliceLength = glm::length(b - a);
+							int sliceSamples = (int)(sliceLength / sliceStep);
+							Tool->lineProfSamples = sliceSamples;
+
+							// std::cout << "Length: " << sliceLength << " Count: " << sliceSamples << " A:" << GetStr(a) << " B:" << GetStr(b) << "\n";
+
+							cv::Mat patch;
+							double sigCenter = 0.0f;
+							double sigTotalWeights = 0.0f;
+							bool invalidSignal = false;
+
+							if (sliceSamples < 15) {
+								continue;
+							}
+
+							for (int i = 0; i < sliceSamples; ++i) {
+								vec2 point = a + vec2(Tool->lineProfSliceLine.direction) * (float)i * sliceStep;
+
+								cv::getRectSubPix(blurredImage, cv::Size(1,1), toPoint2f(point), patch);
+								Tool->lineProf[i] = patch.at<float>(0,0);
+
+								sigTotalWeights += Tool->lineProf[i];
+								sigCenter += (double)i * Tool->lineProf[i];
+
+								if (i < 5 || i > sliceSamples - 5) {
+									if (Tool->lineProf[i] > 0.05f) {
+										invalidSignal = true;
+										break;
+									}
+								}
+							}
+
+							if (invalidSignal) {
+								continue;
+							}
+							
+							sigCenter /= sigTotalWeights;
+
+							Tool->lineProfSliceIntersection = vec2(sigCenter, 0.0f);
+							Tool->lineProfSliceCentroid = a + vec2(Tool->lineProfSliceLine.direction) * (float)sigCenter * sliceStep;
+							Tool->lineProfSlicePoints.push_back(vec3(Tool->lineProfSliceCentroid, 0.0f));
+						}
+					}
+
+					//----------------------------------------------------------------------------------------------------
+					// Fit to all slice points.
+					//----------------------------------------------------------------------------------------------------
+					if (Tool->lineProfSlicePoints.size() > 2) {
+						Tool->lineProfFitLine = computerVisionFitLine(Tool->lineProfSlicePoints);
+						Tool->lineProfAngle = glm::degrees(atan2(Tool->lineProfFitLine.direction.y, Tool->lineProfFitLine.direction.x));
+					}
+
+					Tool->lineProfileValid = true;
+
+					std::cout 
+						<< "Blur: " << (t1 - t0) * 1000.0 
+						<< " ms Process: " << (t2 - t1) * 1000.0 
+						<< " ms Fit(" << points.size() << "): " << (t4 - t3) * 1000.0 << " ms\n";
+				} else {
+					Tool->lineProfileValid = false;
+				}
 			}
-		}
 
-		if (newFrame) {
 			if (Tool->camProcessCharucos) {
 				// TODO: Temp default cam matrix.
 				cv::Mat calibCameraMatrix = cv::Mat::eye(3, 3, CV_64F);
@@ -953,7 +1162,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				Tool->hawkScanPoints = computerVisionFindScanLine(camImg);
 			}
 
-			gfxCopyToTexture2D(Tool->appContext, Tool->camTex, camImg);
+			gfxCopyToTexture2D(Tool->appContext, Tool->inspectorTex, camImg);
 		}
 	}
 
@@ -1236,8 +1445,6 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 					hawkCommitValues(mvCam);
 				}
 
-				ImGui::SliderFloat("Filter factor", &Tool->camImageFilterFactor, 0.0f, 1.0f);
-
 				if (ImGui::Button("Start continuous mode")) {
 					Tool->imageMode = IIM_LIVE_CAMERA;
 					hawkSetMode(mvCam, CCM_CONTINUOUS);
@@ -1364,9 +1571,18 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		if (ImGui::CollapsingHeader("Machine vision")) {
+			ImGui::Checkbox("Spot profiling", &Tool->spotProfileEnabled);
+			ImGui::DragFloat("Blur strength", &Tool->spotProfileBlurSize, 0.5, 0.0, 200.0);
+			ImGui::DragInt("Min", &Tool->spotProfileMin, 0.4f, 0, 255);
+
+			ImGui::Separator();
+			ImGui::Checkbox("Line profiling", &Tool->lineProfileEnabled);
+			ImGui::DragFloat("Gaussian strength", &Tool->lineProfBlurKernelSize, 0.5, 1.0, 200.0);
+			ImGui::DragInt("Line profiler min", &Tool->lineProfileMin, 0.4f, 0, 255);
+			ImGui::DragFloat("Line profiler slice offset", &Tool->lineProfSliceOffset, 0.002f, 0.0f, 1.0f);
+
 			ImGui::Checkbox("Process CHARUCOs", &Tool->camProcessCharucos);
 			ImGui::Checkbox("Process scan mapping", &Tool->hawkScanProcessImage);
-			ImGui::Checkbox("Scan gamma test", &Tool->hawkEnableGammaTest);
 			ImGui::DragInt("Scan mapping min", &Tool->hawkScanMappingMin, 0.4f, 0, 255);
 			ImGui::DragInt("Scan mapping max", &Tool->hawkScanMappingMax, 0.4f, 0, 255);
 
@@ -1378,7 +1594,8 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 		if (ImGui::CollapsingHeader("Camera calibration")) {
 			ImGui::Text("Samples");
-			if (ImGui::BeginListBox("##listbox_camera_samples", ImVec2(-FLT_MIN, -FLT_MIN))) {
+			// TODO: Convert to table.
+			if (ImGui::BeginListBox("##listbox_camera_samples", ImVec2(-FLT_MIN, 0))) {
 				{
 					bool isSelected = (Tool->cameraCalibSelectedSample == -1);
 
@@ -1406,9 +1623,9 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 							cv::Mat outputImage(cv::Size(calibImg->width, calibImg->height), CV_8UC1);
 							cv::undistort(image, outputImage, Tool->cameraCalibMatrix, Tool->cameraCalibDist);
 						
-							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, { calibImg->width, calibImg->height, outputImage.data });
+							gfxCopyToTexture2D(Tool->appContext, Tool->inspectorTex, { calibImg->width, calibImg->height, outputImage.data });
 						} else {
-							gfxCopyToTexture2D(Tool->appContext, Tool->camTex, *calibImg);
+							gfxCopyToTexture2D(Tool->appContext, Tool->inspectorTex, *calibImg);
 						}
 
 						//_imageInspectorRenderHawkCalibration(Tool);
@@ -1451,7 +1668,7 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		imgMax.y = imgMin.y + CAM_IMG_HEIGHT * Tool->imgScale;
 
 		draw_list->AddCallback(_imageInspectorSetStateCallback, Tool);
-		draw_list->AddImage(Tool->camResourceView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
+		draw_list->AddImage(Tool->inspectorTexView, imgMin, imgMax, uv_min, uv_max, ImGui::GetColorU32(tint_col));
 		draw_list->AddCallback(ImDrawCallback_ResetRenderState, 0);
 
 		uv_min = ImVec2(0.0f, 0.0f);
@@ -1619,11 +1836,11 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 		}
 
 		//----------------------------------------------------------------------------------------------------
-		// Draw laser beam profiler results.
+		// Draw beam profiler results.
 		//----------------------------------------------------------------------------------------------------
-		if (Tool->showHeatmap) {
-			for (size_t iterSamples = 0; iterSamples < Tool->laserProfileBlobs.size(); ++iterSamples) {
-				cv::KeyPoint kp = Tool->laserProfileBlobs[iterSamples];
+		if (Tool->spotProfileEnabled) {
+			for (size_t iterSamples = 0; iterSamples < Tool->spotProfileBlobs.size(); ++iterSamples) {
+				cv::KeyPoint kp = Tool->spotProfileBlobs[iterSamples];
 
 				cv::Point2f o = kp.pt;
 
@@ -1632,8 +1849,77 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 				offset.y = screenStartPos.y + (Tool->imgOffset.y + o.y) * Tool->imgScale;
 
 				draw_list->AddCircle(offset, kp.size / 2.0f * Tool->imgScale, ImColor(255, 0, 0));
-
 				draw_list->AddCircle(offset, 2.0f, ImColor(255, 0, 0));
+
+				char buf[256];
+				sprintf_s(buf, 256, "%.2f - %.2f, %.2f", kp.size, kp.pt.x, kp.pt.y);
+
+				draw_list->AddText(offset, ImColor(255, 0, 0), buf);
+			}
+		}
+
+		//----------------------------------------------------------------------------------------------------
+		// Draw line profiler results.
+		//----------------------------------------------------------------------------------------------------
+		if (Tool->lineProfileEnabled) {
+			ImVec2 imgOffset = toImVec2(Tool->imgOffset);
+			float imgScale = Tool->imgScale;
+
+			float height = 100.0f;
+
+			ImVec2 l0 = screenStartPos + (imgOffset + ImVec2(0, CAM_IMG_HEIGHT + height)) * imgScale;
+			ImVec2 l1 = screenStartPos + (imgOffset + ImVec2(CAM_IMG_WIDTH, CAM_IMG_HEIGHT + height)) * imgScale;
+
+			draw_list->AddLine(l0, l1, ImColor(200, 200, 200), 1.0f);
+			
+			if (Tool->lineProfileValid) {
+				ImVec2 p0 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfileLine.a)) * imgScale;
+				ImVec2 p1 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfileLine.b)) * imgScale;
+				draw_list->AddLine(p0, p1, ImColor(255, 0, 255), 4.0f);
+
+				p0 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfSliceSegment.a)) * imgScale;
+				p1 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfSliceSegment.b)) * imgScale;
+				draw_list->AddLine(p0, p1, ImColor(50, 128, 255), 2.0f);
+				draw_list->AddCircleFilled(p0, 3.0f, ImColor(255, 0, 0));
+				draw_list->AddCircleFilled(p1, 3.0f, ImColor(0, 255, 0));
+				
+				ImVec2 cp0 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfSliceCentroid)) * imgScale;
+				draw_list->AddCircleFilled(cp0, 4.0f, ImColor(255, 128, 50));
+
+				float scale = height;
+
+				for (int i = 0; i < Tool->lineProfSamples - 1; ++i) {
+					float h0 = Tool->lineProf[i] * scale;
+				 	float h1 = Tool->lineProf[i + 1] * scale;
+
+				 	l0 = screenStartPos + (imgOffset + ImVec2(i, CAM_IMG_HEIGHT + height - h0)) * imgScale;
+				 	l1 = screenStartPos + (imgOffset + ImVec2(i + 1, CAM_IMG_HEIGHT + height - h1)) * imgScale;
+				 	draw_list->AddLine(l0, l1, ImColor(50, 128, 255), 4.0f);
+				}
+
+				// for (int i = 100; i < CAM_IMG_WIDTH - 100; ++i) {
+				// 	float h0 = Tool->lineProfX[i] * scale;
+				//  	float h1 = Tool->lineProfX[i + 1] * scale;
+
+				//  	l0 = screenStartPos + (imgOffset + ImVec2(i + 0.5f, CAM_IMG_HEIGHT + height - h0)) * imgScale;
+				//  	l1 = screenStartPos + (imgOffset + ImVec2(i + 1.5f, CAM_IMG_HEIGHT + height - h1)) * imgScale;
+				//  	draw_list->AddLine(l0, l1, ImColor(50, 128, 255), 4.0f);
+				// }
+
+				cp0 = screenStartPos + (imgOffset + ImVec2(Tool->lineProfSliceIntersection.x, CAM_IMG_HEIGHT)) * imgScale;
+				ImVec2 cp1 = screenStartPos + (imgOffset + ImVec2(Tool->lineProfSliceIntersection.x, CAM_IMG_HEIGHT + height)) * imgScale;
+				draw_list->AddLine(cp0, cp1, ImColor(255, 128, 50), 2.0f);
+
+				for (size_t i = 0; i < Tool->lineProfSlicePoints.size(); ++i) {
+					vec2 point = Tool->lineProfSlicePoints[i];
+
+					ImVec2 uiPos = screenStartPos + (imgOffset + toImVec2(point)) * imgScale;
+					draw_list->AddCircle(uiPos, 2.0f, ImColor(255, 0, 0));
+				}
+
+				p0 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfFitLine.origin + Tool->lineProfFitLine.direction * 1000.0f)) * imgScale;
+				p1 = screenStartPos + (imgOffset + toImVec2(Tool->lineProfFitLine.origin - Tool->lineProfFitLine.direction * 1000.0f)) * imgScale;
+				draw_list->AddLine(p0, p1, ImColor(0, 0, 255, 200), 2.0f);
 			}
 		}
 
@@ -1744,6 +2030,10 @@ void imageInspectorShowUi(ldiImageInspector* Tool) {
 
 			if (surfaceResult.isHovered) {
 				ImGui::Text("%.3f %.3f", surfaceResult.worldPos.x, surfaceResult.worldPos.y);
+			}
+
+			if (Tool->lineProfileEnabled && Tool->lineProfileValid) {
+				ImGui::Text("A:%.3f L:%.2f", Tool->lineProfAngle, Tool->lineProfLength);
 			}
 
 			ImGui::EndChild();

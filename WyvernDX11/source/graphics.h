@@ -2,9 +2,6 @@
 // DirectX11 rendering.
 //----------------------------------------------------------------------------------------------------
 
-#define max(a,b)            (((a) > (b)) ? (a) : (b))
-#define min(a,b)            (((a) < (b)) ? (a) : (b))
-
 struct ldiRenderViewBuffers {
 	ID3D11Texture2D*			mainViewTexture;
 	ID3D11RenderTargetView*		mainViewRtView;

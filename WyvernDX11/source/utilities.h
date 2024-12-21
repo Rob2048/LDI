@@ -51,6 +51,25 @@ inline double map(double A0, double B0, double A1, double B1, double T) {
 }
 
 //----------------------------------------------------------------------------------------------------
+// Lines.
+//----------------------------------------------------------------------------------------------------
+bool getLineLineIntersectionXY(ldiLineSegment A, ldiLineSegment B, vec3& Point) {
+	vec3 p = A.a;
+	vec3 q = B.a;
+	vec3 r = A.b - A.a;
+	vec3 s = B.b - B.a;
+
+	float t = glm::cross((q - p), s).z / glm::cross(r, s).z;
+
+	if (t >= 0 && t <= 1) {
+		Point = p + r * t;
+		return true;
+	}
+
+	return false;
+}
+
+//----------------------------------------------------------------------------------------------------
 // Planes.
 //----------------------------------------------------------------------------------------------------
 mat4 planeGetBasis(ldiPlane Plane) {
@@ -144,6 +163,51 @@ bool getRayPlaneIntersection(ldiLine Ray, ldiPlane Plane, vec3& Point) {
 //----------------------------------------------------------------------------------------------------
 // Rects.
 //----------------------------------------------------------------------------------------------------
+bool getPointInRect(vec2 Point, vec2 RectMin, vec2 RectMax) {
+	return (Point.x >= RectMin.x && Point.x <= RectMax.x && Point.y >= RectMin.y && Point.y <= RectMax.y);
+}
+
+bool getLineRectIntersectionT(vec2 lineOrigin, vec2 lineDirection, vec2 rectMin, vec2 rectMax, float* EntryT, float* ExitT) {
+	float entryT = 0.0f;
+	float exitT = 0.0f;
+
+	if(lineDirection.x != 0.0f) {
+		float leftTouch = (rectMin.x - lineOrigin.x) / lineDirection.x;
+		float rightTouch = (rectMax.x - lineOrigin.x) / lineDirection.x;
+		entryT = std::fmin(leftTouch, rightTouch);
+		exitT = std::fmax(leftTouch, rightTouch);
+	} else if((lineOrigin.x < rectMin.x) || (lineOrigin.x >= rectMax.x)) {
+		return false;
+	}
+
+	if(lineDirection.y != 0.0f) {
+		float topTouch = (rectMin.y - lineOrigin.y) / lineDirection.y;
+		float bottomTouch = (rectMax.y - lineOrigin.y) / lineDirection.y;
+
+		if(lineDirection.x == 0.0f) {
+			entryT = std::fmin(topTouch, bottomTouch);
+			exitT = std::fmax(topTouch, bottomTouch);
+		} else {
+			float verticalEntry = std::fmin(topTouch, bottomTouch);
+			float verticalExit = std::fmax(topTouch, bottomTouch);
+
+			if((verticalExit < entryT) || (exitT < verticalEntry)) {
+				return false;
+			}
+
+			entryT = std::fmax(verticalEntry, entryT);
+			exitT = std::fmin(verticalExit, exitT);
+		}
+	} else if((lineOrigin.y < rectMin.y) || (lineOrigin.y > rectMax.y)) {
+		return false; 
+	}
+
+	*EntryT = entryT;
+	*ExitT = exitT;
+
+	return true;
+}
+
 bool getLineRectIntersection(vec2 lineOrigin, vec2 lineDirection, vec2 rectMin, vec2 rectMax, vec2& EntryP, vec2& ExitP) {
 	float entryT = 0.0f;
 	float exitT = 0.0f;
@@ -412,14 +476,22 @@ bool showSaveFileDialog(HWND WindowHandle, const std::string& DefaultFolderPath,
 //----------------------------------------------------------------------------------------------------
 // Color.
 //----------------------------------------------------------------------------------------------------
-float GammaToLinear(float In) {
+inline float GammaToLinearSimple(float In) {
+	return pow(In, 2.2f);
+}
+
+inline float LinearToGammaSimple(float In) {
+	return pow(In, 1.0f / 2.2f);
+}
+
+inline float GammaToLinear(float In) {
 	float linearRGBLo = In / 12.92f;
 	float linearRGBHi = pow(max(abs((In + 0.055f) / 1.055f), 1.192092896e-07f), 2.4f);
 
 	return (In <= 0.04045) ? linearRGBLo : linearRGBHi;
 }
 
-float LinearToGamma(float In) {
+inline float LinearToGamma(float In) {
 	float sRGBLo = In * 12.92f;
 	float sRGBHi = (pow(max(abs(In), 1.192092896e-07f), 1.0f / 2.4f) * 1.055f) - 0.055f;
 	return (In <= 0.0031308f) ? sRGBLo : sRGBHi;
