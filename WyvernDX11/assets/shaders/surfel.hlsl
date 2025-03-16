@@ -12,8 +12,8 @@ struct PS_INPUT {
 
 PS_INPUT mainVs(vertexInputBasic input) {
 	PS_INPUT output;
-	output.pos = mul(ProjectionMatrix, float4(input.pos + normalize(ObjectColor.xyz - input.pos) * 0.01, 1));
-	// output.pos = mul(ProjectionMatrix, float4(input.pos, 1));
+	// output.pos = mul(ProjectionMatrix, float4(input.pos + normalize(ObjectColor.xyz - input.pos) * 0.01, 1));
+	output.pos = mul(ProjectionMatrix, float4(input.pos, 1));
 	output.col = float4(input.col, 1);
 	output.uv = input.uv;
 
@@ -31,7 +31,10 @@ sampler sampler0;
 Texture2D texture0;
 
 float4 mainPs(PS_INPUT input) : SV_Target {	
-	float4 tex = texture0.Sample(sampler0, float2(input.uv.x, 1.0 - input.uv.y));
+	// float4 tex = texture0.Sample(sampler0, float2(input.uv.x, 1.0 - input.uv.y));
+	float4 tex = texture0.Sample(sampler0, float2(input.uv.x, input.uv.y));
+
+	return tex * input.col;
 
 	if (tex.a < 0.2) {
 		discard;

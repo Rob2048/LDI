@@ -61,6 +61,15 @@ struct ldiSurfel {
 	float aspect;
 };
 
+struct ldiNewSurfel {
+	int id;
+
+	vec3 position;
+	vec3 normal;
+
+	ldiBasicVertex verts[4];
+};
+
 static void convertQuadToTriModel(ldiQuadModel* Source, ldiModel* Dest) {
 	Dest->verts.resize(Source->verts.size());
 

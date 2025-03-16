@@ -1772,7 +1772,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 				//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-				gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+				//gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+				gfxRenderSurfelModel(appContext, &project->surfelsNewRenderModel, project->surfelsSamplesTextureSrv, appContext->defaultPointSamplerState);
 			}
 		}
 

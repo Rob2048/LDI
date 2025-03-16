@@ -20,6 +20,7 @@ typedef glm::f64mat4 mat4d;
 typedef glm::quat quat;
 
 typedef glm::ivec3 ivec3;
+typedef glm::ivec4 ivec4;
 
 const vec3 vec3Forward(0, 0, -1);
 const vec3 vec3Right(1, 0, 0);

@@ -90,7 +90,7 @@ struct ldiImageInspector {
 	bool						showCharucoRejectedMarkers = false;
 	bool						showUndistorted = true;
 	bool						showReprojection = false;
-	bool						showReprojectionErrorGraph = true;
+	bool						showReprojectionErrorGraph = false;
 	float						sceneOpacity = 0.75f;
 	float						imageContrast = 1.0f;
 	float						imageBrightness = 0.0f;

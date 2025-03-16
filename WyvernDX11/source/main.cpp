@@ -3,7 +3,6 @@
 #include <iostream>
 #include <vector>
 #include <thread>
-#include <filesystem>
 
 // NOTE: Must be included before any Windows includes.
 #include "network.h"
@@ -159,7 +158,7 @@ struct ldiApp {
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
 	bool						showImageInspector = true;
-	bool						showModelInspector = true;
+	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
 	bool						showModelEditor = false;
 	bool						showGalvoInspector = false;
@@ -654,9 +653,12 @@ bool _initResources(ldiApp* AppContext) {
 	{
 		D3D11_RASTERIZER_DESC desc = {};
 		desc.FillMode = D3D11_FILL_WIREFRAME;
-		desc.CullMode = D3D11_CULL_BACK;
+		desc.CullMode = D3D11_CULL_NONE;
 		desc.ScissorEnable = false;
-		desc.DepthClipEnable = false;
+		/*desc.DepthClipEnable = true;
+		desc.DepthBias = -256;
+		desc.DepthBiasClamp = -0.00001f;*/
+				
 		/*desc.DepthClipEnable = true;
 		desc.DepthBias = -1;
 		desc.DepthBiasClamp = 1.0f;
@@ -701,9 +703,6 @@ bool _initResources(ldiApp* AppContext) {
 		desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 		desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
 		desc.StencilEnable = false;
-		/*desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
-		desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
-		desc.BackFace = desc.FrontFace;*/
 		AppContext->d3dDevice->CreateDepthStencilState(&desc, &AppContext->wireframeDepthStencilState);
 	}
 

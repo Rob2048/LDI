@@ -578,6 +578,64 @@ ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector
 	return result;
 }
 
+ldiRenderModel gfxCreateNewSurfelRenderModel(ldiApp* AppContext, std::vector<ldiNewSurfel>* Surfels) {
+	ldiRenderModel result = {};
+
+	// Unique quads with unique verts per quad.
+
+	int quadCount = (int)(Surfels->size());
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiBasicVertex* verts = new ldiBasicVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	for (int i = 0; i < quadCount; ++i) {
+		verts[i * 4 + 0] = (*Surfels)[i].verts[0];
+		verts[i * 4 + 1] = (*Surfels)[i].verts[1];
+		verts[i * 4 + 2] = (*Surfels)[i].verts[2];
+		verts[i * 4 + 3] = (*Surfels)[i].verts[3];
+
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+
 ldiRenderModel gfxCreateRenderQuadModelDebug(ldiApp* AppContext, ldiQuadModel* ModelSource) {
 	ldiRenderModel result = {};
 
@@ -1015,11 +1073,11 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = 
 
 	if (Wireframe) {
 		AppContext->d3dDeviceContext->RSSetState(AppContext->wireframeRasterizerState);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->wireframeDepthStencilState, 0);
 	} else {
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
 	}
-
-	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
 
 	if (ResourceView != NULL && Sampler != NULL) {
 		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
