@@ -203,7 +203,7 @@ void hawkWorkerThread(ldiHawk* Cam) {
 				}
 			}
 		} else {
-			std::cout << "Camera failed to connect\n";
+			//std::cout << "Camera failed to connect\n";
 			Sleep(1000);
 		}
 	}

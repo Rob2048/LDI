@@ -484,8 +484,8 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 		AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, NULL, 1, 2, uavs, 0);
 
 		AppContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
-		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
-		AppContext->d3dDeviceContext->IASetIndexBuffer(Project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		//AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		//AppContext->d3dDeviceContext->IASetIndexBuffer(Project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		AppContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointWriteVertexShader, 0, 0);
 		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
@@ -505,7 +505,7 @@ void modelInspectorLaserViewCoverageRender(ldiApp* AppContext, ldiModelInspector
 		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
 		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
 		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
-		AppContext->d3dDeviceContext->DrawIndexed(Project->coveragePointModel.indexCount, 0, 0);
+		//AppContext->d3dDeviceContext->DrawIndexed(Project->coveragePointModel.indexCount, 0, 0);
 
 		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
 		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, nullSRV);
@@ -571,6 +571,7 @@ bool modelInspectorCalculateLaserViewCoverage(ldiApp* AppContext, ldiModelInspec
 	return true;
 }
 
+/*
 bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Project, ldiPrintedDotDesc* DotDesc, int ChannelId, vec3 MinBounds, vec3 MaxBounds, float CellSize) {
 	std::vector<ldiSurfel> poissonSamples;
 
@@ -586,7 +587,6 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 		int totalCandidates = Project->surfelsLow.size() * candidatesPerSurfel;
 		std::cout << "Total candidates: " << totalCandidates << "\n";
 
-		/*ldiPoissonSpatialGrid* sampleGrid = &ModelInspector->poissonSpatialGrid;*/
 		ldiPoissonSpatialGrid sampleGrid = {};
 		poissonSpatialGridInit(&sampleGrid, MinBounds, MaxBounds, CellSize);
 
@@ -607,11 +607,6 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 
 			//vec3 normal = glm::normalize(machineTransform.modelLocalCamPos - mid);
 			vec3 normal = Project->surfelsLow[surfelId].normal;
-
-			/*float s0 = glm::length(v0 - v1);
-			float s1 = glm::length(v1 - v2);
-			float s2 = glm::length(v2 - v3);
-			float s3 = glm::length(v3 - v0);*/
 
 			// For each required surfel, get the position.
 			float divSize = 1.0f / (candidatesPerSide);
@@ -795,7 +790,9 @@ bool modelInspectorCalcFullPoisson(ldiApp* AppContext, ldiProjectContext* Projec
 
 	return true;
 }
+*/
 
+/*
 bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector* ModelInspector, ldiProjectContext* Project) {
 	ModelInspector->laserViewPathPositions.clear();
 
@@ -1109,11 +1106,6 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 				vec3 axisForward = glm::normalize(glm::cross(axisSide, normal));
 				float dotAspect = 1.0f / glm::dot(-laserDir, normal);
 
-				/*float s0 = glm::length(v0 - v1);
-				float s1 = glm::length(v1 - v2);
-				float s2 = glm::length(v2 - v3);
-				float s3 = glm::length(v3 - v0);*/
-
 				// For each required surfel, get the position.
 				float divSize = 1.0f / (candidatesPerSide);
 				float divHalf = divSize * 0.5f;
@@ -1314,15 +1306,16 @@ bool modelInspectorCalculateLaserViewPath(ldiApp* AppContext, ldiModelInspector*
 	//----------------------------------------------------------------------------------------------------
 	// AFTER ALL PASSES ONLY.
 	//----------------------------------------------------------------------------------------------------
-	/*double t0 = getTime();
-	surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
-	t0 = getTime() - t0;
-	std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";*/
+	//double t0 = getTime();
+	//surfelsCreateDistribution(&ModelInspector->spatialGrid, &ModelInspector->surfels, &ModelInspector->pointDistrib, ModelInspector->surfelMask);
+	//t0 = getTime() - t0;
+	//std::cout << "Surfel distribution: " << t0 * 1000.0f << " ms Points: " << ModelInspector->pointDistrib.points.size() << "\n";
 
 	AppContext->d3dDeviceContext->UpdateSubresource(ModelInspector->surfelMaskBuffer, 0, NULL, ModelInspector->surfelMask, 0, 0);
 
 	return true;
 }
+*/
 
 float modelInspectorGetLaserViewPath(std::vector<int>* ViewPath, std::vector<ldiLaserViewPathPos>* PathPositions, int* NodeMask, int RootNode) {
 	if (ViewPath) {
@@ -1487,6 +1480,7 @@ bool projectRegisterModel(ldiApp* AppContext, ldiProjectContext* Project) {
 	return true;
 }
 
+/*
 bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project, ldiModelInspector* Tool) {
 	if (!Project->surfelsLoaded) {
 		return false;
@@ -1506,6 +1500,7 @@ bool projectCreatePoissonSamples(ldiApp* AppContext, ldiProjectContext* Project,
 
 	return true;
 }
+*/
 
 int modelInspectorLoad(ldiApp* AppContext, ldiModelInspector* ModelInspector) {
 	elipseCollisionSetup(AppContext, &ModelInspector->elipseTester);
@@ -2108,13 +2103,13 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 	//----------------------------------------------------------------------------------------------------
 	// Spatial accel structure.
 	//----------------------------------------------------------------------------------------------------
-	if (ModelInspector->showSpatialCells) {
+	/*if (ModelInspector->showSpatialCells) {
 		spatialGridRenderOccupied(appContext, &project->surfelLowSpatialGrid);
 	}
 
 	if (ModelInspector->showSpatialBounds) {
 		spatialGridRenderDebug(appContext, &project->surfelLowSpatialGrid, true, false);
-	}
+	}*/
 
 	//----------------------------------------------------------------------------------------------------
 	// Rendering.
@@ -2297,7 +2292,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
 			//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-			gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+			//gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 		}
 	}
 
@@ -2332,8 +2327,8 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		UINT lgOffset = 0;
 
 		appContext->d3dDeviceContext->IASetInputLayout(ModelInspector->coveragePointInputLayout);
-		appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
-		appContext->d3dDeviceContext->IASetIndexBuffer(project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		//appContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &project->coveragePointModel.vertexBuffer, &lgStride, &lgOffset);
+		//appContext->d3dDeviceContext->IASetIndexBuffer(project->coveragePointModel.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 		appContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		
 		appContext->d3dDeviceContext->VSSetShader(ModelInspector->coveragePointVertexShader, 0, 0);
@@ -2357,7 +2352,7 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		/*appContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
 		appContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);*/
 		
-		appContext->d3dDeviceContext->DrawIndexed(project->coveragePointModel.indexCount, 0, 0);
+		//appContext->d3dDeviceContext->DrawIndexed(project->coveragePointModel.indexCount, 0, 0);
 	}
 }
 
@@ -2610,7 +2605,7 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 
 	if (ImGui::CollapsingHeader("Print plan")) {
 		if (ImGui::Button("Create poisson samples")) {
-			projectCreatePoissonSamples(appContext, project, tool);
+			//projectCreatePoissonSamples(appContext, project, tool);
 		}
 
 		if (project->poissonSamplesLoaded) {

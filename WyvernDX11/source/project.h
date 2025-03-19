@@ -36,19 +36,19 @@ struct ldiProjectContext {
 	ldiRenderModel				registeredRenderModel;
 
 	bool						surfelsLoaded = false;
-	vec3						surfelsBoundsMin;
-	vec3						surfelsBoundsMax;
-	std::vector<ldiSurfel>		surfelsLow;
-	std::vector<ldiSurfel>		surfelsHigh;
-	ldiSpatialGrid				surfelLowSpatialGrid = {};
-	ldiRenderModel				surfelLowRenderModel;
-	ldiRenderModel				surfelHighRenderModel;
-	ldiRenderModel				coveragePointModel;
+	//vec3						surfelsBoundsMin;
+	//vec3						surfelsBoundsMax;
+	//ldiSpatialGrid				surfelLowSpatialGrid = {};
 	std::vector<ldiNewSurfel>	surfelsNew;
 	ldiRenderModel				surfelsNewRenderModel;
 	ldiImage					surfelsSamplesRaw;
 	ID3D11Texture2D*			surfelsSamplesTexture;
 	ID3D11ShaderResourceView*	surfelsSamplesTextureSrv;
+	//std::vector<ldiSurfel>		surfelsLow;
+	//std::vector<ldiSurfel>		surfelsHigh;
+	//ldiRenderModel				surfelLowRenderModel;
+	//ldiRenderModel				surfelHighRenderModel;
+	//ldiRenderModel				coveragePointModel;
 
 	bool						poissonSamplesLoaded = false;
 	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
@@ -68,29 +68,78 @@ mat4 projectGetSourceTransformMat(ldiProjectContext* Project) {
 	return result;
 }
 
-void projectInvalidateModelData(ldiApp* AppContext, ldiProjectContext* Project) {
-	// TODO: Change to a general clear?
-
+void projectInvalidateSourceModelData(ldiApp* AppContext, ldiProjectContext* Project) {
 	if (Project->sourceModelLoaded) {
 		Project->sourceModelLoaded = false;
-		//sourceRenderModel
+		Project->sourceRenderModel.indexBuffer->Release();
+		Project->sourceRenderModel.vertexBuffer->Release();
 	}
+}
 
+void projectInvalidateSourceTextureData(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (Project->sourceTextureLoaded) {
+		Project->sourceTextureLoaded = false;
+		Project->sourceTexture->Release();
+		Project->sourceTextureSrv->Release();
+		delete[] Project->sourceTextureRaw.data;
+		delete[] Project->sourceTextureCmyk.data;
+
+		for (int i = 0; i < 4; ++i) {
+			delete[] Project->sourceTextureCmykChannels[i].data;
+			Project->sourceTextureCmykTexture[i]->Release();
+			Project->sourceTextureCmykSrv[i]->Release();
+		}
+	}
+}
+
+void projectInvalidateQuadModelData(ldiApp* AppContext, ldiProjectContext* Project) {
 	if (Project->quadModelLoaded) {
-		Project->quadModelLoaded = false;
-		//quadModel
+		Project->quadModelLoaded = false;		
+		Project->quadDebugModel.indexBuffer->Release();
+		Project->quadDebugModel.vertexBuffer->Release();
+		Project->quadModelWhite.indexBuffer->Release();
+		Project->quadModelWhite.vertexBuffer->Release();
+		Project->quadMeshWire.indexBuffer->Release();
+		Project->quadMeshWire.vertexBuffer->Release();
 	}
+}
 
+void projectInvalidateRegisteredModelData(ldiApp* AppContext, ldiProjectContext* Project) {
 	if (Project->registeredModelLoaded) {
 		Project->registeredModelLoaded = false;
 	}
+}
 
-	// TODO: Clear surfels.
-	// TODO: Clear poisson samples?
+void projectInvalidateSurfelData(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (Project->surfelsLoaded) {
+		Project->surfelsLoaded = false;
+		physicsDestroyCookedMesh(AppContext->physics, &Project->sourceCookedModel);
+		Project->surfelsNewRenderModel.indexBuffer->Release();
+		Project->surfelsNewRenderModel.vertexBuffer->Release();
+		delete[] Project->surfelsSamplesRaw.data;
+		Project->surfelsSamplesTexture->Release();
+		Project->surfelsSamplesTextureSrv->Release();
+	}
+}
+
+void projectInit(ldiApp* AppContext, ldiProjectContext* Project) {
+	projectInvalidateSourceModelData(AppContext, Project);
+	projectInvalidateSourceTextureData(AppContext, Project);
+	projectInvalidateQuadModelData(AppContext, Project);
+	projectInvalidateRegisteredModelData(AppContext, Project);
+	projectInvalidateSurfelData(AppContext, Project);
+	*Project = {};
+}
+
+bool projectFinalizeImportedModel(ldiApp* AppContext, ldiProjectContext* Project) {
+	Project->sourceRenderModel = gfxCreateRenderModel(AppContext, &Project->sourceModel);
+	Project->sourceModelLoaded = true;
+
+	return true;
 }
 
 bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
-	projectInvalidateModelData(AppContext, Project);
+	projectInvalidateSourceModelData(AppContext, Project);
 	std::cout << "Project source mesh path: " << Path << "\n";
 
 	uint8_t* sourceModelFile = nullptr;
@@ -102,22 +151,63 @@ bool projectImportModel(ldiApp* AppContext, ldiProjectContext* Project, const st
 	}
 
 	Project->sourceModel = objLoadModel(sourceModelFile, sourceModelFileSize);
-	Project->sourceRenderModel = gfxCreateRenderModel(AppContext, &Project->sourceModel);
-	Project->sourceModelLoaded = true;
+
+	return projectFinalizeImportedModel(AppContext, Project);
+}
+
+bool projectFinalizeImportedTexture(ldiApp* AppContext, ldiProjectContext* Project) {
+	vec3 cmykColor[4] = {
+		vec3(0, 166.0 / 255.0, 214.0 / 255.0),
+		vec3(1.0f, 0, 144.0 / 255.0),
+		vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0),
+		vec3(0.0f, 0.0f, 0.0f)
+	};
+
+	// NOTE: Converted to sRGB for viewing purposes.
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
+
+		image->width = Project->sourceTextureCmyk.width;
+		image->height = Project->sourceTextureCmyk.height;
+		image->data = new uint8_t[image->width * image->height * 4];
+
+		for (int i = 0; i < image->width * image->height; ++i) {
+			float v = ((float)Project->sourceTextureCmyk.data[i * 4 + channelIter]) / 255.0f;
+			//float vi = LinearToGamma(v) * 255.0f;
+			float vi = LinearToGamma(v);
+
+			vec3 col = glm::mix(vec3(1, 1, 1), cmykColor[channelIter], vi);
+
+			image->data[i * 4 + 0] = (uint8_t)(col.r * 255);
+			image->data[i * 4 + 1] = (uint8_t)(col.g * 255);
+			image->data[i * 4 + 2] = (uint8_t)(col.b * 255);
+
+			//image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
+			//image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
+			image->data[i * 4 + 3] = 255;
+		}
+	}
+	
+	if (!gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->sourceTextureRaw, &Project->sourceTexture, &Project->sourceTextureSrv)) {
+		return false;
+	}
+
+	for (int channelIter = 0; channelIter < 4; ++channelIter) {
+		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
+
+		if (!gfxCreateTextureR8G8B8A8Basic(AppContext, image, &Project->sourceTextureCmykTexture[channelIter], &Project->sourceTextureCmykSrv[channelIter])) {
+			return false;
+		}
+	}
+
+	Project->sourceTextureLoaded = true;
 
 	return true;
 }
 
-void projectInvalidateTextureData(ldiApp* AppContext, ldiProjectContext* Project) {
-	// TODO: Destroy other texture resources.
-
-	if (Project->sourceTextureLoaded) {
-		Project->sourceTextureLoaded = false;
-	}
-}
-
 bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const char* Path) {
-	projectInvalidateTextureData(AppContext, Project);
+	projectInvalidateSourceTextureData(AppContext, Project);
 
 	std::cout << "Project source texture path: " << Path << "\n";
 
@@ -132,8 +222,6 @@ bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const 
 
 	t0 = getTime() - t0;
 	std::cout << "Load texture: " << x << ", " << y << " (" << n << ") " << t0 * 1000.0f << " ms\n";
-
-	Project->sourceTextureLoaded = true;
 
 	//----------------------------------------------------------------------------------------------------
 	// CMYK transformation.
@@ -158,126 +246,11 @@ bool projectImportTexture(ldiApp* AppContext, ldiProjectContext* Project, const 
 	Project->sourceTextureCmyk.height = y;
 	Project->sourceTextureCmyk.data = cmykImagePixels;
 
-	vec3 cmykColor[4] = {
-		vec3(0, 166.0 / 255.0, 214.0 / 255.0),
-		vec3(1.0f, 0, 144.0 / 255.0),
-		vec3(245.0 / 255.0, 230.0 / 255.0, 23.0 / 255.0),
-		vec3(0.0f, 0.0f, 0.0f)
-	};
-
-	// NOTE: Converted to sRGB for viewing purposes.
-	for (int channelIter = 0; channelIter < 4; ++channelIter) {
-		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
-
-		image->width = x;
-		image->height = y;
-		image->data = new uint8_t[x * y * 4];
-
-		for (int i = 0; i < x * y; ++i) {
-			float v = ((float)cmykImagePixels[i * 4 + channelIter]) / 255.0f;
-			//float vi = LinearToGamma(v) * 255.0f;
-			float vi = LinearToGamma(v);
-
-			vec3 col = glm::mix(vec3(1, 1, 1), cmykColor[channelIter], vi);
-
-			image->data[i * 4 + 0] = (uint8_t)(col.r * 255);
-			image->data[i * 4 + 1] = (uint8_t)(col.g * 255);
-			image->data[i * 4 + 2] = (uint8_t)(col.b * 255);
-
-			//image->data[i * 4 + 0] = cmykImagePixels[i * 4 + channelIter];
-			//image->data[i * 4 + 1] = cmykImagePixels[i * 4 + channelIter];
-			//image->data[i * 4 + 2] = cmykImagePixels[i * 4 + channelIter];
-			image->data[i * 4 + 3] = 255;
-		}
-	}
-
 	cmsDeleteTransform(colorTransform);
 	cmsCloseProfile(srgbProfile);
 	cmsCloseProfile(cmykProfile);
 
-	if (!gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->sourceTextureRaw, &Project->sourceTexture, &Project->sourceTextureSrv)) {
-		return false;
-	}
-
-	for (int channelIter = 0; channelIter < 4; ++channelIter) {
-		ldiImage* image = &Project->sourceTextureCmykChannels[channelIter];
-
-		if (!gfxCreateTextureR8G8B8A8Basic(AppContext, image, &Project->sourceTextureCmykTexture[channelIter], &Project->sourceTextureCmykSrv[channelIter])) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-void projectInit(ldiApp* AppContext, ldiProjectContext* Project) {
-	projectInvalidateModelData(AppContext, Project);
-	projectInvalidateTextureData(AppContext, Project);
-	*Project = {};
-}
-
-void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
-	if (Project->path.empty()) {
-		std::cout << "Project does not have a file path\n";
-		return;
-	}
-
-	std::cout << "Saving project: " << Project->path << "\n";
-
-	FILE* file;
-	fopen_s(&file, Project->path.c_str(), "wb");
-
-	fwrite(&Project->sourceModelLoaded, sizeof(bool), 1, file);
-	if (Project->sourceModelLoaded) {
-		serialize(file, &Project->sourceModel);
-		fwrite(&Project->sourceModelScale, sizeof(float), 1, file);
-		fwrite(&Project->sourceModelTranslate, sizeof(vec3), 1, file);
-		fwrite(&Project->sourceModelRotate, sizeof(vec3), 1, file);
-	}
-
-	fwrite(&Project->sourceTextureLoaded, sizeof(bool), 1, file);
-	if (Project->sourceTextureLoaded) {
-		serialize(file, &Project->sourceTextureRaw, 4);
-		serialize(file, &Project->sourceTextureCmyk, 4);
-	}
-
-	fwrite(&Project->quadModelLoaded, sizeof(bool), 1, file);
-	if (Project->quadModelLoaded) {
-
-	}
-
-	fwrite(&Project->surfelsLoaded, sizeof(bool), 1, file);
-	if (Project->surfelsLoaded) {
-
-	}
-
-	fclose(file);
-}
-
-bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
-	std::cout << "Loading project: " << Project->path << "\n";
-
-	projectInit(AppContext, Project);
-	Project->path = Path;
-
-	FILE* file;
-	fopen_s(&file, Path.c_str(), "rb");
-
-	fclose(file);
-
-	//char pathStr[1024];
-	//sprintf_s(pathStr, "%ssource_mesh.obj", Project->dir.c_str());
-	//projectLoadModel(AppContext, Project, pathStr);
-
-	//// TODO: Check if processed model exists.
-	//sprintf_s(pathStr, "%squad.ply", Project->dir.c_str());
-	//if (!plyLoadQuadMesh(pathStr, &Project->quadModel)) {
-	//	return 1;
-	//}
-
-	//geoPrintQuadModelInfo(&Project->quadModel);
-
-	return true;
+	return projectFinalizeImportedTexture(AppContext, Project);
 }
 
 bool projectCreateVoxelMesh(ldiModel* Model) {
@@ -391,15 +364,8 @@ static void _printQuadModelInfo(ldiQuadModel* Model) {
 	std::cout << "Min: " << (minSide * 10000.0) << " um Max: " << (maxSide * 10000.0) << " um \n";
 }
 
-static bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
-	Project->quadModelLoaded = false;
-
-	if (!plyLoadQuadMesh(Path.c_str(), &Project->quadModel)) {
-		return false;
-	}
-
+bool projectFinalizeQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
 	Project->quadDebugModel = gfxCreateRenderQuadModelDebug(AppContext, &Project->quadModel);
-	// TODO: Share verts and normals.
 	Project->quadModelWhite = gfxCreateRenderQuadModelWhite(AppContext, &Project->quadModel, vec3(0.9f, 0.9f, 0.9f));
 	Project->quadMeshWire = gfxCreateRenderQuadWireframe(AppContext, &Project->quadModel);
 	Project->quadModelLoaded = true;
@@ -409,7 +375,19 @@ static bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project,
 	return true;
 }
 
+static bool projectLoadQuadModel(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
+	Project->quadModelLoaded = false;
+
+	if (!plyLoadQuadMesh(Path.c_str(), &Project->quadModel)) {
+		return false;
+	}
+
+	return true;
+}
+
 static bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Project) {
+	projectInvalidateQuadModelData(AppContext, Project);
+
 	if (!Project->sourceModelLoaded) {
 		return false;
 	}
@@ -431,7 +409,7 @@ static bool projectCreateQuadModel(ldiApp* AppContext, ldiProjectContext* Projec
 		return false;
 	}
 
-	return true;
+	return projectFinalizeQuadModel(AppContext, Project);
 }
 
 void geoCreateSurfels(ldiQuadModel* Model, std::vector<ldiSurfel>* Result) {
@@ -914,43 +892,47 @@ void surfelsSmoothNormalsThreadBatch(ldiSmoothNormalsThreadContext Context) {
 	}
 }
 
+bool projectFinalizeSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
+	gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->surfelsSamplesRaw, &Project->surfelsSamplesTexture, &Project->surfelsSamplesTextureSrv);
+	
+	Project->surfelsNewRenderModel = gfxCreateNewSurfelRenderModel(AppContext, &Project->surfelsNew);
+	Project->surfelsLoaded = true;
+
+	return true;
+}
+
 bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
+	projectInvalidateSurfelData(AppContext, Project);
+
 	if (!Project->quadModelLoaded || !Project->sourceTextureLoaded) {
 		return false;
 	}
 
-	Project->surfelsLoaded = false;
-
 	Project->surfelsSamplesRaw.width = 4096;
 	Project->surfelsSamplesRaw.height = Project->surfelsSamplesRaw.width;
-	
-	if (Project->surfelsSamplesRaw.data) {
-		delete Project->surfelsSamplesRaw.data;
-	}
-
 	Project->surfelsSamplesRaw.data = new uint8_t[Project->surfelsSamplesRaw.width * Project->surfelsSamplesRaw.width * 4];
 	memset(Project->surfelsSamplesRaw.data, 0, Project->surfelsSamplesRaw.width * Project->surfelsSamplesRaw.width * 4);
 
 	geoCreateSurfelsNew(&Project->quadModel, &Project->surfelsNew, Project->surfelsSamplesRaw.width, 4);
-	geoCreateSurfels(&Project->quadModel, &Project->surfelsLow);
-	geoCreateSurfelsHigh(&Project->quadModel, &Project->surfelsHigh);
-	std::cout << "High res surfel count: " << Project->surfelsHigh.size() << "\n";
+	//geoCreateSurfels(&Project->quadModel, &Project->surfelsLow);
+	//geoCreateSurfelsHigh(&Project->quadModel, &Project->surfelsHigh);
+	//std::cout << "High res surfel count: " << Project->surfelsHigh.size() << "\n";
 
 	physicsCookMesh(AppContext->physics, &Project->sourceModel, &Project->sourceCookedModel);
+
+	geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsNew, &Project->surfelsSamplesRaw);
+	
 	//geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsHigh);
 	//geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureRaw, &Project->surfelsHigh);
 
-	geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsNew, &Project->surfelsSamplesRaw);
 	//geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureRaw, &Project->surfelsNew, &Project->surfelsSamplesRaw);
 
 	//imageWrite("samplestest.png", 4096, 4096, 4, 4096 * 4, Project->surfelsSamplesRaw.data);
 
-	gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->surfelsSamplesRaw, &Project->surfelsSamplesTexture, &Project->surfelsSamplesTextureSrv);
-
 	//----------------------------------------------------------------------------------------------------
 	// Create spatial structure for surfels.
 	//----------------------------------------------------------------------------------------------------
-	double t0 = getTime();
+	/*double t0 = getTime();
 	vec3 surfelsMin(10000, 10000, 10000);
 	vec3 surfelsMax(-10000, -10000, -10000);
 
@@ -984,53 +966,140 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	Project->surfelsBoundsMax = surfelsMax;
 
 	t0 = getTime() - t0;
-	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";
+	std::cout << "Build spatial grid: " << t0 * 1000.0f << " ms\n";*/
 
 	//----------------------------------------------------------------------------------------------------
 	// Smooth normals.
 	//----------------------------------------------------------------------------------------------------
-	t0 = getTime();
-	{
-		const int threadCount = 20;
-		int batchSize = Project->surfelsLow.size() / threadCount;
-		int batchRemainder = Project->surfelsLow.size() - (batchSize * threadCount);
-		std::thread workerThread[threadCount];
+	//t0 = getTime();
+	//{
+	//	const int threadCount = 20;
+	//	int batchSize = Project->surfelsLow.size() / threadCount;
+	//	int batchRemainder = Project->surfelsLow.size() - (batchSize * threadCount);
+	//	std::thread workerThread[threadCount];
 
-		for (int n = 0; n < 4; ++n) {
-			for (int t = 0; t < threadCount; ++t) {
-				ldiSmoothNormalsThreadContext tc{};
-				tc.grid = &spatialGrid;
-				tc.surfels = &Project->surfelsLow;
-				tc.startIdx = t * batchSize;
-				tc.endIdx = (t + 1) * batchSize;
+	//	for (int n = 0; n < 4; ++n) {
+	//		for (int t = 0; t < threadCount; ++t) {
+	//			ldiSmoothNormalsThreadContext tc{};
+	//			tc.grid = &spatialGrid;
+	//			tc.surfels = &Project->surfelsLow;
+	//			tc.startIdx = t * batchSize;
+	//			tc.endIdx = (t + 1) * batchSize;
 
-				if (t == threadCount - 1) {
-					tc.endIdx += batchRemainder;
-				}
+	//			if (t == threadCount - 1) {
+	//				tc.endIdx += batchRemainder;
+	//			}
 
-				workerThread[t] = std::move(std::thread(surfelsSmoothNormalsThreadBatch, tc));
-			}
+	//			workerThread[t] = std::move(std::thread(surfelsSmoothNormalsThreadBatch, tc));
+	//		}
 
-			for (int t = 0; t < threadCount; ++t) {
-				workerThread[t].join();
-			}
+	//		for (int t = 0; t < threadCount; ++t) {
+	//			workerThread[t].join();
+	//		}
 
-			// Apply smoothed normal back to surfel normal.
-			for (int i = 0; i < Project->surfelsLow.size(); ++i) {
-				ldiSurfel* srcSurfel = &Project->surfelsLow[i];
-				srcSurfel->normal = srcSurfel->smoothedNormal;
-			}
-		}
+	//		// Apply smoothed normal back to surfel normal.
+	//		for (int i = 0; i < Project->surfelsLow.size(); ++i) {
+	//			ldiSurfel* srcSurfel = &Project->surfelsLow[i];
+	//			srcSurfel->normal = srcSurfel->smoothedNormal;
+	//		}
+	//	}
+	//}
+	//t0 = getTime() - t0;
+	//std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
+
+	//Project->surfelLowRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsLow);
+	//Project->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsHigh, 0.001f, 0);
+	//Project->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &Project->surfelsLow, &Project->quadModel);
+
+	return projectFinalizeSurfels(AppContext, Project);
+}
+
+
+void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
+	if (Project->path.empty()) {
+		std::cout << "Project does not have a file path\n";
+		return;
 	}
-	t0 = getTime() - t0;
-	std::cout << "Normal smoothing: " << t0 * 1000.0f << " ms\n";
 
-	Project->surfelLowRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsLow);
-	Project->surfelHighRenderModel = gfxCreateSurfelRenderModel(AppContext, &Project->surfelsHigh, 0.001f, 0);
-	Project->coveragePointModel = gfxCreateCoveragePointRenderModel(AppContext, &Project->surfelsLow, &Project->quadModel);
-	Project->surfelsNewRenderModel = gfxCreateNewSurfelRenderModel(AppContext, &Project->surfelsNew);
+	std::cout << "Saving project: " << Project->path << "\n";
 
-	Project->surfelsLoaded = true;
+	FILE* file;
+	fopen_s(&file, Project->path.c_str(), "wb");
+	if (file == 0) {
+		std::cout << "Could not open file\n";
+		return;
+	}
+
+	fwrite(&Project->sourceModelLoaded, sizeof(bool), 1, file);
+	if (Project->sourceModelLoaded) {
+		serialize(file, &Project->sourceModel);
+		fwrite(&Project->sourceModelScale, sizeof(float), 1, file);
+		fwrite(&Project->sourceModelTranslate, sizeof(vec3), 1, file);
+		fwrite(&Project->sourceModelRotate, sizeof(vec3), 1, file);
+	}
+
+	fwrite(&Project->sourceTextureLoaded, sizeof(bool), 1, file);
+	if (Project->sourceTextureLoaded) {
+		serialize(file, &Project->sourceTextureRaw, 4);
+		serialize(file, &Project->sourceTextureCmyk, 4);
+	}
+
+	fwrite(&Project->quadModelLoaded, sizeof(bool), 1, file);
+	if (Project->quadModelLoaded) {
+		serialize(file, &Project->quadModel);
+	}
+
+	fwrite(&Project->surfelsLoaded, sizeof(bool), 1, file);
+	if (Project->surfelsLoaded) {
+		serialize(file, Project->surfelsNew);
+		serialize(file, &Project->surfelsSamplesRaw, 4);
+	}
+
+	fclose(file);
+}
+
+bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::string& Path) {
+	std::cout << "Loading project: " << Project->path << "\n";
+
+	projectInit(AppContext, Project);
+	Project->path = Path;
+
+	FILE* file;
+	fopen_s(&file, Path.c_str(), "rb");
+	if (file == 0) {
+		return false;
+	}
+
+	fread(&Project->sourceModelLoaded, sizeof(bool), 1, file);
+	if (Project->sourceModelLoaded) {
+		deserialize(file, &Project->sourceModel);
+		fread(&Project->sourceModelScale, sizeof(float), 1, file);
+		fread(&Project->sourceModelTranslate, sizeof(vec3), 1, file);
+		fread(&Project->sourceModelRotate, sizeof(vec3), 1, file);
+		projectFinalizeImportedModel(AppContext, Project);
+	}
+
+	fread(&Project->sourceTextureLoaded, sizeof(bool), 1, file);
+	if (Project->sourceTextureLoaded) {
+		deserialize(file, &Project->sourceTextureRaw, 4);
+		deserialize(file, &Project->sourceTextureCmyk, 4);
+		projectFinalizeImportedTexture(AppContext, Project);
+	}
+
+	fread(&Project->quadModelLoaded, sizeof(bool), 1, file);
+	if (Project->quadModelLoaded) {
+		deserialize(file, &Project->quadModel);
+		projectFinalizeQuadModel(AppContext, Project);
+	}
+
+	fread(&Project->surfelsLoaded, sizeof(bool), 1, file);
+	if (Project->surfelsLoaded) {
+		deserialize(file, Project->surfelsNew);
+		deserialize(file, &Project->surfelsSamplesRaw, 4);
+		projectFinalizeSurfels(AppContext, Project);
+	}
+
+	fclose(file);
 
 	return true;
 }
@@ -1103,7 +1172,7 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 
 			if (Project->sourceTextureLoaded) {
-				float w = ImGui::GetContentRegionAvail().x;
+				float w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
 
 				if (ImGui::BeginTabBar("textureChannelsTabs")) {
 					if (ImGui::BeginTabItem("sRGB")) {
@@ -1168,6 +1237,11 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 		if (ImGui::CollapsingHeader("Surfels")) {
 			if (ImGui::Button("Create surfels")) {
 				projectCreateSurfels(AppContext, Project);
+			}
+
+			if (Project->sourceTextureLoaded) {
+				float w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+				ImGui::Image(Project->surfelsSamplesTextureSrv, ImVec2(w, w));
 			}
 		}
 	}

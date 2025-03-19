@@ -242,6 +242,13 @@ template<class T> void serializeVectorPrep(FILE* File, std::vector<T>& Vector) {
 	fwrite(&size, sizeof(int), 1, File);
 }
 
+template<class T> void serialize(FILE* File, std::vector<T>& Vector) {
+	serializeVectorPrep(File, Vector);
+	for (size_t i = 0; i < Vector.size(); ++i) {
+		fwrite(&Vector[i], sizeof(T), 1, File);
+	}
+}
+
 template<class T> size_t deserializeVectorPrep(FILE* File, std::vector<T>& Vector) {
 	Vector.clear();
 
@@ -251,6 +258,14 @@ template<class T> size_t deserializeVectorPrep(FILE* File, std::vector<T>& Vecto
 	Vector.resize(result);
 
 	return (size_t)result;
+}
+
+template<class T> void deserialize(FILE* File, std::vector<T>& Vector) {
+	Vector.clear();
+	deserializeVectorPrep(File, Vector);
+	for (size_t i = 0; i < Vector.size(); ++i) {
+		fread(&Vector[i], sizeof(T), 1, File);
+	}
 }
 
 size_t deserializeVectorPrep(FILE* File) {
@@ -380,28 +395,24 @@ void deserializeCharucoBoard(FILE* File, ldiCharucoBoard* Board) {
 	}
 }
 
-void serialize(FILE* File, ldiModel* Model) {
-	serializeVectorPrep(File, Model->verts);
-	for (size_t i = 0; i < Model->verts.size(); ++i) {
-		fwrite(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
-	}
+void serialize(FILE* File, ldiQuadModel* Model) {
+	serialize(File, Model->verts);
+	serialize(File, Model->indices);
+}
 
-	serializeVectorPrep(File, Model->indices);
-	for (size_t i = 0; i < Model->indices.size(); ++i) {
-		fwrite(&Model->indices[i], sizeof(uint32_t), 1, File);
-	}
+void deserialize(FILE* File, ldiQuadModel* Model) {
+	deserialize(File, Model->verts);
+	deserialize(File, Model->indices);
+}
+
+void serialize(FILE* File, ldiModel* Model) {
+	serialize(File, Model->verts);
+	serialize(File, Model->indices);
 }
 
 void deserialize(FILE* File, ldiModel* Model) {
-	deserializeVectorPrep(File, Model->verts);
-	for (size_t i = 0; i < Model->verts.size(); ++i) {
-		fread(&Model->verts[i], sizeof(ldiMeshVertex), 1, File);
-	}
-
-	deserializeVectorPrep(File, Model->indices);
-	for (size_t i = 0; i < Model->indices.size(); ++i) {
-		fread(&Model->indices[i], sizeof(uint32_t), 1, File);
-	}
+	deserialize(File, Model->verts);
+	deserialize(File, Model->indices);
 }
 
 void serialize(FILE* File, ldiImage* Image, int Channels) {

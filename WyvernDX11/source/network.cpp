@@ -186,11 +186,11 @@ void networkWorkerThread(ldiServer* Server) {
 }
 
 bool networkConnect(std::string Hostname, int Port, SOCKET* Socket) {
-	std::cout << "Connecting TCP/IP to " << Hostname << ":" << Port << "\n";
+	//std::cout << "Connecting TCP/IP to " << Hostname << ":" << Port << "\n";
 
 	SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (client == INVALID_SOCKET) {
-		std::cout << "Create client socket failed: " << WSAGetLastError() << "\n";
+		//std::cout << "Create client socket failed: " << WSAGetLastError() << "\n";
 		return false;
 	}
 

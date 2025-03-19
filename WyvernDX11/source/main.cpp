@@ -157,7 +157,7 @@ struct ldiApp {
 
 	bool						showPlatformWindow = true;
 	bool						showDemoWindow = false;
-	bool						showImageInspector = true;
+	bool						showImageInspector = false;
 	bool						showModelInspector = false;
 	bool						showSamplerTester = false;
 	bool						showModelEditor = false;
@@ -863,22 +863,6 @@ bool _initResources(ldiApp* AppContext) {
 // Application main.
 //----------------------------------------------------------------------------------------------------
 int main() {
-	// Project file structure:
-	// - platform
-	//		- calibN
-	//			- calib cube images & data
-	//			- calib results
-	// - project
-	//		- modelN
-	//			- original tri soup
-	//			- original sRGB texture
-	//			- baked voxel model
-	//			- baked quad model
-	//			- point cloud scan & related data
-	//			- model fit
-	//			- path plan data (final surfels & tool path)
-	//			- print progress
-
 	std::cout << "Starting WyvernDX11\n";
 	_initTiming();
 
@@ -971,6 +955,13 @@ int main() {
 	//	std::cout << "Networking failure\n";
 	//	return 1;
 	//}
+
+	// Default project.
+	//projectInit(_appContext, _appContext->projectContext);
+	if (!projectLoad(_appContext, _appContext->projectContext, "C:\\Projects\\LDI\\WyvernDX11\\bin\\projects\\taryk.prj")) {
+		std::cout << "Project failed to load\n";
+		return 1;
+	}
 
 	// Main loop
 	bool running = true;

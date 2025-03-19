@@ -123,6 +123,12 @@ int physicsCookMesh(ldiPhysics* Physics, ldiModel* Model, ldiPhysicsMesh* Result
 	return 0;
 }
 
+void physicsDestroyCookedMesh(ldiPhysics* Physics, ldiPhysicsMesh* CookedMesh) {
+	if (CookedMesh->cookedMesh.triangleMesh) {
+		CookedMesh->cookedMesh.triangleMesh->release();
+	}
+}
+
 struct ldiRaycastResult {
 	bool hit;
 	int faceIdx;

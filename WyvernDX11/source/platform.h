@@ -94,14 +94,14 @@ struct ldiPlatform {
 	bool						liveAxisUpdate = false;
 	bool						showCalibSensor = false;
 
-	bool						showSourceModelShaded = true;
+	bool						showSourceModelShaded = false;
 	bool						showSourceModelWireframe = false;
-	bool						showQuadMeshDebug = true;
-	bool						showQuadMeshWireframe = false;
+	bool						showQuadMeshDebug = false;
+	bool						showQuadMeshWireframe = true;
 	bool						showQuadMeshWhite = false;
 	vec4						quadMeshCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
 
-	bool						showSurfeslHigh = false;
+	bool						showSurfeslHigh = true;
 
 	std::mutex					liveScanPointsMutex;
 	bool						liveScanPointsUpdated;
@@ -1972,7 +1972,7 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::Checkbox("Show quad mesh canvas", &Tool->showQuadMeshWhite);
 
 			ImGui::Separator();
-			ImGui::Checkbox("Show surfels high", &Tool->showSurfeslHigh);
+			ImGui::Checkbox("Show surfels", &Tool->showSurfeslHigh);
 		}
 
 		if (ImGui::CollapsingHeader("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
