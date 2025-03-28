@@ -32,6 +32,12 @@ struct vertexInputMesh {
 	float2 uv  : TEXCOORD0;
 };
 
+struct vertexInputCoveragePoint {
+	float3 pos : POSITION;
+	int id : TEXCOORD0;
+	float3 normal : NORMAL;
+};
+
 //---------------------------------------------------------------------------------------------------------------
 // Image space helper functions.
 //---------------------------------------------------------------------------------------------------------------

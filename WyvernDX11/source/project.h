@@ -36,26 +36,45 @@ struct ldiProjectContext {
 	ldiRenderModel				registeredRenderModel;
 
 	bool						surfelsLoaded = false;
-	//vec3						surfelsBoundsMin;
-	//vec3						surfelsBoundsMax;
-	//ldiSpatialGrid				surfelLowSpatialGrid = {};
-	std::vector<ldiNewSurfel>	surfelsNew;
-	ldiRenderModel				surfelsNewRenderModel;
+	std::vector<ldiNewSurfel>	surfels;
+	ldiRenderModel				surfelsRenderModel;
+	ldiRenderModel				surfelsGroupRenderModel;
+	ldiRenderModel				surfelsCoverageViewRenderModel;
 	ldiImage					surfelsSamplesRaw;
 	ID3D11Texture2D*			surfelsSamplesTexture;
 	ID3D11ShaderResourceView*	surfelsSamplesTextureSrv;
-	//std::vector<ldiSurfel>		surfelsLow;
-	//std::vector<ldiSurfel>		surfelsHigh;
-	//ldiRenderModel				surfelLowRenderModel;
-	//ldiRenderModel				surfelHighRenderModel;
-	//ldiRenderModel				coveragePointModel;
+	vec3						surfelsBoundsMin;
+	vec3						surfelsBoundsMax;
+	ldiSpatialGrid				surfelsSpatialGrid = {};
 
-	bool						poissonSamplesLoaded = false;
-	ldiPoissonSpatialGrid		poissonSpatialGrid = {};
-	ldiRenderModel				poissonSamplesRenderModel;
-	ldiRenderModel				poissonSamplesCmykRenderModel[4];
+	//bool						poissonSamplesLoaded = false;
+	//ldiPoissonSpatialGrid		poissonSpatialGrid = {};
+	//ldiRenderModel				poissonSamplesRenderModel;
+	//ldiRenderModel				poissonSamplesCmykRenderModel[4];
+	//ldiRenderPointCloud			pointCloudRenderModel;
 
-	ldiRenderPointCloud			pointCloudRenderModel;
+	bool						processed = false;
+	ldiPointCloud				pointDistrib;
+	ldiRenderPointCloud			pointDistribCloud;
+
+	int							toolViewSize = 512;
+	ID3D11Texture2D*			toolViewTex;
+	ID3D11ShaderResourceView*	toolViewTexView;
+	ID3D11RenderTargetView*		toolViewTexRtView;
+	ID3D11Texture2D*			toolViewDepthStencil;
+	ID3D11DepthStencilView*		toolViewDepthStencilView;
+	ID3D11ShaderResourceView*	toolViewDepthStencilSrv;
+
+	float						fovX = 11.478f;
+	float						fovY = 11.478f;
+
+	std::vector<vec3>			debugPoints;
+	std::vector<ldiLineSegment> debugLineSegs;
+
+	ID3D11Buffer*				coverageBuffer;
+	ID3D11UnorderedAccessView*	coverageBufferUav;
+	ID3D11ShaderResourceView*	coverageBufferSrv;
+	ID3D11Buffer*				coverageStagingBuffer;
 };
 
 mat4 projectGetSourceTransformMat(ldiProjectContext* Project) {
@@ -114,11 +133,12 @@ void projectInvalidateSurfelData(ldiApp* AppContext, ldiProjectContext* Project)
 	if (Project->surfelsLoaded) {
 		Project->surfelsLoaded = false;
 		physicsDestroyCookedMesh(AppContext->physics, &Project->sourceCookedModel);
-		Project->surfelsNewRenderModel.indexBuffer->Release();
-		Project->surfelsNewRenderModel.vertexBuffer->Release();
+		Project->surfelsRenderModel.indexBuffer->Release();
+		Project->surfelsRenderModel.vertexBuffer->Release();
 		delete[] Project->surfelsSamplesRaw.data;
 		Project->surfelsSamplesTexture->Release();
 		Project->surfelsSamplesTextureSrv->Release();
+		spatialGridDestroy(&Project->surfelsSpatialGrid);
 	}
 }
 
@@ -669,77 +689,6 @@ vec4 getColorSampleBilinear(ldiImage* Image, vec2 Uv) {
 	return y1;
 }
 
-//struct ldiColorTransferThreadContext {
-//	ldiPhysics* physics;
-//	ldiPhysicsMesh* cookedMesh;
-//	ldiModel* srcModel;
-//	ldiImage* image;
-//	std::vector<ldiSurfel>* surfels;
-//	int	startIdx;
-//	int	endIdx;
-//};
-//
-//void geoTransferThreadBatch(ldiColorTransferThreadContext Context) {
-//	float normalAdjust = 0.01;
-//
-//	for (size_t i = Context.startIdx; i < Context.endIdx; ++i) {
-//		ldiSurfel* s = &(*Context.surfels)[i];
-//		ldiRaycastResult result = physicsRaycast(Context.cookedMesh, s->position + s->normal * normalAdjust, -s->normal, 0.1f);
-//
-//		if (result.hit) {
-//			ldiMeshVertex v0 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 0]];
-//			ldiMeshVertex v1 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 1]];
-//			ldiMeshVertex v2 = Context.srcModel->verts[Context.srcModel->indices[result.faceIdx * 3 + 2]];
-//
-//			float u = result.barry.x;
-//			float v = result.barry.y;
-//			float w = 1.0 - (u + v);
-//			vec2 uv = w * v0.uv + u * v1.uv + v * v2.uv;
-//
-//			vec4 s0 = getColorSampleBilinear(Context.image, uv);
-//			
-//			//s->color = vec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
-//			//s->color = vec4(s0.r / 255.0, s0.g / 255.0, s0.b / 255.0, s0.a / 255.0);
-//			s->color = s0;
-//		} else {
-//			s->color = vec4(1, 0, 0, 0);
-//		}
-//	}
-//}
-//
-//void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, ldiModel* SrcModel, ldiImage* Image, std::vector<ldiSurfel>* Surfels) {
-//	double t0 = getTime();
-//
-//	const int threadCount = 20;
-//	int batchSize = Surfels->size() / threadCount;
-//	int batchRemainder = Surfels->size() - (batchSize * threadCount);
-//	std::thread workerThread[threadCount];
-//
-//	for (int t = 0; t < threadCount; ++t) {
-//		ldiColorTransferThreadContext tc{};
-//		tc.physics = AppContext->physics;
-//		tc.cookedMesh = CookedMesh;
-//		tc.srcModel = SrcModel;
-//		tc.image = Image;
-//		tc.surfels = Surfels;
-//		tc.startIdx = t * batchSize;
-//		tc.endIdx = (t + 1) * batchSize;
-//
-//		if (t == threadCount - 1) {
-//			tc.endIdx += batchRemainder;
-//		}
-//
-//		workerThread[t] = std::thread(geoTransferThreadBatch, tc);
-//	}
-//
-//	for (int t = 0; t < threadCount; ++t) {
-//		workerThread[t].join();
-//	}
-//
-//	t0 = getTime() - t0;
-//	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
-//}
-
 struct ldiColorTransferThreadContext {
 	ldiPhysics* physics;
 	ldiPhysicsMesh* cookedMesh;
@@ -814,6 +763,8 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 	int batchRemainder = Surfels->size() - (batchSize * threadCount);
 	std::thread workerThread[threadCount];
 
+	const int samplesPerSide = 4;
+
 	for (int t = 0; t < threadCount; ++t) {
 		ldiColorTransferThreadContext tc{};
 		tc.physics = AppContext->physics;
@@ -822,7 +773,7 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 		tc.image = Image;
 		tc.samplesImage = SamplesImage;
 		tc.surfels = Surfels;
-		tc.samplesPerSide = 4;
+		tc.samplesPerSide = samplesPerSide;
 		tc.startIdx = t * batchSize;
 		tc.endIdx = (t + 1) * batchSize;
 
@@ -838,7 +789,8 @@ void geoTransferColorToSurfels(ldiApp* AppContext, ldiPhysicsMesh* CookedMesh, l
 	}
 
 	t0 = getTime() - t0;
-	std::cout << "Transfer color: " << t0 * 1000.0f << " ms\n";
+	std::cout << "Transfer color count: " << (Surfels->size() * samplesPerSide * samplesPerSide) << "\n";
+	std::cout << "Transfer time: " << t0 * 1000.0f << " ms\n";
 }
 
 struct ldiSmoothNormalsThreadContext {
@@ -894,8 +846,47 @@ void surfelsSmoothNormalsThreadBatch(ldiSmoothNormalsThreadContext Context) {
 
 bool projectFinalizeSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	gfxCreateTextureR8G8B8A8Basic(AppContext, &Project->surfelsSamplesRaw, &Project->surfelsSamplesTexture, &Project->surfelsSamplesTextureSrv);
+	Project->surfelsRenderModel = gfxCreateNewSurfelRenderModel(AppContext, &Project->surfels);
+
+	//----------------------------------------------------------------------------------------------------
+	// Create spatial structure for surfels.
+	//----------------------------------------------------------------------------------------------------
+	double t0 = getTime();
+	vec3 surfelsMin(10000, 10000, 10000);
+	vec3 surfelsMax(-10000, -10000, -10000);
+
+	for (size_t i = 0; i < Project->surfels.size(); ++i) {
+		ldiNewSurfel* s = &Project->surfels[i];
+
+		surfelsMin.x = min(surfelsMin.x, s->position.x);
+		surfelsMin.y = min(surfelsMin.y, s->position.y);
+		surfelsMin.z = min(surfelsMin.z, s->position.z);
+
+		surfelsMax.x = max(surfelsMax.x, s->position.x);
+		surfelsMax.y = max(surfelsMax.y, s->position.y);
+		surfelsMax.z = max(surfelsMax.z, s->position.z);
+	}
+
+	ldiSpatialGrid spatialGrid{};
+	spatialGridInit(&spatialGrid, surfelsMin, surfelsMax, 0.03f);
+
+	for (size_t i = 0; i < Project->surfels.size(); ++i) {
+		spatialGridPrepEntry(&spatialGrid, Project->surfels[i].position);
+	}
+
+	spatialGridCompile(&spatialGrid);
+
+	for (size_t i = 0; i < Project->surfels.size(); ++i) {
+		spatialGridAddEntry(&spatialGrid, Project->surfels[i].position, (int)i);
+	}
+
+	Project->surfelsSpatialGrid = spatialGrid;
+	Project->surfelsBoundsMin = surfelsMin;
+	Project->surfelsBoundsMax = surfelsMax;
+
+	t0 = getTime() - t0;
+	std::cout << "Build surfel spatial grid: " << t0 * 1000.0f << " ms\n";
 	
-	Project->surfelsNewRenderModel = gfxCreateNewSurfelRenderModel(AppContext, &Project->surfelsNew);
 	Project->surfelsLoaded = true;
 
 	return true;
@@ -913,14 +904,14 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	Project->surfelsSamplesRaw.data = new uint8_t[Project->surfelsSamplesRaw.width * Project->surfelsSamplesRaw.width * 4];
 	memset(Project->surfelsSamplesRaw.data, 0, Project->surfelsSamplesRaw.width * Project->surfelsSamplesRaw.width * 4);
 
-	geoCreateSurfelsNew(&Project->quadModel, &Project->surfelsNew, Project->surfelsSamplesRaw.width, 4);
+	geoCreateSurfelsNew(&Project->quadModel, &Project->surfels, Project->surfelsSamplesRaw.width, 4);
 	//geoCreateSurfels(&Project->quadModel, &Project->surfelsLow);
 	//geoCreateSurfelsHigh(&Project->quadModel, &Project->surfelsHigh);
 	//std::cout << "High res surfel count: " << Project->surfelsHigh.size() << "\n";
 
 	physicsCookMesh(AppContext->physics, &Project->sourceModel, &Project->sourceCookedModel);
 
-	geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsNew, &Project->surfelsSamplesRaw);
+	geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfels, &Project->surfelsSamplesRaw);
 	
 	//geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureCmyk, &Project->surfelsHigh);
 	//geoTransferColorToSurfels(AppContext, &Project->sourceCookedModel, &Project->sourceModel, &Project->sourceTextureRaw, &Project->surfelsHigh);
@@ -1014,6 +1005,262 @@ bool projectCreateSurfels(ldiApp* AppContext, ldiProjectContext* Project) {
 	return projectFinalizeSurfels(AppContext, Project);
 }
 
+void _surfacePartitioning(ldiApp* AppContext, ldiProjectContext* Project) {
+	ldiSpatialGrid* grid = &Project->surfelsSpatialGrid;
+	std::vector<ldiNewSurfel>* surfels = &Project->surfels;
+
+	std::vector<int> groupIds;
+	groupIds.resize(surfels->size());
+
+	struct ldiSurfelGroup {
+		int id;
+		vec3 color;
+		vec3 normal;
+		std::vector<int> surfelIds;
+	};
+
+	double t0 = getTime();
+
+	std::vector<ldiSurfelGroup> surfelGroups;
+	surfelGroups.push_back({ 0, getRandomColorHighSaturation(), vec3Zero });
+
+	for (size_t iterSeed = 0; iterSeed < surfels->size(); ++iterSeed) {
+		//for (size_t iterSeed = 0; iterSeed < 2000; ++iterSeed) {
+		if (groupIds[iterSeed] != 0) {
+			continue;
+		}
+
+		std::queue<int> surfelQueue;
+		surfelQueue.push(iterSeed);
+		surfelGroups.push_back({ (int)surfelGroups.size(), getRandomColorHighSaturation(), (*surfels)[iterSeed].normal });
+		ldiSurfelGroup* currentGroup = &surfelGroups.back();
+
+		while (true) {
+			std::vector<bool> groupProcessed;
+			groupProcessed.resize(surfels->size());
+
+			int updateCount = 0;
+
+			while (!surfelQueue.empty()) {
+				int srcSurfelId = surfelQueue.front();
+				surfelQueue.pop();
+
+				if (groupProcessed[srcSurfelId]) {
+					continue;
+				}
+
+				groupProcessed[srcSurfelId] = true;
+
+				ldiNewSurfel* srcSurfel = &(*surfels)[srcSurfelId];
+				groupIds[srcSurfelId] = currentGroup->id;
+				currentGroup->surfelIds.push_back(srcSurfelId);
+
+				vec3 cell = spatialGridGetCellFromWorldPosition(grid, srcSurfel->position);
+
+				int sX = (int)cell.x - 1;
+				int eX = sX + 3;
+
+				int sY = (int)cell.y - 1;
+				int eY = sY + 3;
+
+				int sZ = (int)cell.z - 1;
+				int eZ = sZ + 3;
+
+				sX = max(0, sX);
+				eX = min(grid->countX - 1, eX);
+
+				sY = max(0, sY);
+				eY = min(grid->countY - 1, eY);
+
+				sZ = max(0, sZ);
+				eZ = min(grid->countZ - 1, eZ);
+
+				float distVal = 0.03f;
+
+				for (int iZ = sZ; iZ <= eZ; ++iZ) {
+					for (int iY = sY; iY <= eY; ++iY) {
+						for (int iX = sX; iX <= eX; ++iX) {
+							ldiSpatialCellResult cellResult = spatialGridGetCell(grid, iX, iY, iZ);
+							for (int s = 0; s < cellResult.count; ++s) {
+								int surfelId = cellResult.data[s];
+
+								if (groupIds[surfelId] == 0) {
+									ldiNewSurfel* dstSurfel = &(*surfels)[surfelId];
+
+									float dist = glm::length(dstSurfel->position - srcSurfel->position);
+
+									if (dist <= distVal) {
+										float angle = glm::dot(glm::normalize(currentGroup->normal), dstSurfel->normal);
+
+										if (angle > 0.866f) { // 30 degs
+											++updateCount;
+											currentGroup->normal += dstSurfel->normal;
+											surfelQueue.push(surfelId);
+											//groupIds[surfelId] = currentGroup->id;
+											//currentGroup->surfelIds.push_back(surfelId);
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			std::cout << "Update count: " << updateCount << "\n";
+
+			if (updateCount > 0) {
+				for (size_t i = 0; i < currentGroup->surfelIds.size(); ++i) {
+					surfelQueue.push(currentGroup->surfelIds[i]);
+				}
+			} else {
+				break;
+			}
+		}
+	}
+
+	/*surfelGroups.push_back({ (int)surfelGroups.size(), getRandomColorHighSaturation(), vec3Zero });
+
+	for (size_t i = 0; i < surfels->size(); ++i) {
+		ldiNewSurfel* srcSurfel = &(*surfels)[i];
+
+		if (groupIds[i] != 0) {
+			continue;
+		}
+
+		float angle = glm::dot(glm::normalize(surfelGroups[1].normal), srcSurfel->normal);
+
+		if (angle > 0.9f) {
+			groupIds[i] = (int)surfelGroups.size();
+		}
+	}*/
+
+	t0 = getTime() - t0;
+	std::cout << "Surfel grouping in: " << t0 * 1000.0f << " ms\n";
+
+	for (size_t i = 0; i < Project->surfels.size(); ++i) {
+		if (groupIds[i] != 0) {
+			ldiNewSurfel* s = &(Project->surfels[i]);
+			vec3 color = surfelGroups[groupIds[i]].color;
+
+			s->verts[0].color = color;
+			s->verts[1].color = color;
+			s->verts[2].color = color;
+			s->verts[3].color = color;
+
+			/*ldiPointCloudVertex p = {};
+			p.position = s->position;
+			p.normal = s->normal;
+			p.color = surfelGroups[groupIds[i]].color;
+
+			Project->pointDistrib.points.push_back(p);*/
+		}
+	}
+
+	//Project->surfelsGroupRenderModel = gfxCreateQuadSurfelRenderModel(AppContext, &Project->surfels);
+}
+
+bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
+	Project->processed = false;
+
+	if (!Project->surfelsLoaded) {
+		return false;
+	}
+
+	Project->pointDistrib.points.clear();
+	//Project->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &Project->pointDistrib);
+
+	{
+		D3D11_TEXTURE2D_DESC tex2dDesc = {};
+		tex2dDesc.Width = Project->toolViewSize;
+		tex2dDesc.Height = Project->toolViewSize;
+		tex2dDesc.MipLevels = 1;
+		tex2dDesc.ArraySize = 1;
+		tex2dDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		tex2dDesc.SampleDesc.Count = 1;
+		tex2dDesc.SampleDesc.Quality = 0;
+		tex2dDesc.Usage = D3D11_USAGE_DEFAULT;
+		tex2dDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		tex2dDesc.CPUAccessFlags = 0;
+		tex2dDesc.MiscFlags = 0;
+
+		if (FAILED(AppContext->d3dDevice->CreateTexture2D(&tex2dDesc, NULL, &Project->toolViewTex))) {
+			std::cout << "Texture failed to create\n";
+			return false;
+		}
+
+		if (AppContext->d3dDevice->CreateRenderTargetView(Project->toolViewTex, NULL, &Project->toolViewTexRtView) != S_OK) {
+			std::cout << "CreateRenderTargetView failed\n";
+			return false;
+		}
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(Project->toolViewTex, NULL, &Project->toolViewTexView) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return false;
+		}
+
+		D3D11_TEXTURE2D_DESC depthStencilDesc;
+		depthStencilDesc.Width = Project->toolViewSize;
+		depthStencilDesc.Height = Project->toolViewSize;
+		depthStencilDesc.MipLevels = 1;
+		depthStencilDesc.ArraySize = 1;
+		depthStencilDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		depthStencilDesc.SampleDesc.Count = 1;
+		depthStencilDesc.SampleDesc.Quality = 0;
+		depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
+		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+		depthStencilDesc.CPUAccessFlags = 0;
+		depthStencilDesc.MiscFlags = 0;
+
+		AppContext->d3dDevice->CreateTexture2D(&depthStencilDesc, NULL, &Project->toolViewDepthStencil);
+
+		D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+		dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+		dsvDesc.Flags = 0;
+		dsvDesc.Texture2D.MipSlice = 0;
+
+		if (AppContext->d3dDevice->CreateDepthStencilView(Project->toolViewDepthStencil, &dsvDesc, &Project->toolViewDepthStencilView) != S_OK) {
+			std::cout << "CreateDepthStencilView failed\n";
+			return false;
+		}
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		srvDesc.ViewDimension = D3D_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = 1;
+
+		if (AppContext->d3dDevice->CreateShaderResourceView(Project->toolViewDepthStencil, &srvDesc, &Project->toolViewDepthStencilSrv) != S_OK) {
+			std::cout << "CreateShaderResourceView failed\n";
+			return false;
+		}
+	}
+
+	// Coverage resources setup.
+	{
+		if (!gfxCreateStructuredBuffer(AppContext, 4, Project->surfels.size(), NULL, &Project->coverageBuffer)) {
+			return false;
+		}
+
+		if (!gfxCreateBufferUav(AppContext, Project->coverageBuffer, &Project->coverageBufferUav)) {
+			return false;
+		}
+
+		if (!gfxCreateBufferShaderResourceView(AppContext, Project->coverageBuffer, &Project->coverageBufferSrv)) {
+			return false;
+		}
+
+		if (!gfxCreateStagingBuffer(AppContext, 4, (int)Project->surfels.size(), &Project->coverageStagingBuffer)) {
+			return false;
+		}
+	}
+
+	Project->surfelsCoverageViewRenderModel = gfxCreateCoveragePointRenderModel(AppContext, &Project->surfels);
+
+	Project->processed = true;
+
+	return true;
+}
 
 void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
 	if (Project->path.empty()) {
@@ -1051,7 +1298,7 @@ void projectSave(ldiApp* AppContext, ldiProjectContext* Project) {
 
 	fwrite(&Project->surfelsLoaded, sizeof(bool), 1, file);
 	if (Project->surfelsLoaded) {
-		serialize(file, Project->surfelsNew);
+		serialize(file, Project->surfels);
 		serialize(file, &Project->surfelsSamplesRaw, 4);
 	}
 
@@ -1094,7 +1341,7 @@ bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::stri
 
 	fread(&Project->surfelsLoaded, sizeof(bool), 1, file);
 	if (Project->surfelsLoaded) {
-		deserialize(file, Project->surfelsNew);
+		deserialize(file, Project->surfels);
 		deserialize(file, &Project->surfelsSamplesRaw, 4);
 		projectFinalizeSurfels(AppContext, Project);
 	}
@@ -1104,10 +1351,148 @@ bool projectLoad(ldiApp* AppContext, ldiProjectContext* Project, const std::stri
 	return true;
 }
 
-void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
+vec3 _customProj(vec3 P) {
+	// Map P from view space to clip space.
+
+	// Z = 0 at near, 1 at far.
+	// X = -1 left, 1 right
+	// Y = -1 bottom, 1 top
+	
+	float zNear = 1.0f;
+	float zFar = 10.0f;
+
+	float yTop = 2.0f;
+	float yBottom = -2.0f;
+
+	float xFov = 11.0f;
+
+	float xRatioHalf = sin(glm::radians(xFov) / 2);
+
+	// Calculate z from P.z
+	float z = P.z;
+	float Pz = (z - zNear) / (zFar - zNear);
+
+	// Calculate y from P.y
+	float y = P.y;
+	float Py = 2 * (y - yBottom) / (yTop - yBottom) - 1;
+
+	// Calculate x from P.x
+	float Px = (z * xRatioHalf) != 0 ? P.x / (z * xRatioHalf) : 0.0f;
+
+	return vec3(Px, Py, Pz);
+}
+
+vec3 _customProjInverse(vec3 P) {
+	// Map P from clip space to view space.
+
+	float zNear = 1.0f;
+	float zFar = 10.0f;
+
+	float yTop = 2.0f;
+	float yBottom = -2.0f;
+
+	float xFov = 11.0f;
+
+	float xRatioHalf = sin(glm::radians(xFov) / 2);
+
+	float z = zNear + (zFar - zNear) * P.z;
+	float y = yBottom + (yTop - yBottom) * (P.y * 0.5f + 0.5f);
+	float x = (z * xRatioHalf) * P.x;
+
+	return vec3(x, y, z);
+}
+
+void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* Camera) {
+	ID3D11RenderTargetView* renderTargets[] = {
+		Project->toolViewTexRtView
+	};
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = Project->toolViewSize;
+	viewport.Height = Project->toolViewSize;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+
+	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
+
+	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
+	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
+	mat4 viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Project->fovX), (float)Project->toolViewSize, (float)Project->toolViewSize, 0.1f, 100.0f);
+	mat4 projViewMat = projMat * viewMat;
+
+	ID3D11UnorderedAccessView* uavs[] = {
+		Project->coverageBufferUav,
+	};
+
+	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, Project->toolViewDepthStencilView, 1, 1, uavs, 0);
+	//AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, Project->toolViewDepthStencilView);
+
+	float bkgColor[] = { 0.5, 0.5, 0.5, 1.0 };
+	AppContext->d3dDeviceContext->ClearRenderTargetView(Project->toolViewTexRtView, (float*)&bkgColor);
+	AppContext->d3dDeviceContext->ClearDepthStencilView(Project->toolViewDepthStencilView, D3D11_CLEAR_DEPTH, 0.0f, 0);
+
+	UINT clearValue[] = { 0, 0, 0, 0 };
+	AppContext->d3dDeviceContext->ClearUnorderedAccessViewUint(Project->coverageBufferUav, clearValue);
+
+	double t0 = getTime();
+
+	D3D11_QUERY_DESC queryDesc = {};
+	queryDesc.Query = D3D11_QUERY_EVENT;
+
+	ID3D11Query* query;
+	if (AppContext->d3dDevice->CreateQuery(&queryDesc, &query) != S_OK) {
+		return;
+	}
+
+	if (Project->surfelsLoaded) {
+		D3D11_MAPPED_SUBRESOURCE ms;
+		AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+		constantBuffer->mvp = projViewMat;
+		constantBuffer->color = vec4(Camera->position, 1.0f);
+		AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+
+		gfxRenderGeneric(AppContext, &Project->surfelsCoverageViewRenderModel, sizeof(ldiCoveragePointVertex), AppContext->defaultRasterizerState, AppContext->surfelCoverageVertexShader, AppContext->surfelCoveragePixelShader, AppContext->surfelCoverageInputLayout);
+		
+		AppContext->d3dDeviceContext->CopyResource(Project->coverageStagingBuffer, Project->coverageBuffer);
+		AppContext->d3dDeviceContext->Map(Project->coverageStagingBuffer, 0, D3D11_MAP_READ, 0, &ms);
+		int* coverageBufferData = (int*)ms.pData;
+
+		int total = 0;
+
+		for (int i = 0; i < (int)Project->surfels.size(); ++i) {
+			if (coverageBufferData[i] != 0) {
+				total += 1;
+			}
+		}
+
+		std::cout << total << "\n";
+
+		AppContext->d3dDeviceContext->Unmap(Project->coverageStagingBuffer, 0);
+	}
+
+	AppContext->d3dDeviceContext->End(query);
+	BOOL queryData;
+
+	while (S_OK != AppContext->d3dDeviceContext->GetData(query, &queryData, sizeof(BOOL), 0)) {
+	}
+
+	if (queryData != TRUE) {
+		return;
+	}
+
+	//t0 = getTime() - t0;
+	//std::cout << "Coverage: " << t0 * 1000.0f << " ms\n";
+}
+
+void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* TempCam) {
 	ldiCalibrationJob* calibJob = &AppContext->calibJob;
 
-	if (ImGui::Begin("Project inspector")) {
+	if (ImGui::Begin("Project inspector", 0, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 		if (ImGui::CollapsingHeader("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::Text("File path: %s", Project->path.empty() ? "(not saved)" : Project->path.c_str());
 
@@ -1147,7 +1532,7 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 		}
 
-		if (ImGui::CollapsingHeader("Source model", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::CollapsingHeader("Source model")) {
 			ImGui::Text("Source model");
 
 			ImGui::SliderFloat("Scale", &Project->sourceModelScale, 0.001f, 100.0f);
@@ -1162,7 +1547,7 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 		}
 
-		if (ImGui::CollapsingHeader("Source texture", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::CollapsingHeader("Source texture")) {
 			if (ImGui::Button("Import texture")) {
 				std::string filePath;
 				if (showOpenFileDialog(AppContext->hWnd, AppContext->currentWorkingDir, filePath, L"PNG file", L"*.png")) {
@@ -1172,7 +1557,7 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 
 			if (Project->sourceTextureLoaded) {
-				float w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+				float w = ImGui::GetContentRegionAvail().x;
 
 				if (ImGui::BeginTabBar("textureChannelsTabs")) {
 					if (ImGui::BeginTabItem("sRGB")) {
@@ -1240,10 +1625,29 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project) {
 			}
 
 			if (Project->sourceTextureLoaded) {
-				float w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+				float w = ImGui::GetContentRegionAvail().x;
 				ImGui::Image(Project->surfelsSamplesTextureSrv, ImVec2(w, w));
 			}
+		}
+
+		if (ImGui::CollapsingHeader("Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::Button("Process")) {
+				projectProcess(AppContext, Project);
+			}
+
+			ImGui::SliderFloat("Camera FOV X", &Project->fovX, 1.0f, 180.0f);
+			ImGui::SliderFloat("Camera FOV Y", &Project->fovY, 1.0f, 180.0f);
+		}
+	}
+	ImGui::End();
+
+	if (Project->processed) {
+		if (ImGui::Begin("Tool head view")) {
+			projectRenderToolHeadView(AppContext, Project, TempCam);
+
+			ImGui::Image(Project->toolViewTexView, ImVec2(512, 512));
 		}
 	}
 	ImGui::End();
 }
+

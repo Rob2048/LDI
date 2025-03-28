@@ -2,12 +2,6 @@
 
 #include "common.hlsl"
 
-struct vertexInputCoveragePoint {
-	float3 pos : POSITION;
-	int id : TEXCOORD0;
-	float3 normal : NORMAL;
-};
-
 struct PS_INPUT {
 	float4 pos : SV_POSITION;
 	float4 dist : TEXCOORD1;

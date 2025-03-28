@@ -66,7 +66,7 @@ struct ldiNewSurfel {
 
 	vec3 position;
 	vec3 normal;
-
+	
 	ldiBasicVertex verts[4];
 };
 

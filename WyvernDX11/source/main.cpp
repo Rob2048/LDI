@@ -126,6 +126,10 @@ struct ldiApp {
 
 	ID3D11ComputeShader*		simImgComputeShader;
 
+	ID3D11VertexShader*			surfelCoverageVertexShader;
+	ID3D11PixelShader*			surfelCoveragePixelShader;
+	ID3D11InputLayout*			surfelCoverageInputLayout;
+
 	ID3D11Buffer*				mvpConstantBuffer;
 	ID3D11Buffer*				pointcloudConstantBuffer;
 	
@@ -458,6 +462,12 @@ bool _initResources(ldiApp* AppContext) {
 		{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, (UINT)IM_OFFSETOF(ImDrawVert, col), D3D11_INPUT_PER_VERTEX_DATA, 0 },
 	};
 
+	D3D11_INPUT_ELEMENT_DESC coveragePointLayout[] = {
+		{ "POSITION",	0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	0,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",	0,	DXGI_FORMAT_R32_UINT,			0,	12,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	0,	16,	D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
 	//----------------------------------------------------------------------------------------------------
 	// Basic shader.
 	//----------------------------------------------------------------------------------------------------
@@ -543,6 +553,17 @@ bool _initResources(ldiApp* AppContext) {
 	}
 
 	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/imgCam.hlsl", "mainPs", &AppContext->imgCamPixelShader)) {
+		return false;
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Surfel coverage view shader.
+	//----------------------------------------------------------------------------------------------------
+	if (!gfxCreateVertexShader(AppContext, L"../../assets/shaders/surfelCoverageView.hlsl", "mainVs", &AppContext->surfelCoverageVertexShader, coveragePointLayout, 3, &AppContext->surfelCoverageInputLayout)) {
+		return false;
+	}
+
+	if (!gfxCreatePixelShader(AppContext, L"../../assets/shaders/surfelCoverageView.hlsl", "mainPs", &AppContext->surfelCoveragePixelShader)) {
 		return false;
 	}
 
@@ -963,6 +984,11 @@ int main() {
 		return 1;
 	}
 
+	if (!projectProcess(_appContext, _appContext->projectContext)) {
+		std::cout << "Failed to process\n";
+		return 1;
+	}
+
 	// Main loop
 	bool running = true;
 	while (running) {
@@ -1110,7 +1136,7 @@ int main() {
 		}
 
 		if (_appContext->showProjectInspector) {
-			projectShowUi(_appContext, _appContext->projectContext);
+			projectShowUi(_appContext, _appContext->projectContext, &_appContext->platform->mainCamera);
 		}
 
 		_renderImgui(_appContext);

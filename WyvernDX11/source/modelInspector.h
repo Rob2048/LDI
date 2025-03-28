@@ -2296,23 +2296,22 @@ void modelInspectorRender(ldiModelInspector* ModelInspector, int Width, int Heig
 		}
 	}
 
-	if (project->poissonSamplesLoaded) {
-		if (ModelInspector->showPoissonSamples) {
-			D3D11_MAPPED_SUBRESOURCE ms;
-			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-			constantBuffer->mvp = ModelInspector->camera.projViewMat;
-			constantBuffer->color = vec4(ModelInspector->camera.position, 1);
-			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
-
-			gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-			for (int i = 0; i < 4; ++i) {
-				if (ModelInspector->showCmykModel[i]) {
-					gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
-				}
-			}
-		}
-	}
+	//if (project->poissonSamplesLoaded) {
+	//	if (ModelInspector->showPoissonSamples) {
+	//		D3D11_MAPPED_SUBRESOURCE ms;
+	//		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+	//		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+	//		constantBuffer->mvp = ModelInspector->camera.projViewMat;
+	//		constantBuffer->color = vec4(ModelInspector->camera.position, 1);
+	//		appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+	//		gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
+	//		for (int i = 0; i < 4; ++i) {
+	//			if (ModelInspector->showCmykModel[i]) {
+	//				gfxRenderMultiplySurfelModel(appContext, &project->poissonSamplesCmykRenderModel[i], appContext->dotShaderResourceView, appContext->dotSamplerState);
+	//			}
+	//		}
+	//	}
+	//}
 
 	// Area coverage result.
 	if (false) {
@@ -2606,15 +2605,6 @@ void modelInspectorShowUi(ldiModelInspector* tool) {
 	if (ImGui::CollapsingHeader("Print plan")) {
 		if (ImGui::Button("Create poisson samples")) {
 			//projectCreatePoissonSamples(appContext, project, tool);
-		}
-
-		if (project->poissonSamplesLoaded) {
-			ImGui::Checkbox("Sample sites", &tool->showSampleSites);
-			ImGui::Checkbox("Poisson samples", &tool->showPoissonSamples);
-			ImGui::Checkbox("C samples", &tool->showCmykModel[0]);
-			ImGui::Checkbox("M samples", &tool->showCmykModel[1]);
-			ImGui::Checkbox("Y samples", &tool->showCmykModel[2]);
-			ImGui::Checkbox("K samples", &tool->showCmykModel[3]);
 		}
 	}
 

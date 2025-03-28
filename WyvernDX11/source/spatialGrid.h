@@ -35,12 +35,12 @@ void spatialGridInit(ldiSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float
 	Grid->origin = MinBounds + (MaxBounds - MinBounds) * 0.5f;
 	Grid->size = MaxBounds - MinBounds;
 
-	Grid->countX = ceilf(Grid->size.x / CellSize + 0.5f) + 2;
-	Grid->countY = ceilf(Grid->size.y / CellSize + 0.5f) + 2;
-	Grid->countZ = ceilf(Grid->size.z / CellSize + 0.5f) + 2;
+	Grid->countX = ceilf(Grid->size.x / CellSize) + 2;
+	Grid->countY = ceilf(Grid->size.y / CellSize) + 2;
+	Grid->countZ = ceilf(Grid->size.z / CellSize) + 2;
 	Grid->countTotal = Grid->countX * Grid->countY * Grid->countZ;
 
-	std::cout << "Spatial cell counts: " << Grid->countX << ", " << Grid->countY << ", " << Grid->countZ << " (" << Grid->countTotal << ")\n";
+	std::cout << "Spatial grid cell counts: " << Grid->countX << ", " << Grid->countY << ", " << Grid->countZ << " (" << Grid->countTotal << ")\n";
 
 	Grid->size = vec3(Grid->countX * CellSize, Grid->countY * CellSize, Grid->countZ * CellSize);
 
@@ -51,7 +51,7 @@ void spatialGridInit(ldiSpatialGrid* Grid, vec3 MinBounds, vec3 MaxBounds, float
 	Grid->index = new int[Grid->countTotal];
 	memset(Grid->index, 0, sizeof(int) * Grid->countTotal);
 
-	std::cout << "Spatial grid cells: " << ((Grid->countTotal * 4) / 1024.0 / 1024.0) << " MB\n";
+	std::cout << "Spatial grid index size: " << ((Grid->countTotal * 4) / 1024.0 / 1024.0) << " MB\n";
 }
 
 vec3 spatialGridGetCellFromWorldPosition(ldiSpatialGrid* Grid, vec3 Position) {
@@ -98,7 +98,7 @@ void spatialGridCompile(ldiSpatialGrid* Grid) {
 
 	Grid->data = new int[totalOccupedCells + totalEntries];
 
-	std::cout << "Spatial grid data: " << ((totalOccupedCells + totalEntries * 4) / 1024.0 / 1024.0) << " MB\n";
+	std::cout << "Spatial grid data size: " << ((totalOccupedCells + totalEntries * 4) / 1024.0 / 1024.0) << " MB\n";
 
 	int currentOffset = 0;
 

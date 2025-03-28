@@ -491,12 +491,12 @@ ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector
 }
 */
 
-ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector<ldiSurfel>* Surfels, ldiQuadModel* ModelSource) {
+ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector<ldiNewSurfel>* Surfels) {
 	ldiRenderModel result = {};
 
 	// Unique quads with unique verts per quad.
 
-	int quadCount = (int)(ModelSource->indices.size() / 4);
+	int quadCount = (int)(Surfels->size());
 	int vertCount = quadCount * 4;
 	int triCount = quadCount * 2;
 	int indexCount = triCount * 3;
@@ -505,39 +505,26 @@ ldiRenderModel gfxCreateCoveragePointRenderModel(ldiApp* AppContext, std::vector
 	uint32_t* indices = new uint32_t[indexCount];
 
 	for (int i = 0; i < quadCount; ++i) {
-		vec3 p0 = ModelSource->verts[ModelSource->indices[i * 4 + 0]];
-		vec3 p1 = ModelSource->verts[ModelSource->indices[i * 4 + 1]];
-		vec3 p2 = ModelSource->verts[ModelSource->indices[i * 4 + 2]];
-		vec3 p3 = ModelSource->verts[ModelSource->indices[i * 4 + 3]];
-
-		float s0 = glm::length(p0 - p1);
-		float s1 = glm::length(p1 - p2);
-		float s2 = glm::length(p2 - p3);
-		float s3 = glm::length(p3 - p0);
-
-		// NOTE: Calculate normal.
-		vec3 normal = (*Surfels)[i].normal;
-
 		ldiCoveragePointVertex* v0 = &verts[i * 4 + 0];
 		ldiCoveragePointVertex* v1 = &verts[i * 4 + 1];
 		ldiCoveragePointVertex* v2 = &verts[i * 4 + 2];
 		ldiCoveragePointVertex* v3 = &verts[i * 4 + 3];
 
-		v0->position = p0;
+		v0->position = (*Surfels)[i].verts[0].position;
+		v0->normal = (*Surfels)[i].normal;
 		v0->id = i;
-		v0->normal = normal;
 
-		v1->position = p1;
+		v1->position = (*Surfels)[i].verts[1].position;
+		v1->normal = (*Surfels)[i].normal;
 		v1->id = i;
-		v1->normal = normal;
 
-		v2->position = p2;
+		v2->position = (*Surfels)[i].verts[2].position;
+		v2->normal = (*Surfels)[i].normal;
 		v2->id = i;
-		v2->normal = normal;
 
-		v3->position = p3;
+		v3->position = (*Surfels)[i].verts[3].position;
+		v3->normal = (*Surfels)[i].normal;
 		v3->id = i;
-		v3->normal = normal;
 
 		indices[i * 6 + 0] = i * 4 + 2;
 		indices[i * 6 + 1] = i * 4 + 1;
@@ -608,6 +595,136 @@ ldiRenderModel gfxCreateNewSurfelRenderModel(ldiApp* AppContext, std::vector<ldi
 	D3D11_BUFFER_DESC vbDesc = {};
 	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
 	vbDesc.ByteWidth = sizeof(ldiBasicVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+
+ldiRenderModel gfxCreateQuadSurfelRenderModel(ldiApp* AppContext, std::vector<ldiNewSurfel>* Surfels) {
+	ldiRenderModel result = {};
+
+	// Unique quads with unique verts per quad.
+
+	int quadCount = (int)(Surfels->size());
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiSimpleVertex* verts = new ldiSimpleVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	for (int i = 0; i < quadCount; ++i) {
+		verts[i * 4 + 0].position = (*Surfels)[i].verts[0].position;
+		verts[i * 4 + 0].color = (*Surfels)[i].verts[0].color;
+
+		verts[i * 4 + 1].position = (*Surfels)[i].verts[1].position;
+		verts[i * 4 + 1].color = (*Surfels)[i].verts[1].color;
+
+		verts[i * 4 + 2].position = (*Surfels)[i].verts[2].position;
+		verts[i * 4 + 2].color = (*Surfels)[i].verts[2].color;
+
+		verts[i * 4 + 3].position = (*Surfels)[i].verts[3].position;
+		verts[i * 4 + 3].color = (*Surfels)[i].verts[3].color;
+
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiSimpleVertex) * vertCount;
+	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA vbData = {};
+	vbData.pSysMem = verts;
+
+	AppContext->d3dDevice->CreateBuffer(&vbDesc, &vbData, &result.vertexBuffer);
+
+	D3D11_BUFFER_DESC ibDesc = {};
+	ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	ibDesc.ByteWidth = sizeof(uint32_t) * indexCount;
+	ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibDesc.CPUAccessFlags = 0;
+
+	D3D11_SUBRESOURCE_DATA ibData = {};
+	ibData.pSysMem = indices;
+
+	AppContext->d3dDevice->CreateBuffer(&ibDesc, &ibData, &result.indexBuffer);
+
+	result.vertCount = vertCount;
+	result.indexCount = indexCount;
+
+	delete[] verts;
+	delete[] indices;
+
+	return result;
+}
+
+ldiRenderModel gfxCreateQuadSurfelCoverageRenderModel(ldiApp* AppContext, std::vector<ldiNewSurfel>* Surfels) {
+	ldiRenderModel result = {};
+
+	// Unique quads with unique verts per quad.
+
+	int quadCount = (int)(Surfels->size());
+	int vertCount = quadCount * 4;
+	int triCount = quadCount * 2;
+	int indexCount = triCount * 3;
+
+	ldiMeshVertex* verts = new ldiMeshVertex[vertCount];
+	uint32_t* indices = new uint32_t[indexCount];
+
+	for (int i = 0; i < quadCount; ++i) {
+		verts[i * 4 + 0].pos = (*Surfels)[i].verts[0].position;
+		verts[i * 4 + 0].normal = (*Surfels)[i].normal;
+
+		verts[i * 4 + 1].pos = (*Surfels)[i].verts[1].position;
+		verts[i * 4 + 1].normal = (*Surfels)[i].normal;
+		
+		verts[i * 4 + 2].pos = (*Surfels)[i].verts[2].position;
+		verts[i * 4 + 2].normal = (*Surfels)[i].normal;
+
+		verts[i * 4 + 3].pos = (*Surfels)[i].verts[3].position;
+		verts[i * 4 + 3].normal = (*Surfels)[i].normal;
+
+		indices[i * 6 + 0] = i * 4 + 2;
+		indices[i * 6 + 1] = i * 4 + 1;
+		indices[i * 6 + 2] = i * 4 + 0;
+		indices[i * 6 + 3] = i * 4 + 0;
+		indices[i * 6 + 4] = i * 4 + 3;
+		indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	D3D11_BUFFER_DESC vbDesc = {};
+	vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	vbDesc.ByteWidth = sizeof(ldiMeshVertex) * vertCount;
 	vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vbDesc.CPUAccessFlags = 0;
 
@@ -1087,6 +1204,33 @@ void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, bool Wireframe = 
 	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
 }
 
+void gfxRenderGeneric(ldiApp* AppContext, ldiRenderModel* Model, UINT vertexSize, ID3D11RasterizerState* RasterizerState, ID3D11VertexShader* VertexShader, ID3D11PixelShader* PixelShader, ID3D11InputLayout* InputLayout, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
+	UINT lgOffset = 0;
+
+	AppContext->d3dDeviceContext->IASetInputLayout(InputLayout);
+	AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &vertexSize, &lgOffset);
+	AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+	AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AppContext->d3dDeviceContext->VSSetShader(VertexShader, 0, 0);
+	AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->PSSetShader(PixelShader, 0, 0);
+	AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+	AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+
+	AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+
+	AppContext->d3dDeviceContext->RSSetState(RasterizerState);
+
+	AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+
+	if (ResourceView != NULL && Sampler != NULL) {
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, &ResourceView);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &Sampler);
+	}
+
+	AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+}
+
 void gfxRenderModel(ldiApp* AppContext, ldiRenderModel* Model, ID3D11RasterizerState* RasterizerState, ID3D11VertexShader* VertexShader, ID3D11PixelShader* PixelShader, ID3D11InputLayout* InputLayout, ID3D11ShaderResourceView* ResourceView = NULL, ID3D11SamplerState* Sampler = NULL) {
 	UINT lgStride = sizeof(ldiMeshVertex);
 	UINT lgOffset = 0;
@@ -1548,6 +1692,21 @@ bool gfxCreateStructuredBuffer(ldiApp* AppContext, int ElementSize, int ElementC
 		if (AppContext->d3dDevice->CreateBuffer(&desc, 0, Buffer) != S_OK) {
 			return false;
 		}
+	}
+
+	return true;
+}
+
+bool gfxCreateStagingBuffer(ldiApp* AppContext, int ElementSize, int ElementCount, ID3D11Buffer** Buffer) {
+	D3D11_BUFFER_DESC desc = {};
+	desc.ByteWidth = ElementSize * ElementCount;
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.BindFlags = 0;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc.MiscFlags = 0;
+	
+	if (AppContext->d3dDevice->CreateBuffer(&desc, NULL, Buffer) != S_OK) {
+		return false;
 	}
 
 	return true;

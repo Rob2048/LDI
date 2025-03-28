@@ -97,11 +97,12 @@ struct ldiPlatform {
 	bool						showSourceModelShaded = false;
 	bool						showSourceModelWireframe = false;
 	bool						showQuadMeshDebug = false;
-	bool						showQuadMeshWireframe = true;
+	bool						showQuadMeshWireframe = false;
 	bool						showQuadMeshWhite = false;
 	vec4						quadMeshCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
 
-	bool						showSurfeslHigh = true;
+	bool						showSurfels = true;
+	bool						showSurfelsSpatialStructure = false;
 
 	std::mutex					liveScanPointsMutex;
 	bool						liveScanPointsUpdated;
@@ -1763,7 +1764,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 		}
 
 		if (project->surfelsLoaded) {
-			if (Tool->showSurfeslHigh) {
+			if (Tool->showSurfels) {
 				D3D11_MAPPED_SUBRESOURCE ms;
 				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
@@ -1773,7 +1774,12 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 				//gfxRenderSurfelModel(appContext, &ModelInspector->surfelRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
 				//gfxRenderSurfelModel(appContext, &project->surfelHighRenderModel, appContext->dotShaderResourceView, appContext->dotSamplerState);
-				gfxRenderSurfelModel(appContext, &project->surfelsNewRenderModel, project->surfelsSamplesTextureSrv, appContext->defaultPointSamplerState);
+				gfxRenderSurfelModel(appContext, &project->surfelsRenderModel, project->surfelsSamplesTextureSrv, appContext->defaultPointSamplerState);
+			}
+
+			if (Tool->showSurfelsSpatialStructure) {
+				spatialGridRenderDebug(appContext, &project->surfelsSpatialGrid, true, false);
+				spatialGridRenderOccupied(appContext, &project->surfelsSpatialGrid);
 			}
 		}
 
@@ -1790,6 +1796,40 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 			//gfxRenderModel(appContext, &project->registeredRenderModel, appContext->defaultRasterizerState, appContext->litMeshVertexShader, appContext->litMeshPixelShader, appContext->litMeshInputLayout);
 		}
+
+		if (project->processed) {
+			//{
+			//	D3D11_MAPPED_SUBRESOURCE ms;
+			//	appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			//	ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			//	constantBuffer->screenSize = vec4(Tool->mainViewWidth, Tool->mainViewHeight, 0, 0);
+			//	constantBuffer->mvp = Tool->mainCamera.projViewMat;
+			//	constantBuffer->color = vec4(0, 0, 0, 1);
+			//	constantBuffer->view = Tool->mainCamera.viewMat;
+			//	constantBuffer->proj = Tool->mainCamera.projMat;
+			//	appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+			//}
+			//{
+			//	D3D11_MAPPED_SUBRESOURCE ms;
+			//	appContext->d3dDeviceContext->Map(appContext->pointcloudConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			//	ldiPointCloudConstantBuffer* constantBuffer = (ldiPointCloudConstantBuffer*)ms.pData;
+			//	constantBuffer->size = vec4(0.01f, 1.0f, 0.0f, 0);
+			//	//constantBuffer->size = vec4(16, 16, 1, 0);
+			//	//constantBuffer->size = vec4(ModelInspector->pointWorldSize, ModelInspector->pointScreenSize, ModelInspector->pointScreenSpaceBlend, 0);
+			//	appContext->d3dDeviceContext->Unmap(appContext->pointcloudConstantBuffer, 0);
+			//}
+
+			//gfxRenderPointCloud(appContext, &project->pointDistribCloud);
+
+			/*D3D11_MAPPED_SUBRESOURCE ms;
+			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
+			constantBuffer->mvp = Camera->projViewMat * workWorldMat;
+			constantBuffer->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
+
+			gfxRenderDebugModel(appContext, &project->surfelsGroupRenderModel);*/
+		}
 	}
 
 	//----------------------------------------------------------------------------------------------------
@@ -1802,6 +1842,17 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	//----------------------------------------------------------------------------------------------------
 	// Render debug primitives.
 	//----------------------------------------------------------------------------------------------------
+	{
+		for (size_t i = 0; i < project->debugPoints.size(); ++i) {
+			pushDebugSphere(&appContext->defaultDebug, project->debugPoints[i], 0.05, vec3(1, 0, 1), 6);
+		}
+
+		for (size_t i = 0; i < project->debugLineSegs.size(); ++i) {
+			ldiLineSegment line = project->debugLineSegs[i];
+			pushDebugLine(&appContext->defaultDebug, line.a, line.b, vec3(0.7f, 0.0f, 0.7f));
+		}
+	}
+
 	{
 		D3D11_MAPPED_SUBRESOURCE ms;
 		appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
@@ -1947,7 +1998,10 @@ void platformShowUi(ldiPlatform* Tool) {
 		}
 
 		if (ImGui::CollapsingHeader("Viewport")) {
+			ImGui::ColorEdit3("Background", (float*)&Tool->mainBackgroundColor);
+			ImGui::ColorEdit3("Grid", (float*)&Tool->gridColor);
 			ImGui::SliderFloat("Camera speed", &Tool->mainCameraSpeed, 0.01f, 4.0f);
+			ImGui::SliderFloat("Camera FOV", &Tool->mainCamera.fov, 1.0f, 180.0f);
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");
@@ -1972,7 +2026,8 @@ void platformShowUi(ldiPlatform* Tool) {
 			ImGui::Checkbox("Show quad mesh canvas", &Tool->showQuadMeshWhite);
 
 			ImGui::Separator();
-			ImGui::Checkbox("Show surfels", &Tool->showSurfeslHigh);
+			ImGui::Checkbox("Show surfels", &Tool->showSurfels);
+			ImGui::Checkbox("Show surfels spatial structure", &Tool->showSurfelsSpatialStructure);
 		}
 
 		if (ImGui::CollapsingHeader("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
