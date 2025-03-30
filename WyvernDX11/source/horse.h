@@ -82,59 +82,59 @@ struct ldiHorsePositionAbs {
 	double a;
 };
 
-struct ldiHorse {
-	ldiTransform origin;
-	ldiTransform axisX;
-	ldiTransform axisY;
-	ldiTransform axisZ;
-	ldiTransform axisA;
-	ldiTransform axisC;
-	float x;
-	float y;
-	float z;
-	float a;
-	float b;
-};
+//struct ldiHorse {
+//	ldiTransform origin;
+//	ldiTransform axisX;
+//	ldiTransform axisY;
+//	ldiTransform axisZ;
+//	ldiTransform axisA;
+//	ldiTransform axisC;
+//	float x;
+//	float y;
+//	float z;
+//	float a;
+//	float b;
+//};
 
-void horseUpdateMats(ldiHorse* Horse) {
-	transformUpdateWorld(&Horse->origin, 0);
-	transformUpdateWorld(&Horse->axisX, &Horse->origin);
-	transformUpdateWorld(&Horse->axisY, &Horse->axisX);
-	transformUpdateWorld(&Horse->axisZ, &Horse->axisY);
-	transformUpdateWorld(&Horse->axisC, &Horse->axisZ);
-	transformUpdateWorld(&Horse->axisA, &Horse->origin);
-}
+//void horseUpdateMats(ldiHorse* Horse) {
+//	transformUpdateWorld(&Horse->origin, 0);
+//	transformUpdateWorld(&Horse->axisX, &Horse->origin);
+//	transformUpdateWorld(&Horse->axisY, &Horse->axisX);
+//	transformUpdateWorld(&Horse->axisZ, &Horse->axisY);
+//	transformUpdateWorld(&Horse->axisC, &Horse->axisZ);
+//	transformUpdateWorld(&Horse->axisA, &Horse->origin);
+//}
 
-void horseInit(ldiHorse* Horse) {
-	// X: -10 to 10
-	// Y: -10 to 10
-	// Z: -10 to 10
-
-	transformInit(&Horse->origin, vec3(-30.0f, 0, 0), vec3(-90, 0, 0));
-	transformInit(&Horse->axisX, vec3(19.5f, 0, 0), vec3(0, 0, 0));
-	transformInit(&Horse->axisY, vec3(0, 0, 6.8f), vec3(0, 0, 0));
-	transformInit(&Horse->axisZ, vec3(0, 0, 17.4f), vec3(0, 0, 0));
-	transformInit(&Horse->axisC, vec3(13.7f, 0, 0.0f), vec3(0, 0, 0));
-	transformInit(&Horse->axisA, vec3(32.0f, 0, 32), vec3(0, 0, 0));
-
-	horseUpdateMats(Horse);
-}
-
-void horseUpdate(ldiHorse* Horse) {
-	Horse->axisX.localPos.x = Horse->x + 19.5f;
-	Horse->axisY.localPos.y = Horse->y;
-	Horse->axisZ.localPos.z = Horse->z + 17.4f;
-	Horse->axisA.localRot.x = Horse->a;
-	Horse->axisC.localRot.z = Horse->b;
-
-	transformUpdateLocal(&Horse->axisX);
-	transformUpdateLocal(&Horse->axisY);
-	transformUpdateLocal(&Horse->axisZ);
-	transformUpdateLocal(&Horse->axisA);
-	transformUpdateLocal(&Horse->axisC);
-
-	horseUpdateMats(Horse);
-}
+//void horseInit(ldiHorse* Horse) {
+//	// X: -10 to 10
+//	// Y: -10 to 10
+//	// Z: -10 to 10
+//
+//	transformInit(&Horse->origin, vec3(-30.0f, 0, 0), vec3(-90, 0, 0));
+//	transformInit(&Horse->axisX, vec3(19.5f, 0, 0), vec3(0, 0, 0));
+//	transformInit(&Horse->axisY, vec3(0, 0, 6.8f), vec3(0, 0, 0));
+//	transformInit(&Horse->axisZ, vec3(0, 0, 17.4f), vec3(0, 0, 0));
+//	transformInit(&Horse->axisC, vec3(13.7f, 0, 0.0f), vec3(0, 0, 0));
+//	transformInit(&Horse->axisA, vec3(32.0f, 0, 32), vec3(0, 0, 0));
+//
+//	horseUpdateMats(Horse);
+//}
+//
+//void horseUpdate(ldiHorse* Horse) {
+//	Horse->axisX.localPos.x = Horse->x + 19.5f;
+//	Horse->axisY.localPos.y = Horse->y;
+//	Horse->axisZ.localPos.z = Horse->z + 17.4f;
+//	Horse->axisA.localRot.x = Horse->a;
+//	Horse->axisC.localRot.z = Horse->b;
+//
+//	transformUpdateLocal(&Horse->axisX);
+//	transformUpdateLocal(&Horse->axisY);
+//	transformUpdateLocal(&Horse->axisZ);
+//	transformUpdateLocal(&Horse->axisA);
+//	transformUpdateLocal(&Horse->axisC);
+//
+//	horseUpdateMats(Horse);
+//}
 
 void horseGetRefinedCubeAtPosition(ldiCalibrationJob* Job, ldiHorsePosition Position, std::vector<vec3>& Points, std::vector<ldiCalibCubeSide>& Sides, std::vector<vec3>& Corners) {
 	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
@@ -262,11 +262,39 @@ mat4 horseGetWorkTransform(ldiCalibrationJob* Job, ldiHorsePosition Position) {
 	vec3 offset = glm::f64vec3(Position.x, Position.y, Position.z) * Job->stepsToCm;
 	vec3 mechTrans = offset.x * Job->axisX.direction + offset.y * Job->axisY.direction + offset.z * -Job->axisZ.direction;
 
-	float axisCAngleDeg = Position.c * 0.001875;
+	float axisCAngleDeg = (Position.c - 13000) * 0.001875;
 	mat4 axisCRot = glm::rotate(mat4(1.0f), glm::radians(-axisCAngleDeg), Job->axisC.direction);
 	mat4 axisCMat = glm::translate(mat4(1.0), Job->axisC.origin + mechTrans) * axisCRot;
 
 	return axisCMat;
+}
+
+ldiCamera horseGetGalvoCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, float FovDegs, int Size) {
+	// TODO: camWorldMat should start at the calibrated position of the galvo head.
+	mat4 camWorldMat = glm::translate(glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1.0f, 0.0f, 0.0f)), vec3(0.0f, 0.0f, 20.0f));
+
+	{
+		vec3 refToAxis = Job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+		float axisAngleDeg = (Position.a) * (360.0 / (32.0 * 200.0 * 90.0));
+		mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), Job->axisA.direction);
+
+		camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
+		camWorldMat = axisRot * camWorldMat;
+		camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
+	}
+
+	mat4 viewMat = glm::inverse(camWorldMat);
+	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(FovDegs), (float)Size, (float)Size, 0.1f, 100.0f);
+	
+	ldiCamera camera = {};
+	camera.viewMat = viewMat;
+	camera.projMat = projMat;
+	camera.invProjMat = glm::inverse(projMat);
+	camera.projViewMat = projMat * viewMat;
+	camera.viewWidth = Size;
+	camera.viewHeight = Size;
+
+	return camera;
 }
 
 ldiCamera horseGetCamera(ldiCalibrationJob* Job, ldiHorsePosition Position, int Width, int Height, bool UseViewport, vec2 ViewPortTopLeft, vec2 ViewPortSize) {

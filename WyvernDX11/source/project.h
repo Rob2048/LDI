@@ -65,6 +65,9 @@ struct ldiProjectContext {
 	ID3D11DepthStencilView*		toolViewDepthStencilView;
 	ID3D11ShaderResourceView*	toolViewDepthStencilSrv;
 
+	ldiCamera					galvoCam;
+	mat4						workWorldMat;
+
 	float						fovX = 11.478f;
 	float						fovY = 11.478f;
 
@@ -75,6 +78,8 @@ struct ldiProjectContext {
 	ID3D11UnorderedAccessView*	coverageBufferUav;
 	ID3D11ShaderResourceView*	coverageBufferSrv;
 	ID3D11Buffer*				coverageStagingBuffer;
+
+	int							coverageSurfelCount;
 };
 
 mat4 projectGetSourceTransformMat(ldiProjectContext* Project) {
@@ -1160,16 +1165,7 @@ void _surfacePartitioning(ldiApp* AppContext, ldiProjectContext* Project) {
 	//Project->surfelsGroupRenderModel = gfxCreateQuadSurfelRenderModel(AppContext, &Project->surfels);
 }
 
-bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
-	Project->processed = false;
-
-	if (!Project->surfelsLoaded) {
-		return false;
-	}
-
-	Project->pointDistrib.points.clear();
-	//Project->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &Project->pointDistrib);
-
+bool _surfelCoveragePrep(ldiApp* AppContext, ldiProjectContext* Project) {
 	{
 		D3D11_TEXTURE2D_DESC tex2dDesc = {};
 		tex2dDesc.Width = Project->toolViewSize;
@@ -1257,6 +1253,119 @@ bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
 
 	Project->surfelsCoverageViewRenderModel = gfxCreateCoveragePointRenderModel(AppContext, &Project->surfels);
 
+	return true;
+}
+
+bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
+	Project->processed = false;
+
+	if (!Project->surfelsLoaded) {
+		return false;
+	}
+
+	Project->pointDistrib.points.clear();
+	//Project->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &Project->pointDistrib);
+
+	ldiModel surfelTriModel = {};
+
+	int quadCount = Project->surfels.size();
+	int triCount = quadCount * 2;
+	int vertCount = quadCount * 4;
+
+	surfelTriModel.verts.resize(vertCount);
+	surfelTriModel.indices.resize(triCount * 3);
+
+	for (int i = 0; i < (int)Project->surfels.size(); ++i) {
+		ldiNewSurfel* s = &Project->surfels[i];
+
+		surfelTriModel.verts[i * 4 + 0].pos = s->verts[0].position;
+		surfelTriModel.verts[i * 4 + 1].pos = s->verts[1].position;
+		surfelTriModel.verts[i * 4 + 2].pos = s->verts[2].position;
+		surfelTriModel.verts[i * 4 + 3].pos = s->verts[3].position;
+
+		surfelTriModel.indices[i * 6 + 0] = i * 4 + 2;
+		surfelTriModel.indices[i * 6 + 1] = i * 4 + 1;
+		surfelTriModel.indices[i * 6 + 2] = i * 4 + 0;
+		surfelTriModel.indices[i * 6 + 3] = i * 4 + 0;
+		surfelTriModel.indices[i * 6 + 4] = i * 4 + 3;
+		surfelTriModel.indices[i * 6 + 5] = i * 4 + 2;
+	}
+
+	ldiPhysicsMesh cookedSurfels = {};
+	physicsCookMesh(AppContext->physics, &surfelTriModel, &cookedSurfels);
+
+	double t0 = getTime();
+
+	float normalAdjust = 0.005f;
+
+	Project->debugPoints.clear();
+	Project->debugLineSegs.clear();
+
+	ldiPhysicsCone cone = {};
+	if (!physicsCreateCone(AppContext->physics, 21.0f, 0.25f, 12, &cone)) {
+		return false;
+	}
+
+	for (int i = 0; i < (int)Project->surfels.size(); ++i) {
+		ldiNewSurfel* s = &Project->surfels[i];
+		vec3 startPos = s->position + s->normal * normalAdjust;
+
+		//ldiRaycastResult result = physicsRaycast(&cookedSurfels, startPos, s->normal, 20.15f);
+		//if (result.hit) {
+		//	//Project->debugLineSegs.push_back({ startPos, result.pos });
+
+		//	s->verts[0].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[1].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[2].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[3].color = vec3(1.0f, 0.0f, 0.0f);
+		//} else {
+		//	s->verts[0].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[1].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[2].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[3].color = vec3(0.5f, 0.5f, 0.5f);
+		//}
+
+		//if (physicsBeamOverlap(&cookedSurfels, startPos, s->normal, 0.02, 21.0f)) {
+		//	//vec3 start = outMat * vec4(0, 0, 0, 1.0f);
+		//	//vec3 end = outMat * vec4(1.0f, 0, 0, 1.0f);
+		//	//Project->debugLineSegs.push_back({ start, end });
+		//	//Project->debugLineSegs.push_back({ startPos, startPos + s->normal * (10.1f + 0.01f) });
+
+		//	s->verts[0].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[1].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[2].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[3].color = vec3(1.0f, 0.0f, 0.0f);
+		//} else {
+		//	s->verts[0].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[1].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[2].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[3].color = vec3(0.5f, 0.5f, 0.5f);
+		//}
+
+		//if (physicsConeOverlap(&cookedSurfels, &cone, startPos, s->normal)) {
+		//	//vec3 start = outMat * vec4(0, 0, 0, 1.0f);
+		//	//vec3 end = outMat * vec4(1.0f, 0, 0, 1.0f);
+		//	//Project->debugLineSegs.push_back({ start, end });
+		//	//Project->debugLineSegs.push_back({ startPos, startPos + s->normal * (10.1f + 0.01f) });
+
+		//	s->verts[0].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[1].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[2].color = vec3(1.0f, 0.0f, 0.0f);
+		//	s->verts[3].color = vec3(1.0f, 0.0f, 0.0f);
+		//} else {
+		//	s->verts[0].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[1].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[2].color = vec3(0.5f, 0.5f, 0.5f);
+		//	s->verts[3].color = vec3(0.5f, 0.5f, 0.5f);
+		//}
+	}
+
+	t0 = getTime() - t0;
+	std::cout << "Vis query time: " << (t0 * 1000) << " ms\n";
+
+
+	Project->surfelsGroupRenderModel = gfxCreateQuadSurfelRenderModel(AppContext, &Project->surfels);
+	
 	Project->processed = true;
 
 	return true;
@@ -1403,9 +1512,9 @@ vec3 _customProjInverse(vec3 P) {
 }
 
 void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* Camera) {
-	ID3D11RenderTargetView* renderTargets[] = {
-		Project->toolViewTexRtView
-	};
+	if (!Project->surfelsLoaded) {
+		return;
+	}
 
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
@@ -1418,46 +1527,106 @@ void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, l
 
 	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 
-	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
-	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
-	mat4 viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
-	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Project->fovX), (float)Project->toolViewSize, (float)Project->toolViewSize, 0.1f, 100.0f);
-	mat4 projViewMat = projMat * viewMat;
+	/*ldiHorsePosition horsePos = {};
+	horsePos.x = AppContext->platform->testPosX;
+	horsePos.y = AppContext->platform->testPosY;
+	horsePos.z = AppContext->platform->testPosZ;
+	horsePos.c = AppContext->platform->testPosC;
+	horsePos.a = AppContext->platform->testPosA;
 
-	ID3D11UnorderedAccessView* uavs[] = {
-		Project->coverageBufferUav,
+	ldiCamera galvoCam = horseGetGalvoCamera(&AppContext->calibJob, horsePos, Project->fovX, Project->toolViewSize);*/
+
+	//mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
+	//viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
+	//mat4 viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
+	//mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Project->fovX), (float)Project->toolViewSize, (float)Project->toolViewSize, 0.1f, 100.0f);
+	//mat4 projViewMat = projMat * viewMat;
+
+	ID3D11RenderTargetView* renderTargets[] = {
+		Project->toolViewTexRtView
 	};
 
-	AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, Project->toolViewDepthStencilView, 1, 1, uavs, 0);
-	//AppContext->d3dDeviceContext->OMSetRenderTargets(1, renderTargets, Project->toolViewDepthStencilView);
-
+	//----------------------------------------------------------------------------------------------------
+	// Depth "pre-pass".
+	//----------------------------------------------------------------------------------------------------
 	float bkgColor[] = { 0.5, 0.5, 0.5, 1.0 };
-	AppContext->d3dDeviceContext->ClearRenderTargetView(Project->toolViewTexRtView, (float*)&bkgColor);
-	AppContext->d3dDeviceContext->ClearDepthStencilView(Project->toolViewDepthStencilView, D3D11_CLEAR_DEPTH, 0.0f, 0);
-
 	UINT clearValue[] = { 0, 0, 0, 0 };
+
+	AppContext->d3dDeviceContext->OMSetRenderTargets(0, renderTargets, Project->toolViewDepthStencilView);
+	AppContext->d3dDeviceContext->ClearDepthStencilView(Project->toolViewDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 	AppContext->d3dDeviceContext->ClearUnorderedAccessViewUint(Project->coverageBufferUav, clearValue);
 
-	double t0 = getTime();
-
-	D3D11_QUERY_DESC queryDesc = {};
-	queryDesc.Query = D3D11_QUERY_EVENT;
-
-	ID3D11Query* query;
-	if (AppContext->d3dDevice->CreateQuery(&queryDesc, &query) != S_OK) {
-		return;
-	}
-
-	if (Project->surfelsLoaded) {
+	{
 		D3D11_MAPPED_SUBRESOURCE ms;
 		AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = projViewMat;
-		constantBuffer->color = vec4(Camera->position, 1.0f);
+		constantBuffer->mvp = Project->galvoCam.projViewMat * Project->workWorldMat;
+		// constantBuffer->color = vec4(Camera->position, 1.0f);
+		constantBuffer->color = glm::inverse(Project->galvoCam.viewMat)[3];
 		AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
+	}
 
-		gfxRenderGeneric(AppContext, &Project->surfelsCoverageViewRenderModel, sizeof(ldiCoveragePointVertex), AppContext->defaultRasterizerState, AppContext->surfelCoverageVertexShader, AppContext->surfelCoveragePixelShader, AppContext->surfelCoverageInputLayout);
-		
+	{
+		ldiRenderModel* Model = &Project->quadDebugModel;
+		UINT lgStride = sizeof(ldiSimpleVertex);
+		UINT lgOffset = 0;
+
+		AppContext->d3dDeviceContext->IASetInputLayout(AppContext->simpleInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		AppContext->d3dDeviceContext->VSSetShader(AppContext->simpleVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShader(NULL, NULL, 0);
+		AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->defaultDepthStencilState, 0);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+		AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+	}
+
+	//----------------------------------------------------------------------------------------------------
+	// Coverage test.
+	//----------------------------------------------------------------------------------------------------
+	{
+		ldiRenderModel* Model = &Project->surfelsCoverageViewRenderModel;
+		UINT lgStride = sizeof(ldiCoveragePointVertex);
+		UINT lgOffset = 0;
+
+		ID3D11UnorderedAccessView* uavs[] = {
+			Project->coverageBufferUav,
+		};
+
+		ID3D11ShaderResourceView* psSrvs[] = {
+			Project->toolViewDepthStencilSrv,
+		};
+
+		AppContext->d3dDeviceContext->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargets, NULL, 1, 1, uavs, 0);
+		AppContext->d3dDeviceContext->ClearRenderTargetView(Project->toolViewTexRtView, (float*)&bkgColor);
+
+		AppContext->d3dDeviceContext->IASetInputLayout(AppContext->surfelCoverageInputLayout);
+		AppContext->d3dDeviceContext->IASetVertexBuffers(0, 1, &Model->vertexBuffer, &lgStride, &lgOffset);
+		AppContext->d3dDeviceContext->IASetIndexBuffer(Model->indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+		AppContext->d3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		AppContext->d3dDeviceContext->VSSetShader(AppContext->surfelCoverageVertexShader, 0, 0);
+		AppContext->d3dDeviceContext->VSSetConstantBuffers(0, 1, &AppContext->mvpConstantBuffer);
+		AppContext->d3dDeviceContext->PSSetShader(AppContext->surfelCoveragePixelShader, 0, 0);
+		//AppContext->d3dDeviceContext->PSSetConstantBuffers(0, 1, cbfrs);
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, psSrvs);
+		AppContext->d3dDeviceContext->PSSetSamplers(0, 1, &AppContext->defaultPointSamplerState);
+		AppContext->d3dDeviceContext->CSSetShader(NULL, NULL, 0);
+		AppContext->d3dDeviceContext->OMSetBlendState(AppContext->defaultBlendState, NULL, 0xffffffff);
+		AppContext->d3dDeviceContext->OMSetDepthStencilState(AppContext->noDepthState, 0);
+		AppContext->d3dDeviceContext->RSSetState(AppContext->defaultRasterizerState);
+		AppContext->d3dDeviceContext->DrawIndexed(Model->indexCount, 0, 0);
+
+		ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
+		AppContext->d3dDeviceContext->PSSetShaderResources(0, 1, nullSRV);
+	}
+
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
 		AppContext->d3dDeviceContext->CopyResource(Project->coverageStagingBuffer, Project->coverageBuffer);
 		AppContext->d3dDeviceContext->Map(Project->coverageStagingBuffer, 0, D3D11_MAP_READ, 0, &ms);
 		int* coverageBufferData = (int*)ms.pData;
@@ -1470,23 +1639,10 @@ void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, l
 			}
 		}
 
-		std::cout << total << "\n";
+		Project->coverageSurfelCount = total;
 
 		AppContext->d3dDeviceContext->Unmap(Project->coverageStagingBuffer, 0);
 	}
-
-	AppContext->d3dDeviceContext->End(query);
-	BOOL queryData;
-
-	while (S_OK != AppContext->d3dDeviceContext->GetData(query, &queryData, sizeof(BOOL), 0)) {
-	}
-
-	if (queryData != TRUE) {
-		return;
-	}
-
-	//t0 = getTime() - t0;
-	//std::cout << "Coverage: " << t0 * 1000.0f << " ms\n";
 }
 
 void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* TempCam) {
@@ -1643,9 +1799,11 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* Te
 
 	if (Project->processed) {
 		if (ImGui::Begin("Tool head view")) {
-			projectRenderToolHeadView(AppContext, Project, TempCam);
+			//projectRenderToolHeadView(AppContext, Project, TempCam);
 
 			ImGui::Image(Project->toolViewTexView, ImVec2(512, 512));
+
+			ImGui::Text("Prime surfels: %d", Project->coverageSurfelCount);
 		}
 	}
 	ImGui::End();

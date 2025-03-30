@@ -54,8 +54,12 @@ struct ldiPhysics {
 	PxCooking*			cooking;
 };
 
+struct ldiPhysicsCone {
+	PxConvexMeshGeometry coneGeo;
+};
+
 struct ldiPhysicsMesh {
-	PxTriangleMeshGeometry	cookedMesh;
+	PxTriangleMeshGeometry cookedMesh;
 };
 
 inline vec3 physicsPv3ToGv3(PxVec3* Vec) {
@@ -65,6 +69,65 @@ inline vec3 physicsPv3ToGv3(PxVec3* Vec) {
 inline PxVec3 physicsGv3ToPv3(vec3* Vec) {
 	return PxVec3(Vec->x, Vec->y, Vec->z);
 }
+
+bool physicsCreateCone(ldiPhysics* Physics, float Length, float Radius, int Sides, ldiPhysicsCone* Cone) {
+	// Cone aligned with X axis, apex at origin, base at (Length, 0, 0).
+
+	std::vector<PxVec3> verts;
+	verts.reserve(Sides + 1);
+	verts.push_back(PxVec3(0, 0, 0)); // apex
+
+	for (int i = 0; i < Sides; ++i) {
+		float angle = (float)i / (float)Sides * 2.0f * M_PI;
+		float y = cos(angle) * Radius;
+		float z = sin(angle) * Radius;
+		verts.push_back(PxVec3(Length, y, z)); // base
+	}
+
+	// Create convex mesh from vertices
+	PxConvexMeshDesc convexDesc;
+	convexDesc.points.count = (uint32_t)verts.size();
+	convexDesc.points.stride = sizeof(PxVec3);
+	convexDesc.points.data = verts.data();
+	convexDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+	convexDesc.vertexLimit = max(8, Sides + 1);
+
+	PxConvexMeshCookingResult::Enum result;
+	PxConvexMesh* convexMesh = Physics->cooking->createConvexMesh(convexDesc, Physics->physics->getPhysicsInsertionCallback(), &result);
+	if (result != PxConvexMeshCookingResult::Enum::eSUCCESS) {
+		std::cout << "Failed to create convex mesh\n";
+		return false;
+	}
+
+	Cone->coneGeo = PxConvexMeshGeometry(convexMesh);
+
+	std::cout << "Created cone convex mesh\n";
+	return true;
+}
+
+//void physicsCreateConeModel(ldiPhysicsCone* Cone, ldiModel* Model) {
+//	Model->verts.resize(Cone->coneMesh->getNbVertices());
+//	const PxVec3* verts = Cone->coneMesh->getVertices();
+//	const PxU8* inds = Cone->coneMesh->getIndexBuffer();
+//
+//	std::cout << Model->verts.size() << "\n";
+//
+//	for (size_t i = 0; i < Model->verts.size(); ++i) {
+//		Model->verts[i].pos = vec3(verts[i].x, verts[i].y, verts[i].z);
+//		std::cout << GetStr(Model->verts[i].pos) << "\n";
+//	}
+//
+//	for (int i = 0; i < Cone->coneMesh->getNbPolygons(); ++i) {
+//		PxHullPolygon poly;
+//		Cone->coneMesh->getPolygonData(i, poly);
+//
+//		std::cout << "Poly " << i << ": " << poly.mIndexBase << " -> " <<  poly.mNbVerts << "\n";
+//
+//		for (int j = poly.mIndexBase; j < poly.mIndexBase + poly.mNbVerts; ++j) {
+//			std::cout << "  " << j << " -> " << (int)inds[j] << "\n";
+//		}
+//	}
+//}
 
 int physicsInit(ldiApp* AppContext, ldiPhysics* Physics) {
 	Physics->appContext = AppContext;
@@ -160,6 +223,41 @@ ldiRaycastResult physicsRaycast(ldiPhysicsMesh* Mesh, vec3 RayOrigin, vec3 RayDi
 	}
 
 	return hit;
+}
+
+bool physicsBeamOverlap(ldiPhysicsMesh* Mesh, vec3 BeamOrigin, vec3 BeamDir, float BeamRadius, float BeamLength) {
+	float halfHeight = BeamLength * 0.5f;
+	PxCapsuleGeometry beam = PxCapsuleGeometry(BeamRadius, halfHeight);
+	
+	PxVec3 up(1.0f, 0.0f, 0.0f);
+	PxVec3 normalizedDir = physicsGv3ToPv3(&BeamDir);
+	PxVec3 rotationAxis = up.cross(normalizedDir);
+	rotationAxis.normalize();
+	float angle = acos(up.dot(normalizedDir));
+
+	PxQuat rotation(angle, rotationAxis);
+	vec3 pos = BeamOrigin + BeamDir * (halfHeight + BeamRadius);
+	PxTransform beamPose(physicsGv3ToPv3(&pos), rotation);
+
+	PxTransform geomPose(0, 0, 0);
+
+	return PxGeometryQuery::overlap(beam, beamPose, Mesh->cookedMesh, geomPose);
+}
+
+bool physicsConeOverlap(ldiPhysicsMesh* Mesh, ldiPhysicsCone* Cone, vec3 ConeOrigin, vec3 ConeDir) {
+	PxVec3 up(1.0f, 0.0f, 0.0f);
+	PxVec3 normalizedDir = physicsGv3ToPv3(&ConeDir);
+	PxVec3 rotationAxis = up.cross(normalizedDir);
+	rotationAxis.normalize();
+	float angle = acos(up.dot(normalizedDir));
+
+	PxQuat rotation(angle, rotationAxis);
+	vec3 pos = ConeOrigin;
+	PxTransform beamPose(physicsGv3ToPv3(&pos), rotation);
+
+	PxTransform geomPose(0, 0, 0);
+
+	return PxGeometryQuery::overlap(Cone->coneGeo, beamPose, Mesh->cookedMesh, geomPose);
 }
 
 // NOTE: Creates a plane representation each time, maybe cache for faster?

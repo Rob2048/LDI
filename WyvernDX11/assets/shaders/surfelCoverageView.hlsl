@@ -66,6 +66,9 @@ PS_INPUT mainVs(vertexInputCoveragePoint input) {
 
 RWStructuredBuffer<int> coverageBufferWrite : register(u1);
 
+sampler pointSampler;
+Texture2D depthTex : register(t0);
+
 float4 mainPs(PS_INPUT input) : SV_Target {	
 	// float r = random((float)input.id + 0);
 	// float g = random((float)input.id + 1);
@@ -77,6 +80,16 @@ float4 mainPs(PS_INPUT input) : SV_Target {
 	// if (input.dist.x >= (20.0 - 0.15) && input.dist.x <= (20 + 0.15)) {
 	// 	return input.normal;
 	// }
+
+	// TODO: Texture size hardcoded here.
+	float2 screenTexUv = input.pos.xy / 512.0;
+	float depthTexValue = depthTex.Sample(pointSampler, screenTexUv).r;
+	float diff = depthTexValue - input.pos.z;
+
+	if (diff < 0) {
+		discard;
+		return float4(1, 0, 1, 1);
+	}
 
 	float3 color = float3(1.0, 0, 0);
 	

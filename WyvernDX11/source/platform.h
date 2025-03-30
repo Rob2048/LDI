@@ -56,7 +56,7 @@ struct ldiPlatform {
 	vec4						gridColor = { 0.3f, 0.33f, 0.36f, 1.00f };
 
 	// Motion platform.
-	ldiHorse					horse;
+	//ldiHorse					horse;
 	int							positionX;
 	int							positionY;
 	int							positionZ;
@@ -82,6 +82,8 @@ struct ldiPlatform {
 
 	ldiRenderModel				cubeModel;
 
+	bool						showModelInWorkspace = false;
+
 	bool						showDefaultCube = false;
 	bool						showScaleHelper = false;
 	bool						showMachineFrame = false;
@@ -89,19 +91,19 @@ struct ldiPlatform {
 	bool						showCalibCubeVolume = false;
 	bool						showCalibVolumeBasis = false;
 	bool						showCalibCubeFaces = false;
-	bool						showCalibCubeGrid = true;
-	bool						showScanPlane = true;
+	bool						showCalibCubeGrid = false;
+	bool						showScanPlane = false;
 	bool						liveAxisUpdate = false;
 	bool						showCalibSensor = false;
 
 	bool						showSourceModelShaded = false;
 	bool						showSourceModelWireframe = false;
 	bool						showQuadMeshDebug = false;
-	bool						showQuadMeshWireframe = false;
+	bool						showQuadMeshWireframe = true;
 	bool						showQuadMeshWhite = false;
 	vec4						quadMeshCanvasColor = { 1.0f, 1.0f, 1.0f, 1.00f };
 
-	bool						showSurfels = true;
+	bool						showSurfels = false;
 	bool						showSurfelsSpatialStructure = false;
 
 	std::mutex					liveScanPointsMutex;
@@ -891,7 +893,7 @@ int platformInit(ldiApp* AppContext, ldiPlatform* Tool) {
 	calibSensorInit(&Tool->calibSensor);
 	calibSensorCalibrationInit(&Tool->calibSensorCalibration, &Tool->calibSensor);
 
-	horseInit(&Tool->horse);
+	//horseInit(&Tool->horse);
 
 	if (!pantherInit(AppContext, &Tool->panther)) {
 		std::cout << "Could not init panther\n";
@@ -1129,10 +1131,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 	if (job->metricsCalculated) {
 		workTrans = horseGetWorkTransform(job, horsePos);
-	}
 
-	if (Tool->scanUseWorkTrans) {
-		workWorldMat = workTrans;
+		if (Tool->showModelInWorkspace) {
+			workWorldMat = workTrans;
+		}
 	}
 
 	{	
@@ -1142,10 +1144,10 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			//----------------------------------------------------------------------------------------------------
 			{
 				mat4 camWorldMat = job->camVolumeMat;
-				renderOrigin(appContext, Camera, camWorldMat, "Hawk W", TextBuffer);
+				//renderOrigin(appContext, Camera, camWorldMat, "Hawk W", TextBuffer);
 
 				vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
-				float axisAngleDeg = (Tool->testPosA) * (360.0 / (32.0 * 200.0 * 90.0));
+				float axisAngleDeg = (horsePos.a) * (360.0 / (32.0 * 200.0 * 90.0));
 				mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
 
 				camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
@@ -1153,6 +1155,28 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
 
 				renderOrigin(appContext, Camera, camWorldMat, "Hawk T", TextBuffer);
+			}
+
+			//----------------------------------------------------------------------------------------------------
+			// Toolhead position.
+			//----------------------------------------------------------------------------------------------------
+			{
+				//mat4 camWorldMat = glm::translate(glm::rotate(mat4(1.0f), glm::radians(90.0f), vec3(1.0f, 0.0f, 0.0f)), vec3(0.0f, 0.0f, -20.0f));
+				////renderOrigin(appContext, Camera, camWorldMat, "Toolhead W", TextBuffer);
+
+				//vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
+				//float axisAngleDeg = (horsePos.a) * (360.0 / (32.0 * 200.0 * 90.0));
+				//mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
+
+				//camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
+				//camWorldMat = axisRot * camWorldMat;
+				//camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
+
+				ldiCamera galvoCam = horseGetGalvoCamera(job, horsePos, project->fovX, project->toolViewSize);
+				project->galvoCam = galvoCam;
+				project->workWorldMat = workWorldMat;
+
+				renderOrigin(appContext, Camera, glm::inverse(galvoCam.viewMat), "Toolhead T", TextBuffer);
 			}
 
 			//----------------------------------------------------------------------------------------------------
@@ -1642,12 +1666,12 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 	// Horse.
 	//----------------------------------------------------------------------------------------------------
 	{
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.origin, "Origin", TextBuffer);
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisX, "X", TextBuffer);
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisY, "Y", TextBuffer);
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisZ, "Z", TextBuffer);
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisA, "A", TextBuffer);
-		renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisC, "C", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.origin, "Origin", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisX, "X", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisY, "Y", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisZ, "Z", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisA, "A", TextBuffer);
+		//renderTransformOrigin(Tool->appContext, Camera, &Tool->horse.axisC, "C", TextBuffer);
 
 		//mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Tool->camera.rotation.y), vec3Right);
 		//viewRotMat = glm::rotate(viewRotMat, glm::radians(Tool->camera.rotation.x), vec3Up);
@@ -1697,7 +1721,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					D3D11_MAPPED_SUBRESOURCE ms;
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-					constantBuffer->mvp = Camera->projViewMat * projectGetSourceTransformMat(project);
+					mat4 worldMat = workWorldMat * projectGetSourceTransformMat(project);
+					constantBuffer->mvp = Camera->projViewMat * worldMat;
 					constantBuffer->color = vec4(1, 1, 1, 1);
 					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1706,9 +1731,9 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 					D3D11_MAPPED_SUBRESOURCE ms;
 					appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 					ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-					mat4 worldMat = projectGetSourceTransformMat(project);
+					mat4 worldMat = workWorldMat * projectGetSourceTransformMat(project);
 					constantBuffer->mvp = Camera->projViewMat * worldMat;
-					constantBuffer->world = worldMat;
+					//constantBuffer->world = worldMat;
 					constantBuffer->color = vec4(0.7f, 0.7f, 0.7f, 1.0f);
 					appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1720,7 +1745,8 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				D3D11_MAPPED_SUBRESOURCE ms;
 				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-				constantBuffer->mvp = Camera->projViewMat * projectGetSourceTransformMat(project);
+				mat4 worldMat = workWorldMat * projectGetSourceTransformMat(project);
+				constantBuffer->mvp = Camera->projViewMat * worldMat;
 				constantBuffer->color = vec4(0, 0, 0, 1);
 				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1768,7 +1794,7 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 				D3D11_MAPPED_SUBRESOURCE ms;
 				appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 				ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-				constantBuffer->mvp = Camera->projViewMat;
+				constantBuffer->mvp = Camera->projViewMat * workWorldMat;
 				constantBuffer->color = vec4(Camera->position, 1.0f);
 				appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
@@ -1821,14 +1847,14 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 
 			//gfxRenderPointCloud(appContext, &project->pointDistribCloud);
 
-			/*D3D11_MAPPED_SUBRESOURCE ms;
+			D3D11_MAPPED_SUBRESOURCE ms;
 			appContext->d3dDeviceContext->Map(appContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 			ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
 			constantBuffer->mvp = Camera->projViewMat * workWorldMat;
 			constantBuffer->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 			appContext->d3dDeviceContext->Unmap(appContext->mvpConstantBuffer, 0);
 
-			gfxRenderDebugModel(appContext, &project->surfelsGroupRenderModel);*/
+			gfxRenderDebugModel(appContext, &project->surfelsGroupRenderModel);
 		}
 	}
 
@@ -1899,10 +1925,10 @@ void platformShowUi(ldiPlatform* Tool) {
 	Tool->homed = Tool->panther.homed;
 	Tool->panther.dataLockMutex.unlock();
 
-	Tool->horse.x = Tool->positionX / 10.0f - 7.5f;
-	Tool->horse.y = Tool->positionY / 10.0f - 0.0f;
-	Tool->horse.z = Tool->positionZ / 10.0f - 0.0f;
-	horseUpdate(&Tool->horse);
+	//Tool->horse.x = Tool->positionX / 10.0f - 7.5f;
+	//Tool->horse.y = Tool->positionY / 10.0f - 0.0f;
+	//Tool->horse.z = Tool->positionZ / 10.0f - 0.0f;
+	//horseUpdate(&Tool->horse);
 
 	if (Tool->liveAxisUpdate) {
 		Tool->testPosX = Tool->positionX;
@@ -2005,6 +2031,10 @@ void platformShowUi(ldiPlatform* Tool) {
 
 			ImGui::Separator();
 			ImGui::Text("Rendering options");
+
+			ImGui::Checkbox("Show model in workspace", &Tool->showModelInWorkspace);
+
+			ImGui::Separator();
 			ImGui::Checkbox("Show calibration sensor", &Tool->showCalibSensor);
 			ImGui::Checkbox("Show scale helper", &Tool->showScaleHelper);
 			ImGui::Checkbox("Show default cube", &Tool->showDefaultCube);

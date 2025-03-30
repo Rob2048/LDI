@@ -989,6 +989,11 @@ int main() {
 		return 1;
 	}
 
+	if (!calibLoadCalibJob("C:\\Projects\\LDI\\WyvernDX11\\bin\\cache\\vol1.cal", &_appContext->calibJob)) {
+		std::cout << "Failed to load calibration job\n";
+		return 1;
+	}
+
 	// Main loop
 	bool running = true;
 	while (running) {
