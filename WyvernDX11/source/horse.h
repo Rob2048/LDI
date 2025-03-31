@@ -287,6 +287,11 @@ ldiCamera horseGetGalvoCamera(ldiCalibrationJob* Job, ldiHorsePosition Position,
 	mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(FovDegs), (float)Size, (float)Size, 0.1f, 100.0f);
 	
 	ldiCamera camera = {};
+	camera.viewWidth = Size;
+	camera.viewHeight = Size;
+	camera.fov = FovDegs;
+	camera.position = camWorldMat[3];
+	camera.rotation = vec3Zero;
 	camera.viewMat = viewMat;
 	camera.projMat = projMat;
 	camera.invProjMat = glm::inverse(projMat);

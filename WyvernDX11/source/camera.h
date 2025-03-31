@@ -18,6 +18,22 @@ struct ldiTextInfo {
 	vec4 color;
 };
 
+vec3 extractEulerAnglesXY(const glm::mat4& matrix) {
+	float sy = sqrt(matrix[0][0] * matrix[0][0] + matrix[1][0] * matrix[1][0]);
+	bool singular = sy < 1e-6;
+	float x, y;
+
+	if (!singular) {
+		x = atan2(matrix[1][2], matrix[2][2]);
+		y = atan2(-matrix[0][2], sy);
+	} else {
+		x = atan2(-matrix[2][1], matrix[1][1]);
+		y = atan2(-matrix[0][2], sy);
+	}
+
+	return glm::vec3(glm::degrees(x), glm::degrees(y), 0.0f);
+}
+
 void updateCamera3dBasicFps(ldiCamera* Camera, float ViewWidth, float ViewHeight) {
 	mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
 	viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);

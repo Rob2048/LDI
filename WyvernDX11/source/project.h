@@ -1256,16 +1256,7 @@ bool _surfelCoveragePrep(ldiApp* AppContext, ldiProjectContext* Project) {
 	return true;
 }
 
-bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
-	Project->processed = false;
-
-	if (!Project->surfelsLoaded) {
-		return false;
-	}
-
-	Project->pointDistrib.points.clear();
-	//Project->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &Project->pointDistrib);
-
+bool _surfelTracing(ldiApp* AppContext, ldiProjectContext* Project) {
 	ldiModel surfelTriModel = {};
 
 	int quadCount = Project->surfels.size();
@@ -1363,8 +1354,24 @@ bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
 	t0 = getTime() - t0;
 	std::cout << "Vis query time: " << (t0 * 1000) << " ms\n";
 
-
 	Project->surfelsGroupRenderModel = gfxCreateQuadSurfelRenderModel(AppContext, &Project->surfels);
+
+	return true;
+}
+
+bool projectProcess(ldiApp* AppContext, ldiProjectContext* Project) {
+	Project->processed = false;
+
+	if (!Project->surfelsLoaded) {
+		return false;
+	}
+
+	Project->pointDistrib.points.clear();
+	//Project->pointDistribCloud = gfxCreateRenderPointCloud(AppContext, &Project->pointDistrib);
+
+	if (!_surfelCoveragePrep(AppContext, Project)) {
+		return false;
+	}
 	
 	Project->processed = true;
 
@@ -1527,21 +1534,6 @@ void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, l
 
 	AppContext->d3dDeviceContext->RSSetViewports(1, &viewport);
 
-	/*ldiHorsePosition horsePos = {};
-	horsePos.x = AppContext->platform->testPosX;
-	horsePos.y = AppContext->platform->testPosY;
-	horsePos.z = AppContext->platform->testPosZ;
-	horsePos.c = AppContext->platform->testPosC;
-	horsePos.a = AppContext->platform->testPosA;
-
-	ldiCamera galvoCam = horseGetGalvoCamera(&AppContext->calibJob, horsePos, Project->fovX, Project->toolViewSize);*/
-
-	//mat4 viewRotMat = glm::rotate(mat4(1.0f), glm::radians(Camera->rotation.y), vec3Right);
-	//viewRotMat = glm::rotate(viewRotMat, glm::radians(Camera->rotation.x), vec3Up);
-	//mat4 viewMat = viewRotMat * glm::translate(mat4(1.0f), -Camera->position);
-	//mat4 projMat = glm::perspectiveFovRH_ZO(glm::radians(Project->fovX), (float)Project->toolViewSize, (float)Project->toolViewSize, 0.1f, 100.0f);
-	//mat4 projViewMat = projMat * viewMat;
-
 	ID3D11RenderTargetView* renderTargets[] = {
 		Project->toolViewTexRtView
 	};
@@ -1560,9 +1552,11 @@ void projectRenderToolHeadView(ldiApp* AppContext, ldiProjectContext* Project, l
 		D3D11_MAPPED_SUBRESOURCE ms;
 		AppContext->d3dDeviceContext->Map(AppContext->mvpConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
 		ldiBasicConstantBuffer* constantBuffer = (ldiBasicConstantBuffer*)ms.pData;
-		constantBuffer->mvp = Project->galvoCam.projViewMat * Project->workWorldMat;
-		// constantBuffer->color = vec4(Camera->position, 1.0f);
-		constantBuffer->color = glm::inverse(Project->galvoCam.viewMat)[3];
+
+		mat4 viewModel = Camera->viewMat * Project->workWorldMat;
+
+		constantBuffer->mvp = Camera->projMat * viewModel;
+		constantBuffer->color = (glm::inverse(Project->workWorldMat) * glm::inverse(Camera->viewMat))[3];
 		AppContext->d3dDeviceContext->Unmap(AppContext->mvpConstantBuffer, 0);
 	}
 
@@ -1799,7 +1793,11 @@ void projectShowUi(ldiApp* AppContext, ldiProjectContext* Project, ldiCamera* Te
 
 	if (Project->processed) {
 		if (ImGui::Begin("Tool head view")) {
-			//projectRenderToolHeadView(AppContext, Project, TempCam);
+			ldiCamera orthoCam = {};
+			//orthoCam.
+
+			//projectRenderToolHeadView(AppContext, Project, &orthoCam);
+			projectRenderToolHeadView(AppContext, Project, &Project->galvoCam);
 
 			ImGui::Image(Project->toolViewTexView, ImVec2(512, 512));
 

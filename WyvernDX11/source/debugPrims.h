@@ -267,6 +267,56 @@ inline void pushDebugBoxSolid(ldiDebugPrims* Prims, vec3 Origin, vec3 Size, vec3
 	pushDebugTri(Prims, v7, v4, v0, Color);
 }
 
+inline void pushDebugCone(ldiDebugPrims* Prims, vec3 Base, vec3 Apex, float Radius, int Segs, vec3 Color) {
+	float divInc = glm::radians(360.0f / Segs);
+
+	vec3 up = vec3Up;
+	vec3 normal = glm::normalize(Apex - Base);
+
+	if (up == normal) {
+		up = vec3Right;
+	}
+
+	vec3 side = glm::cross(normal, up);
+	side = glm::normalize(side);
+	up = glm::cross(normal, side);
+	up = glm::normalize(up);
+
+	for (int i = 0; i < Segs; ++i) {
+		float rad = divInc * (i + 1);
+		vec3 point = up * (float)sin(rad) * Radius + side * (float)cos(rad) * Radius + Base;
+		pushDebugLine(Prims, Apex, point, Color);
+	}
+}
+
+inline void pushDebugBeam(ldiDebugPrims* Prims, vec3 Base, vec3 Apex, float BaseRadius, float ApexRadius, int Segs, vec3 Color) {
+	float divInc = glm::radians(360.0f / Segs);
+
+	vec3 up = vec3Up;
+	vec3 normal = glm::normalize(Apex - Base);
+
+	if (up == normal) {
+		up = vec3Right;
+	}
+
+	vec3 side = glm::cross(normal, up);
+	side = glm::normalize(side);
+	up = glm::cross(normal, side);
+	up = glm::normalize(up);
+
+	for (int i = 0; i < Segs; ++i) {
+		float rad = divInc * (i + 1);
+
+		vec3 upPos = up * (float)sin(rad);
+		vec3 sidePos = side * (float)cos(rad);
+
+		vec3 basePoint = upPos * BaseRadius + sidePos * BaseRadius + Base;
+		vec3 apexPoint = upPos * ApexRadius + sidePos * ApexRadius + Apex;
+
+		pushDebugLine(Prims, basePoint, apexPoint, Color);
+	}
+}
+
 void renderDebugPrimitives(ldiApp* AppContext, ldiDebugPrims* Prims, bool Depth = true) {
 	Prims->lineGeometryVertCount = (int)Prims->lineGeometryVertData.size();
 	Prims->triGeometryVertCount = (int)Prims->triGeometryVertData.size();

@@ -1161,22 +1161,16 @@ void platformRender(ldiPlatform* Tool, ldiRenderViewBuffers* RenderBuffers, int 
 			// Toolhead position.
 			//----------------------------------------------------------------------------------------------------
 			{
-				//mat4 camWorldMat = glm::translate(glm::rotate(mat4(1.0f), glm::radians(90.0f), vec3(1.0f, 0.0f, 0.0f)), vec3(0.0f, 0.0f, -20.0f));
-				////renderOrigin(appContext, Camera, camWorldMat, "Toolhead W", TextBuffer);
-
-				//vec3 refToAxis = job->axisA.origin - vec3(0.0f, 0.0f, 0.0f);
-				//float axisAngleDeg = (horsePos.a) * (360.0 / (32.0 * 200.0 * 90.0));
-				//mat4 axisRot = glm::rotate(mat4(1.0f), glm::radians(-axisAngleDeg), job->axisA.direction);
-
-				//camWorldMat[3] = vec4(vec3(camWorldMat[3]) - refToAxis, 1.0f);
-				//camWorldMat = axisRot * camWorldMat;
-				//camWorldMat[3] = vec4(vec3(camWorldMat[3]) + refToAxis, 1.0f);
-
 				ldiCamera galvoCam = horseGetGalvoCamera(job, horsePos, project->fovX, project->toolViewSize);
 				project->galvoCam = galvoCam;
 				project->workWorldMat = workWorldMat;
+				mat4 camWorldMat = glm::inverse(galvoCam.viewMat);
+				renderOrigin(appContext, Camera, camWorldMat, "Toolhead T", TextBuffer);
 
-				renderOrigin(appContext, Camera, glm::inverse(galvoCam.viewMat), "Toolhead T", TextBuffer);
+				vec3 root = camWorldMat * vec4(0, 0, 0, 1.0f);
+				vec3 target = camWorldMat * vec4(0, 0, -20.0f, 1.0f);
+
+				pushDebugBeam(&appContext->defaultDebug, root, target, 0.25f, 0.0025f, 8, vec3(0.5f, 0.0f, 0.5f));
 			}
 
 			//----------------------------------------------------------------------------------------------------
